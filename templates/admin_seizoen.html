@@ -4,18 +4,18 @@
 
 <section class="held">
   <h1>{{ seizoen['name'] }} <span class="pil {{ 'pil-actief' if status == 'bezig' }}">{{ status }}</span></h1>
-  <p>📅 {{ seizoen['start_date']|dag }} t.e.m. {{ seizoen['end_date']|dag }}</p>
-  <p class="ruimte-boven">
+  <p>{{ seizoen['start_date']|dag }} t.e.m. {{ seizoen['end_date']|dag }}</p>
+  <div class="knop-rij">
     <a class="knop" href="{{ url_for('seizoen_detail', seizoen_id=seizoen['id']) }}">Publieke pagina</a>
     <a class="knop" href="{{ url_for('admin_seizoenen') }}">Terug naar alle seizoenen</a>
-  </p>
+  </div>
 </section>
 
 {% include "_admin_nav.html" %}
 
 {% if not league_zichtbaar %}
 <div class="kaart aandacht-kaart">
-  <p class="klein-tekst">🙈 Het leaguegedeelte staat uit: <strong>spelers zien dit seizoen
+  <p class="klein-tekst">Het leaguegedeelte staat uit: <strong>spelers zien dit seizoen
      niet</strong>. Je kan gerust alles klaarzetten; het wordt zichtbaar zodra de league
      aan staat.</p>
 </div>
@@ -32,15 +32,26 @@
 <h2 class="sectiekop" id="speeldagen">Speeldagen</h2>
 <div class="kaart">
   <p class="stil klein-tekst">Een leaguewedstrijd hoort altijd bij een speeldag.
-     Maak er dus eerst eentje aan; daarna kan je hieronder wedstrijden inplannen.</p>
+     Maak er dus eerst eentje aan; daarna kan je hieronder wedstrijden inplannen,
+     of laten de ploegen zelf een tegenstander zoeken op de speeldagpagina. Het
+     aantal <strong>tafels</strong> bepaalt hoeveel wedstrijden er tegelijk kunnen
+     lopen; de wachtrij koppelt nooit meer ploegen dan er tafels vrij zijn.</p>
   {% if speeldagen %}
   <table class="tabel compact">
-    <thead><tr><th>Speeldag</th><th>Datum</th><th class="kol-num">Wedstrijden</th><th></th></tr></thead>
+    <thead><tr><th>Speeldag</th><th>Datum</th><th class="kol-num">Tafels</th><th class="kol-num">Wedstrijden</th><th></th></tr></thead>
     <tbody>
       {% for sd in speeldagen %}
       <tr>
-        <td class="naam">{{ sd['title'] }}</td>
+        <td class="naam"><a class="profiel-link"
+           href="{{ url_for('speeldag', speeldag_id=sd['id']) }}">{{ sd['title'] }}</a></td>
         <td>{{ sd['date']|dag }}</td>
+        <td class="kol-num">
+          <form method="post" action="{{ url_for('speeldag_tafels', speeldag_id=sd['id']) }}" class="rij-form nauw">
+            <input type="number" name="tafels" min="1" max="20" value="{{ sd['tafels'] }}"
+                   aria-label="Aantal tafels voor {{ sd['title'] }}">
+            <button type="submit" class="knop klein">Opslaan</button>
+          </form>
+        </td>
         <td class="kol-num">{{ sd['aantal_games'] }}</td>
         <td class="kol-num">
           {% if sd['aantal_games'] == 0 %}
@@ -125,16 +136,16 @@
       <span class="vs">vs</span>
       <span class="team-naam">{{ namen[g['team2_id']] }}</span>
     </div>
-    <div class="wedstrijd-meta">📅 {{ g['scheduled_at']|datum }}</div>
+    <div class="wedstrijd-meta">{{ g['scheduled_at']|datum }}</div>
     {% if meldingen_per_game.get(g['id']) %}
     <div class="meld-status">
       {% for m in meldingen_per_game[g['id']] %}
-      <span class="pil pil-actief">📣 {{ namen[m['team_id']] }} (via {{ m['speler_naam'] }}): winnaar {{ namen[m['winner_team_id']] }}</span>
+      <span class="pil pil-actief">{{ namen[m['team_id']] }} (via {{ m['speler_naam'] }}): winnaar {{ namen[m['winner_team_id']] }}</span>
       {% endfor %}
     </div>
     {% set ms = meldingen_per_game[g['id']] %}
     {% if ms|length == 2 and ms[0]['winner_team_id'] != ms[1]['winner_team_id'] %}
-    <p class="conflict-tekst">⚠️ De meldingen spreken elkaar tegen — vul hieronder zelf
+    <p class="conflict-tekst">De meldingen spreken elkaar tegen. Vul hieronder zelf
        de juiste uitslag in om het conflict te beslechten.</p>
     {% endif %}
     {% endif %}
@@ -198,7 +209,7 @@
       {% for g in recent %}
       <tr>
         <td class="naam">{{ namen[g['team1_id']] }} <span class="vs-klein">vs</span> {{ namen[g['team2_id']] }}</td>
-        <td>🏆 {{ namen[g['winner_team_id']] }}</td>
+        <td>{{ namen[g['winner_team_id']] }}</td>
         <td>{{ g['played_at']|datum }}</td>
         <td class="kol-num">
           <form method="post" action="{{ url_for('wedstrijd_verwijderen', game_id=g['id']) }}"
@@ -210,8 +221,8 @@
       {% endfor %}
     </tbody>
   </table>
-  <p class="stil klein-tekst">Foutje gemaakt? Verwijder het resultaat en plan de wedstrijd opnieuw in —
-     alle ratings worden automatisch correct herberekend.</p>
+  <p class="stil klein-tekst">Foutje gemaakt? Verwijder het resultaat en plan de wedstrijd opnieuw in.
+     Alle ratings worden automatisch correct herberekend.</p>
 </div>
 {% else %}
 <div class="kaart leeg">Nog geen gespeelde wedstrijden.</div>

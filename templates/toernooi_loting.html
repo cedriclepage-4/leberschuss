@@ -5,9 +5,9 @@
 <section class="held loting-held">
   <h1>De loting van {{ t['name'] }}</h1>
   <p>{% if potten_aantal > 1 %}De potten en alle{% else %}Alle{% endif %} gelote affiches van de bracketfase.</p>
-  <p class="ruimte-boven">
+  <div class="knop-rij">
     <a class="knop" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}">Terug naar het toernooi</a>
-  </p>
+  </div>
 </section>
 
 {% if potten_aantal > 1 %}
@@ -56,7 +56,7 @@
       <span class="klein-tekst stil">{{ a.b_elo }} Aura</span>
     </div>
     <div class="affiche-tijd">
-      {{ a.tijd|datum }}{% if a.locatie %} · 📍 {{ a.locatie }}{% endif %}
+      {{ a.tijd|datum }}{% if a.locatie %} · {{ a.locatie }}{% endif %}
     </div>
   </div>
   {% endfor %}

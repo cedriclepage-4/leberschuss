@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block titel %}{{ sd['title'] }}{% endblock %}
+{% block inhoud %}
+
+<section class="held">
+  <h1>{{ sd['title'] }}</h1>
+  <p>{{ sd['date']|dag }} · {{ sd['seizoen'] }} · {{ sd['tafels'] }} tafel{{ 's' if sd['tafels'] != 1 }}</p>
+</section>
+
+{# ---------------------------------------------------------- mijn teams -- #}
+{% if mijn_status %}
+{% for m in mijn_status %}
+<div class="kaart">
+  <div class="seizoen-kop">
+    <h3>{{ m.team['name'] }}</h3>
+    {% if m.speelt %}<span class="pil pil-rood">speelt nu</span>
+    {% elif m.zoekt %}<span class="pil pil-actief">zoekt een tegenstander</span>
+    {% elif m.ingeschreven %}<span class="pil">ingeschreven</span>
+    {% else %}<span class="pil">niet ingeschreven</span>{% endif %}
+  </div>
+
+  {% if not m.ingeschreven %}
+  <p class="stil klein-tekst">Schrijf je in voor {{ sd['seizoen'] }} om mee te doen.
+     Je komt dan meteen in het klassement, met nul gespeelde wedstrijden.</p>
+  <form method="post" action="{{ url_for('seizoen_inschrijven', seizoen_id=sd['seizoen_id']) }}">
+    <input type="hidden" name="team" value="{{ m.team['id'] }}">
+    <input type="hidden" name="terug" value="{{ url_for('speeldag', speeldag_id=sd['id']) }}">
+    <button type="submit" class="knop primair">Inschrijven voor dit seizoen</button>
+  </form>
+
+  {% elif m.speelt %}
+  <p class="stil klein-tekst">Jullie wedstrijd staat klaar. Meld de uitslag zodra
+     ze gespeeld is. Je vindt ze onderaan of op je profiel.</p>
+
+  {% else %}
+  {# ------------------------------------------------ tegenstander zoeken -- #}
+  <div class="zoek-blok">
+    {% if m.zoekt %}
+    <p class="klein-tekst"><strong>Je zoekt een tegenstander.</strong>
+       Zodra er een tafel vrij is en er genoeg ploegen klaarstaan, verschijnt je
+       wedstrijd hier vanzelf. Je hoeft niets te doen, hou deze pagina gewoon open.</p>
+    <form method="post" action="{{ url_for('speeldag_zoeken', speeldag_id=sd['id']) }}">
+      <input type="hidden" name="team" value="{{ m.team['id'] }}">
+      <input type="hidden" name="stop" value="1">
+      <button type="submit" class="knop klein">Stoppen met zoeken</button>
+    </form>
+    {% else %}
+    <form method="post" class="knop-rij"
+          action="{{ url_for('speeldag_zoeken', speeldag_id=sd['id']) }}">
+      <input type="hidden" name="team" value="{{ m.team['id'] }}">
+      <button type="submit" class="knop primair">Zoek een tegenstander</button>
+      <span class="stil klein-tekst">Je wordt gekoppeld aan een ploeg van
+        ongeveer jullie niveau die je vanavond nog niet speelde.</span>
+    </form>
+    {% endif %}
+  </div>
+
+  {# ------------------------------------------------------------ uitdagen -- #}
+  {% if tegenstanders %}
+  <details class="wis-blok zacht">
+    <summary>Of daag zelf een ploeg uit…</summary>
+    <form method="post" action="{{ url_for('speeldag_uitdagen', speeldag_id=sd['id']) }}"
+          class="rij-form ruimte-boven">
+      <input type="hidden" name="team" value="{{ m.team['id'] }}">
+      <select name="tegen" required>
+        <option value="" disabled selected>Kies een ploeg…</option>
+        {% for t in tegenstanders %}<option value="{{ t['id'] }}">{{ t['name'] }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="knop">Uitdagen</button>
+    </form>
+  </details>
+  {% endif %}
+  {% endif %}
+
+  {# --------------------------------------------------------- uitdagingen -- #}
+  {% if m.uitdagingen %}
+  <div class="ruimte-boven">
+    {% for u in m.uitdagingen %}
+    <div class="uitdaging">
+      {% if u['naar_team_id'] == m.team['id'] %}
+      <span><strong>{{ u['van_naam'] }}</strong> daagt jullie uit.</span>
+      <form method="post" action="{{ url_for('uitdaging_antwoord', uitdaging_id=u['id']) }}" class="actie-rij">
+        <button type="submit" name="antwoord" value="ja" class="knop primair klein">Aanvaarden</button>
+        <button type="submit" name="antwoord" value="nee" class="knop klein">Weigeren</button>
+      </form>
+      {% else %}
+      <span>Jullie daagden <strong>{{ u['naar_naam'] }}</strong> uit, nog geen antwoord.</span>
+      <form method="post" action="{{ url_for('uitdaging_antwoord', uitdaging_id=u['id']) }}">
+        <button type="submit" class="knop klein">Intrekken</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% elif session.get('speler_id') %}
+<div class="kaart leeg">
+  <p>Je zit nog in geen enkel actief team.</p>
+  <p class="klein-tekst">Maak er eentje aan via
+     <a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=session['speler_id']) }}">je profiel</a>:
+     jij nodigt je maat uit, en zodra die aanvaardt kunnen jullie meedoen.</p>
+</div>
+{% else %}
+<div class="kaart leeg">
+  <p>Log in om mee te spelen.</p>
+  <p class="klein-tekst"><a class="profiel-link" href="{{ url_for('inloggen') }}">Log in</a>,
+     daarna kan je je inschrijven en een tegenstander zoeken.</p>
+</div>
+{% endif %}
+
+{# ------------------------------------------- enkel voor de organisatie -- #}
+{% if rij is not none %}
+<h2 class="sectiekop">Wachtrij <span class="pil pil-rol">enkel voor de organisatie</span></h2>
+<div class="kaart">
+  <p class="stil klein-tekst">Spelers zien deze lijst niet: zij zien enkel of ze zelf
+     aan het zoeken zijn. Er lopen nu <strong>{{ status.lopend }}</strong> wedstrijden op
+     {{ status.tafels }} tafel{{ 's' if status.tafels != 1 }}
+     ({{ status.vrij }} vrij).</p>
+  {% if rij %}
+  <table class="tabel compact">
+    <thead><tr><th class="kol-rang">#</th><th>Team</th><th class="kol-elo">Aura</th><th>Sinds</th></tr></thead>
+    <tbody>
+      {% for w in rij %}
+      <tr>
+        <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
+        <td class="naam">{{ w['naam'] }}</td>
+        <td class="kol-elo">{{ w['elo']|elo }}</td>
+        <td class="stil">{{ w['sinds']|uur }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if status.reden %}<p class="klein-tekst wacht-tekst">{{ status.reden }}</p>{% endif %}
+</div>
+{% endif %}
+
+{# -------------------------------------------------------- de wedstrijden -- #}
+<h2 class="sectiekop">Wedstrijden van vandaag</h2>
+{% if games %}
+<div class="wedstrijd-lijst">
+  {% for g in games %}
+  <div class="kaart wedstrijd">
+    <div class="wedstrijd-teams">
+      <span class="team-naam {{ 'winnaar' if g['winner_team_id'] == g['team1_id'] }}">
+        <a class="profiel-link" href="{{ url_for('team_profiel', team_id=g['team1_id']) }}">{{ namen[g['team1_id']] }}</a></span>
+      <span class="vs">vs</span>
+      <span class="team-naam {{ 'winnaar' if g['winner_team_id'] == g['team2_id'] }}">
+        <a class="profiel-link" href="{{ url_for('team_profiel', team_id=g['team2_id']) }}">{{ namen[g['team2_id']] }}</a></span>
+    </div>
+    <div class="wedstrijd-meta">
+      {% if g['status'] == 'gespeeld' %}{{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|uur }}
+      {% else %}bezig · gestart om {{ g['scheduled_at']|uur }}{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="kaart leeg">Er is vanavond nog niet gespeeld.</div>
+{% endif %}
+
+{% endblock %}

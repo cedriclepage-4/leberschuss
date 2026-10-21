@@ -5,7 +5,7 @@
 <section class="held">
   <h1>Statistieken</h1>
   <p>Naast de Aura-ratings houden we ook losse statistieken bij per wedstrijd.
-     Deze tellen niet mee voor het klassement — maar eeuwige roem is ook wat waard.</p>
+     Deze tellen niet mee voor het klassement, maar eeuwige roem is ook wat waard.</p>
 </section>
 
 {% if verdeling %}
@@ -30,9 +30,9 @@
 <div class="record-raster">
   {% for r in records %}
   <div class="kaart record-kaart">
-    <div class="record-emoji">{{ r.emoji }}</div>
     <div class="record-titel">{{ r.titel }}</div>
-    <div class="record-waarde">{{ r.waarde }}</div>
+    {% set kop, _, rest = (r.waarde|string).partition(" ") %}
+    <div class="record-waarde"><span class="record-getal">{{ kop }}</span>{% if rest %} <span class="record-eenheid">{{ rest }}</span>{% endif %}</div>
     <div class="record-houder">
       {% for h in r.houders %}<a class="profiel-link" href="{{ h.url }}">{{ h.naam }}</a>{{ ", " if not loop.last }}{% endfor %}
     </div>
@@ -56,7 +56,7 @@
         <tbody>
           {% for r in bord.totaal %}
           <tr>
-            <td class="kol-rang">{% if loop.index == 1 %}🥇{% else %}{{ loop.index }}{% endif %}</td>
+            <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
             <td class="naam"><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=r['speler_id']) }}">{{ r['naam'] }}</a></td>
             <td class="kol-num"><strong>{{ r['totaal']|round(1) }}</strong></td>
             <td class="kol-num">{{ r['n'] }}</td>
@@ -74,7 +74,7 @@
         <tbody>
           {% for r in bord.gemiddeld %}
           <tr>
-            <td class="kol-rang">{% if loop.index == 1 %}🥇{% else %}{{ loop.index }}{% endif %}</td>
+            <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
             <td class="naam"><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=r['speler_id']) }}">{{ r['naam'] }}</a></td>
             <td class="kol-num"><strong>{{ (r['totaal'] / r['n'])|round(2) }}</strong></td>
             <td class="kol-num">{{ r['n'] }}</td>

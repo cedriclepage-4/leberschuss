@@ -135,6 +135,35 @@ body {
 }
 .tabel-venster > .tabel tr:last-child td { border-bottom: 0; }
 
+/* Inschrijfknoppen bij een seizoen: knoppen en pillen netjes op één rij.
+   Een pil en een knop hebben van zichzelf een andere hoogte en tekstgrootte;
+   hier krijgen ze dezelfde maat, anders staan ze zichtbaar scheef naast elkaar. */
+.inschrijf-rij {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px;
+}
+.inschrijf-rij form { margin: 0; display: flex; }
+/* Een knop met losse tekst ernaast. Zonder flex gaat die tekst op de
+   basislijn van de knop staan, wat er scheef uitziet zodra de knop hoger is
+   dan de letters (bv. door een emoji). */
+.knop-rij {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0 0;
+}
+.knop-rij form { margin: 0; }
+.zoek-blok .knop-rij { margin-top: 0; }
+/* Een openstaande uitdaging: tekst links, knoppen rechts, op één lijn. */
+.uitdaging {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 10px 0; border-top: 1px solid var(--lijn);
+}
+.uitdaging:first-child { border-top: 0; padding-top: 0; }
+.uitdaging span { flex: 1; min-width: 12rem; }
+.uitdaging form { margin: 0; }
+.inschrijf-rij .pil,
+.inschrijf-rij .knop {
+  display: inline-flex; align-items: center; min-height: 34px;
+  padding: 4px 14px; font-size: .84rem; line-height: 1.2; margin: 0;
+}
+
 /* Uitgelicht toernooi op de thuispagina. */
 .lopend-kaart {
   display: flex; align-items: center; gap: 16px; text-decoration: none;
@@ -150,6 +179,11 @@ body {
 .lopend-tekst strong { font-size: 1.15rem; }
 .lopend-tekst small { color: var(--stil); }
 .lopend-actie { color: var(--amber-donker); font-weight: 600; white-space: nowrap; }
+/* De speeldagkaart is klikbaar via de knoppen, niet als geheel: er staan er twee. */
+.speeldag-kaart { border-left-color: var(--groen); }
+.speeldag-kaart .lopend-label { color: var(--groen); }
+.speeldag-acties { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.speeldag-acties form { margin: 0; }
 @media (max-width: 560px) {
   .lopend-actie { display: none; }
 }
@@ -182,7 +216,10 @@ td.kol-rang { font-weight: 600; }
 .wedstrijd-lijst { display: flex; flex-direction: column; }
 .wedstrijd-teams { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 1.05rem; }
 .team-naam { font-weight: 700; color: var(--navy-donker); }
-.team-naam.winnaar::before { content: "🏆 "; }
+.team-naam.winnaar::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; margin: 0 8px 2px 0;
+  background: var(--amber); transform: rotate(45deg);
+}
 .vs { color: var(--stil); font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; }
 .vs-klein { color: var(--stil); font-size: .78rem; }
 .wedstrijd-meta { color: var(--stil); font-size: .88rem; margin-top: 6px; }
@@ -207,9 +244,15 @@ input[type="search"], input[type="datetime-local"], select {
 input:focus, select:focus { outline: 2px solid var(--amber); border-color: var(--amber); }
 label { display: block; font-size: .88rem; color: var(--stil); margin: 10px 0; }
 label input, label select { margin-top: 4px; }
+/* Knoppen zijn nu eens een <a>, dan weer een <button>, en soms staat er een
+   emoji in. Een emoji is hoger dan gewone letters en rekt de regel op, waardoor
+   twee knoppen naast elkaar zichtbaar verschillen. Een vaste regelhoogte plus
+   een minimumhoogte houdt ze allemaal even groot, wat er ook in staat. */
 .knop {
-  display: inline-block; border: 1px solid var(--lijn); background: #fff;
-  color: var(--navy-donker); padding: 9px 18px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 42px; line-height: 1.2;
+  border: 1px solid var(--lijn); background: #fff;
+  color: var(--navy-donker); padding: 8px 18px; border-radius: 10px;
   cursor: pointer; font-weight: 600; text-decoration: none;
   transition: transform .06s, box-shadow .15s;
 }
@@ -220,7 +263,7 @@ label input, label select { margin-top: 4px; }
 .knop.primair:hover { background: var(--amber-donker); color: #fff; }
 .knop.gevaar { background: #fff; border-color: #fecaca; color: var(--rood); }
 .knop.gevaar:hover { background: var(--rood); border-color: var(--rood); color: #fff; }
-.knop.klein { padding: 5px 12px; font-size: .84rem; }
+.knop.klein { min-height: 32px; padding: 4px 12px; font-size: .84rem; }
 .knop.breed { width: 100%; }
 /* Twee formulieren onder elkaar (bv. "Resultaat opslaan" en "Verwijderen")
    mogen niet tegen elkaar plakken — behalve in een flexrij, daar staan ze naast
@@ -600,7 +643,7 @@ input[type="file"] { padding: 7px 10px; }
 .bracket-kant { padding: 8px 12px; font-size: .9rem; border-bottom: 1px solid var(--lijn); }
 .bracket-kant:last-of-type { border-bottom: none; }
 .bracket-kant.winnaar { background: #fffbeb; font-weight: 700; }
-.bracket-kant.winnaar::before { content: "🏆 "; }
+.bracket-kant.winnaar { box-shadow: inset 3px 0 0 var(--amber); }
 .bracket-meta { font-size: .72rem; color: var(--stil); padding: 5px 12px; background: #fafafa; }
 
 .winnaar-kaart { display: flex; align-items: center; gap: 20px; border: 2px solid var(--amber); }
@@ -918,7 +961,7 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 
   /* Grotere tikdoelen */
   .knop { padding: 11px 18px; }
-  .knop.klein { padding: 8px 14px; font-size: .88rem; }
+  .knop.klein { min-height: 38px; padding: 6px 14px; font-size: .88rem; }
   .resultaat-acties .knop, .resultaat-form .knop.primair { width: 100%; }
   .keuze-groep .radio { flex: 1 1 100%; padding: 16px 12px; font-size: 1rem; }
 
@@ -952,4 +995,190 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 @media (hover: none) {
   .knop, .tab, .nav a, .subnav a, .sectie-knop { min-height: 40px; }
   .knop, .tab { display: inline-flex; align-items: center; justify-content: center; }
+}
+
+
+/* Barlow (gewoon en smal), zelf gehost naast style.css. */
+@font-face { font-family: "Barlow"; font-weight: 400; font-style: normal; font-display: swap;
+  src: url("barlow-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 500; font-style: normal; font-display: swap;
+  src: url("barlow-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url("barlow-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("barlow-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; font-style: normal; font-display: swap;
+  src: url("barlow-condensed-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; font-style: normal; font-display: swap;
+  src: url("barlow-condensed-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 800; font-style: normal; font-display: swap;
+  src: url("barlow-condensed-latin-800-normal.woff2") format("woff2"); }
+
+/* ================================================================
+   v6 — meer karakter: scorebordletters, medailles, recordtegels.
+   Staat bewust onderaan: deze regels overschrijven de basis hierboven,
+   ook die uit de gsm-blokken.
+   ================================================================ */
+:root {
+  --kop: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --tekst: "Barlow", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --lijn-warm: #ebe4d6;
+  --goud: #f5b301;
+  --goud-donker: #a86b00;
+  --zilver: #c9d1db;
+  --brons: #d58a4e;
+  /* Het baksteenmotief uit het logo, als zacht patroon. */
+  --baksteen: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='28'%3E%3Cpath d='M0 .5h56M0 14.5h56M.5 0v14M28.5 14v14' stroke='%23ffffff' stroke-opacity='.045' fill='none'/%3E%3C/svg%3E");
+  --schaduw: 0 1px 2px rgba(15, 23, 42, .05), 0 6px 18px -8px rgba(15, 23, 42, .12);
+}
+
+body { font-family: var(--tekst); font-size: 16.5px; }
+
+/* Koppen en cijfers: smal en vet, zoals op een scorebord. */
+h1, h2, h3, .sectiekop, .naam, .team-naam, .elo-badge, .cijfer strong,
+.record-waarde, .winnaar-naam, .affiche-naam, .scherm-titel, .scherm-teller strong,
+.tegel h3, .toernooi-kop h3, .sectie-knop, .nu-tekst strong, .lopend-tekst strong {
+  font-family: var(--kop);
+}
+h1, h2, h3 { letter-spacing: .2px; }
+.naam, .team-naam { font-weight: 700; font-size: 1.08em; letter-spacing: .2px; }
+
+/* ---- kopbalk ---- */
+.topbar { background: var(--baksteen), linear-gradient(135deg, var(--navy-donker), var(--navy)); }
+.logo strong { font-family: var(--kop); font-size: 1.55rem; font-weight: 800; letter-spacing: .4px; line-height: 1.05; }
+.logo small { font-size: .78rem; }
+.sectie-knop { font-size: 1.08rem; font-weight: 700; letter-spacing: .4px; padding: 6px 20px; }
+
+/* ---- paginakop ---- */
+.held { padding: 40px 0 22px; }
+.held h1 {
+  font-size: clamp(2.3rem, 5vw, 3.3rem); line-height: 1; font-weight: 800;
+  letter-spacing: .3px; margin-bottom: 12px;
+}
+.held p { font-size: 1.04rem; }
+.held-cijfers { gap: 0; margin-top: 24px; }
+.cijfer { padding: 0 26px; border-left: 1px solid var(--lijn-warm); }
+.cijfer:first-child { padding-left: 0; border-left: 0; }
+.cijfer strong {
+  font-size: 2.6rem; line-height: 1; font-weight: 800; color: var(--navy-donker);
+  font-variant-numeric: tabular-nums;
+}
+.cijfer span { font-size: .88rem; }
+
+/* Sectiekoppen met de ruit uit het logo ervoor. */
+.sectiekop {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 1.7rem; font-weight: 800; margin: 40px 0 8px;
+}
+.sectiekop::before {
+  content: ""; flex: 0 0 auto; width: 11px; height: 11px;
+  background: var(--amber); transform: rotate(45deg); border-radius: 2px;
+}
+.sectiekop .stil { font-weight: 600; }
+.kaart h3 { font-size: 1.35rem; font-weight: 700; }
+
+/* ---- kaarten ---- */
+.kaart { border: 1px solid var(--lijn-warm); box-shadow: var(--schaduw); }
+
+/* ---- klassement: medailles in plaats van emoji ---- */
+.rang-nr {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 28px; font-family: var(--kop); font-weight: 700;
+  font-size: 1.05rem; color: var(--stil); font-variant-numeric: tabular-nums;
+}
+.rang-nr.r1, .rang-nr.r2, .rang-nr.r3 {
+  border-radius: 50%; color: #fff; font-weight: 800;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18), 0 1px 3px rgba(15, 23, 42, .25);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .25);
+}
+.rang-nr.r1 { background: radial-gradient(circle at 35% 30%, #ffe08a, var(--goud) 55%, #d48f00); }
+.rang-nr.r2 { background: radial-gradient(circle at 35% 30%, #f4f6f9, var(--zilver) 55%, #96a1b0); }
+.rang-nr.r3 { background: radial-gradient(circle at 35% 30%, #f5c49a, var(--brons) 55%, #a85d27); }
+.tabel tbody tr:has(.rang-nr.r1) { background: #fffaeb; }
+.tabel tbody tr:has(.rang-nr.r1):hover { background: #fff5d6; }
+
+.elo-badge { font-size: 1.05rem; font-weight: 700; letter-spacing: .5px; padding: 2px 11px; }
+.tabel th { color: #8a8170; border-bottom-color: var(--lijn-warm); }
+.tabel td { border-bottom-color: #f1ece2; }
+
+/* ---- recordboek ---- */
+.record-raster { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.record-kaart {
+  text-align: left; padding: 20px 20px 18px; position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.record-kaart::after {               /* de ruit uit het logo, groot en vaag */
+  content: ""; position: absolute; right: -34px; bottom: -34px; width: 92px; height: 92px;
+  border: 14px solid var(--amber); opacity: .07; transform: rotate(45deg); border-radius: 6px;
+}
+.record-titel {
+  text-transform: none; letter-spacing: 0; font-size: .95rem; font-weight: 600;
+  color: var(--stil); margin: 0;
+}
+.record-waarde { margin: 6px 0 12px; line-height: 1; color: var(--navy-donker); font-weight: 800; }
+.record-getal { font-size: 3.1rem; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.record-eenheid { font-size: 1.25rem; font-weight: 700; color: #64748b; }
+.record-houder { margin-top: auto; font-size: .95rem; line-height: 1.6; }
+
+/* ---- lopend toernooi / speeldag ---- */
+.lopend-kaart { border-left-width: 5px; padding: 22px 24px; }
+.lopend-label { display: inline-flex; align-items: center; gap: 7px; font-size: .78rem; }
+.lopend-tekst strong { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
+.live-bol {
+  width: 9px; height: 9px; border-radius: 50%; background: currentColor;
+  box-shadow: 0 0 0 0 currentColor; animation: live 1.8s ease-out infinite;
+}
+@keyframes live {
+  0% { box-shadow: 0 0 0 0 rgba(217, 119, 6, .5); }
+  100% { box-shadow: 0 0 0 9px rgba(217, 119, 6, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .live-bol { animation: none; } }
+
+/* ---- toernooiwinnaar: hét moment van de avond ---- */
+.winnaar-kaart {
+  position: relative; overflow: hidden; gap: 26px; padding: 28px 30px;
+  border: 0; color: #fff;
+  background: var(--baksteen), radial-gradient(ellipse at 15% 50%, rgba(245, 158, 11, .28), transparent 60%),
+              linear-gradient(135deg, var(--navy-donker), var(--navy));
+  box-shadow: 0 14px 34px -14px rgba(15, 23, 42, .55);
+  border-bottom: 4px solid var(--amber);
+}
+.winnaar-beker { flex: 0 0 auto; line-height: 0; }
+.beker-svg { width: 74px; height: 74px; fill: var(--amber); }
+.beker-svg .oor { fill: none; stroke: var(--amber); stroke-width: 4; stroke-linecap: round; }
+.winnaar-label { margin: 0; color: #fcd34d; font-weight: 600; font-size: .95rem; }
+.winnaar-naam {
+  font-size: clamp(2.2rem, 5vw, 3.2rem); line-height: 1; margin: 4px 0 0; font-weight: 800;
+}
+.winnaar-naam .profiel-link { color: #fff; border-bottom-color: rgba(255, 255, 255, .35); }
+.winnaar-naam .profiel-link:hover { color: var(--amber); }
+
+.toernooi-winnaar { font-family: var(--kop); font-size: 1.15rem; }
+.toernooi-cijfers strong { font-family: var(--kop); font-size: 1.25rem; }
+
+/* ---- tabs & knoppen ---- */
+.tab { font-weight: 600; }
+.knop { border-radius: 10px; }
+.knop.primair { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .12); }
+
+/* ---- voet ---- */
+.voet { border-top-color: var(--lijn-warm); }
+
+/* ---- gsm ---- */
+@media (max-width: 720px) {
+  body { font-size: 16px; }
+  .held { padding: 30px 0 16px; }
+  .held h1 { font-size: 2.2rem; }
+  .cijfer { padding: 0 16px; }
+  .cijfer strong { font-size: 2rem; }
+  .sectiekop { font-size: 1.4rem; margin: 32px 0 6px; }
+  .record-raster { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .record-kaart { padding: 16px 16px 14px; }
+  .record-getal { font-size: 2.4rem; }
+  .record-eenheid { font-size: 1.02rem; }
+  .lopend-tekst strong { font-size: 1.35rem; }
+  .winnaar-kaart { gap: 16px; padding: 22px 20px; }
+  .beker-svg { width: 54px; height: 54px; }
+  .rang-nr.r1, .rang-nr.r2, .rang-nr.r3 { min-width: 24px; height: 24px; font-size: .95rem; }
+  .logo strong { font-size: 1.3rem; }
 }

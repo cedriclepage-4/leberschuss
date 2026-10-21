@@ -22,7 +22,7 @@
 <h2 class="sectiekop" id="claimen">Accounts opeisen</h2>
 <div class="kaart">
   <p class="stil klein-tekst">Je kan spelers vooraf aanmaken (hieronder bij
-     <a class="profiel-link" href="#spelers">Spelers</a>) zonder wachtwoord — bijvoorbeeld
+     <a class="profiel-link" href="#spelers">Spelers</a>) zonder wachtwoord, bijvoorbeeld
      uit de inschrijvingen. Zo kan je meteen teams vormen en een toernooi loten,
      terwijl de spelers zelf nog niets gedaan hebben. Zet daarna het venster hieronder
      open: iedereen zoekt zijn eigen naam op de opeispagina en kiest een wachtwoord.</p>
@@ -43,12 +43,12 @@
     <button type="submit" class="knop primair">Opslaan</button>
   </form>
 
-  <p class="ruimte-boven">
-    <a class="knop" href="{{ url_for('claim_scherm') }}">📺 Toon op het grote scherm</a>
-    <span class="stil klein-tekst">— QR-code voor de beamer; spelers scannen en komen
+  <div class="knop-rij">
+    <a class="knop" href="{{ url_for('claim_scherm') }}">Toon op het grote scherm</a>
+    <span class="stil klein-tekst">QR-code voor de beamer: spelers scannen en komen
       meteen op de opeispagina. Het adres in de code is
       <code>{{ claim_adres }}</code>.</span>
-  </p>
+  </div>
 
   {% if claim_log %}
   <h3 class="ruimte-boven">Logboek</h3>
@@ -69,7 +69,7 @@
     </tbody>
   </table>
   <p class="stil klein-tekst">Nam iemand het verkeerde account? Geef het vrij bij die
-     speler hieronder — het wachtwoord wordt gewist en het account staat weer klaar.</p>
+     speler hieronder. Het wachtwoord wordt gewist en het account staat weer klaar.</p>
   {% else %}
   <p class="stil klein-tekst ruimte-boven">Nog niemand heeft een account opgeëist.</p>
   {% endif %}
@@ -81,7 +81,7 @@
   <p class="stil klein-tekst">Er is geen algemeen adminwachtwoord: wie hier staat,
      komt met zijn eigen account in het organisatiepaneel. Elke organisator kan
      iemand erbij nemen, maar enkel de <strong>eigenaar</strong> kan een organisator
-     zijn rol weer afnemen — zo kan niemand de rest buitenzetten. Je eigen rol mag
+     zijn rol weer afnemen, zo kan niemand de rest buitenzetten. Je eigen rol mag
      je altijd zelf teruggeven.</p>
   <table class="tabel compact">
     <thead><tr><th>Naam</th><th>Rol</th><th>Acties</th></tr></thead>
@@ -91,7 +91,7 @@
         <td class="naam"><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=p['id']) }}">{{ p['naam'] }}</a>
           {% if p['ben_ik'] %}<span class="stil">(jij)</span>{% endif %}
           <span class="stil klein-tekst">#{{ p['id'] }}</span></td>
-        <td>{% if p['role'] == 'eigenaar' %}<span class="pil pil-rol">👑 eigenaar</span>
+        <td>{% if p['role'] == 'eigenaar' %}<span class="pil pil-rol">eigenaar</span>
             {% else %}<span class="pil pil-rol">organisator</span>{% endif %}</td>
         <td class="wikkel">
           {% if p['role'] == 'eigenaar' %}
@@ -113,7 +113,7 @@
               <summary>Eigenaarschap overdragen…</summary>
               <form method="post" action="{{ url_for('eigenaarschap_overdragen', speler_id=p['id']) }}">
                 <p class="klein-tekst">Maakt <strong>{{ p['naam'] }}</strong> de nieuwe eigenaar.
-                   Jij blijft organisator, maar kan daarna niemands rol meer afnemen — ook die
+                   Jij blijft organisator, maar kan daarna niemands rol meer afnemen, ook die
                    van jezelf niet terugnemen. Typ <code>overdragen</code> om te bevestigen.</p>
                 <div class="rij-form">
                   <input type="text" name="bevestiging" placeholder="overdragen" autocomplete="off"
@@ -162,7 +162,7 @@
         <td class="kol-rang stil zoekbaar">{{ p['id'] }}</td>
         <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('speler_profiel', speler_id=p['id']) }}">
           {%- if p['avatar'] %}<img class="avatar-mini" src="{{ url_for('media', bestand=p['avatar']) }}" alt="">
-          {%- else %}<span class="avatar-mini avatar-fallback">{{ p['naam'][0]|upper }}</span>{% endif %} {{ p['naam'] }}</a>{% if p['nickname'] %} <span class="stil">({{ p['name'] }})</span>{% endif %}{% if p['ben_ik'] %} <span class="stil">— jij</span>{% endif %}</td>
+          {%- else %}<span class="avatar-mini avatar-fallback">{{ p['naam'][0]|upper }}</span>{% endif %} {{ p['naam'] }}</a>{% if p['nickname'] %} <span class="stil">({{ p['name'] }})</span>{% endif %}{% if p['ben_ik'] %} <span class="stil">(jij)</span>{% endif %}</td>
         <td>
           {% if p['avatar'] %}
           <form method="post" action="{{ url_for('speler_avatar_wissen', speler_id=p['id']) }}"
@@ -175,7 +175,7 @@
         <td class="kol-num verbergen-mobiel">{{ p['deze_maand'] }}</td>
         <td class="pil-stapel">
           {% if p['active'] %}<span class="pil pil-actief">actief</span>{% else %}<span class="pil">inactief</span>{% endif %}
-          {% if p['role'] == 'eigenaar' %}<span class="pil pil-rol">👑 eigenaar</span>
+          {% if p['role'] == 'eigenaar' %}<span class="pil pil-rol">eigenaar</span>
           {% elif p['role'] == 'admin' %}<span class="pil pil-rol">organisator</span>{% endif %}
           {% if not p['password_hash'] %}<span class="pil">geen wachtwoord</span>{% endif %}
         </td>
@@ -255,7 +255,7 @@
 <div class="kaart">
   <h3>Team samenstellen</h3>
   <p class="stil klein-tekst">Normaal nodigt speler 1 zijn maat uit en aanvaardt die.
-     Hier zet je in één keer een <strong>actief</strong> team klaar — handig bij
+     Hier zet je in één keer een <strong>actief</strong> team klaar. Handig bij
      inschrijvingen waarin het duo al vastligt.</p>
   <form method="post" action="{{ url_for('team_toevoegen') }}">
     <div class="duo-keuze">

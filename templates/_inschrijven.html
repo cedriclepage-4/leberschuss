@@ -1,0 +1,52 @@
+{# Inschrijven voor een seizoen. Staat op elke plek waar je een seizoen ziet:
+   in de lijst met seizoenen, op de seizoenpagina en op een speeldag. Wie moet
+   doorklikken tot de eerste speeldag om zich in te kunnen schrijven, vindt het
+   nooit. #}
+{% macro inschrijfblok(seizoen, inschrijving, terug, compact=false) %}
+{% set open_teams = inschrijving | rejectattr('ingeschreven') | list %}
+{% set mee = inschrijving | selectattr('ingeschreven') | list %}
+
+{% if not session.get('speler_id') %}
+  {% if not compact %}
+  <p class="stil klein-tekst">
+    <a class="profiel-link" href="{{ url_for('inloggen') }}">Log in</a> om je team
+    in te schrijven voor dit seizoen.</p>
+  {% endif %}
+
+{% elif not inschrijving %}
+  {% if not compact %}
+  <p class="stil klein-tekst">Je zit nog in geen enkel actief team. Maak er eentje aan
+     via <a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=session['speler_id']) }}">je
+     profiel</a>: jij nodigt je maat uit, en zodra die aanvaardt kunnen jullie meedoen.</p>
+  {% endif %}
+
+{% else %}
+  <div class="inschrijf-rij">
+    {% for m in mee %}
+    <span class="pil pil-actief">{{ m.team['name'] }} doet mee</span>
+    {% if m.mag_uit %}
+    <form method="post" action="{{ url_for('seizoen_uitschrijven', seizoen_id=seizoen['id']) }}"
+          data-confirm="“{{ m.team['name'] }}” uitschrijven voor {{ seizoen['name'] }}?">
+      <input type="hidden" name="team" value="{{ m.team['id'] }}">
+      <input type="hidden" name="terug" value="{{ terug }}">
+      <button type="submit" class="knop klein">Uitschrijven</button>
+    </form>
+    {% endif %}
+    {% endfor %}
+
+    {% for m in open_teams %}
+    <form method="post" action="{{ url_for('seizoen_inschrijven', seizoen_id=seizoen['id']) }}">
+      <input type="hidden" name="team" value="{{ m.team['id'] }}">
+      <input type="hidden" name="terug" value="{{ terug }}">
+      <button type="submit" class="knop primair klein">
+        {%- if inschrijving|length > 1 %}Schrijf {{ m.team['name'] }} in
+        {%- else %}Schrijf je in{% endif %}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% if open_teams and not compact %}
+  <p class="stil klein-tekst">Je komt meteen in het klassement te staan, met nul
+     gespeelde wedstrijden. Spelen doe je op een speeldag.</p>
+  {% endif %}
+{% endif %}
+{% endmacro %}

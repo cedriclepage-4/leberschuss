@@ -22,8 +22,7 @@
         </td>
         <td>
           <span class="plaats-pil {{ 'plaats-1' if s['plaats'] == 1 }}{{ 'plaats-2' if s['plaats'] == 2 }}{{ 'plaats-3' if s['plaats'] == 3 }}">
-            {%- if s['plaats'] == 1 %}🥇 {% elif s['plaats'] == 2 %}🥈 {% elif s['plaats'] == 3 %}🥉 {% endif -%}
-            {{ s['plaats'] }}<sup>e</sup></span>
+                        {{ s['plaats'] }}<sup>e</sup></span>
           <span class="stil klein-tekst">van {{ s['aantal'] }}</span>
         </td>
         <td class="kol-num">{{ s['gespeeld'] }}</td>

@@ -4,7 +4,7 @@
 
 <section class="held">
   <h1>Globaal klassement</h1>
-  <p>De Aura-rating van iedereen die ooit aan tafel stond — league én toernooi
+  <p>De Aura-rating van iedereen die ooit aan tafel stond, league én toernooi
      samen. Elk duo dat samen speelde heeft er ook een.
      Klik op een naam voor het volledige profiel.</p>
   <div class="held-cijfers">
@@ -14,11 +14,32 @@
   </div>
 </section>
 
+{% if speeldag_nu %}
+<div class="kaart lopend-kaart speeldag-kaart">
+  <span class="lopend-tekst">
+    <span class="lopend-label">{% if speeldag_nu.vandaag %}<span class="live-bol" aria-hidden="true"></span>{% endif %}{{ 'Vanavond' if speeldag_nu.vandaag else 'Volgende speeldag' }}</span>
+    <strong>{{ speeldag_nu['title'] }}</strong>
+    <small>{{ speeldag_nu['seizoen'] }} · {{ speeldag_nu['date']|dag }}
+      {%- if sd_speelt %} · jullie spelen nu
+      {%- elif sd_zoekt %} · je zoekt een tegenstander{% endif %}</small>
+  </span>
+  <span class="speeldag-acties">
+    {# Eén team klaar om te spelen? Dan kan je hier meteen zoeken. #}
+    {% if speeldag_nu.vandaag and sd_klaar|length == 1 %}
+    <form method="post" action="{{ url_for('speeldag_zoeken', speeldag_id=speeldag_nu['id']) }}">
+      <input type="hidden" name="team" value="{{ sd_klaar[0]['id'] }}">
+      <button type="submit" class="knop primair">Zoek een tegenstander</button>
+    </form>
+    {% endif %}
+    <a class="knop" href="{{ url_for('speeldag', speeldag_id=speeldag_nu['id']) }}">Naar de speeldag ›</a>
+  </span>
+</div>
+{% endif %}
+
 {% if lopend %}
 <a class="kaart lopend-kaart" href="{{ url_for('toernooi_detail', toernooi_id=lopend['id']) }}">
-  <span class="lopend-icoon">🥇</span>
   <span class="lopend-tekst">
-    <span class="lopend-label">{{ 'Nu bezig' if lopend['status'] in ('bracket', 'knockout') else 'Volgend toernooi' }}</span>
+    <span class="lopend-label">{% if lopend['status'] in ('bracket', 'knockout') %}<span class="live-bol" aria-hidden="true"></span>{% endif %}{{ 'Nu bezig' if lopend['status'] in ('bracket', 'knockout') else 'Volgend toernooi' }}</span>
     <strong>{{ lopend['name'] }}</strong>
     <small>{{ lopend['date']|dag }} · vanaf {{ lopend['start_tijd'] }}
       {%- if lopend_label %} · {{ lopend_label[0] }}{% endif %}</small>
@@ -45,7 +66,7 @@
       <tbody>
         {% for s in spelers %}
         <tr>
-          <td class="kol-rang">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}</td>
+          <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
           <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('speler_profiel', speler_id=s.id) }}">
             {%- if s.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=s.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ s.naam[0]|upper }}</span>{% endif %} {{ s.naam }}</a></td>
           <td class="verbergen-mobiel">{% if s.rang %}<span class="rang-pil" data-kleur="{{ s.rang['color'] }}">{{ s.rang['name'] }}</span>{% else %}<span class="stil">—</span>{% endif %}</td>
@@ -82,7 +103,7 @@
       <tbody>
         {% for t in teams %}
         <tr>
-          <td class="kol-rang">{% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}</td>
+          <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
           <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=t.id) }}">
             {%- if t.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=t.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ t.naam[0]|upper }}</span>{% endif %} {{ t.naam }}</a></td>
           <td class="kol-elo"><span class="elo-badge">{{ t.elo|elo }}</span></td>

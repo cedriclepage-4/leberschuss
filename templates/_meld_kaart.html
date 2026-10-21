@@ -10,19 +10,19 @@
 
   <div class="wedstrijd-context">
     {% if m.context.soort == 'toernooi' %}
-      <span class="pil pil-toernooi">🥇 Toernooi</span>
+      <span class="pil pil-toernooi">Toernooi</span>
       {% if m.context.url %}<a class="profiel-link" href="{{ m.context.url }}">{{ m.context.naam }}</a>
       {% else %}{{ m.context.naam }}{% endif %}
       {% if m.context.detail %}<span class="stil">· {{ m.context.detail }}</span>{% endif %}
     {% else %}
-      <span class="pil">🏆 League</span>
+      <span class="pil">League</span>
       {% if m.context.url %}<a class="profiel-link" href="{{ m.context.url }}">{{ m.context.naam }}</a>
       {% else %}{{ m.context.naam }}{% endif %}
       {% if m.context.detail %}<span class="stil">· {{ m.context.detail }}</span>{% endif %}
     {% endif %}
   </div>
 
-  <div class="wedstrijd-meta">📅 {{ m.game['scheduled_at']|datum }}{% if m.context.locatie %} · 📍 {{ m.context.locatie }}{% endif %}</div>
+  <div class="wedstrijd-meta">{{ m.game['scheduled_at']|datum }}{% if m.context.locatie %} · {{ m.context.locatie }}{% endif %}</div>
 
   <div class="meld-status">
     {% if m.eigen %}
@@ -37,14 +37,14 @@
     {% endif %}
   </div>
   {% if m.conflict %}
-  <p class="conflict-tekst">⚠️ De meldingen spreken elkaar tegen. Het resultaat blijft
+  <p class="conflict-tekst">De meldingen spreken elkaar tegen. Het resultaat blijft
      open tot de meldingen overeenkomen of een organisator beslist.</p>
   {% endif %}
 
   {% if m.wacht_op %}
-  <p class="klein-tekst wacht-tekst">🔒 Deze wedstrijd komt later. Speel en meld eerst
+  <p class="klein-tekst wacht-tekst">Deze wedstrijd komt later. Speel en meld eerst
      <strong>{{ namen[m.wacht_op['team1_id']] }} tegen {{ namen[m.wacht_op['team2_id']] }}</strong>
-     van {{ m.wacht_op['scheduled_at']|datum }} — de wedstrijden worden op volgorde
+     van {{ m.wacht_op['scheduled_at']|datum }}. De wedstrijden worden op volgorde
      gespeeld.</p>
   {% else %}
   <form method="post" action="{{ url_for('wedstrijd_melden', game_id=m.game['id']) }}" class="resultaat-form">
@@ -55,7 +55,7 @@
     <div class="keuze-groep">
       <label class="radio"><input type="radio" name="winnaar" value="wij" required
              {{ 'checked' if m.eigen and m.eigen['winner_team_id'] == m.eigen_team }}>
-             🏆 Wij ({{ namen[m.eigen_team] }})</label>
+             Wij ({{ namen[m.eigen_team] }})</label>
       <label class="radio"><input type="radio" name="winnaar" value="zij"
              {{ 'checked' if m.eigen and m.eigen['winner_team_id'] == m.tegen_team }}>
              Zij ({{ namen[m.tegen_team] }})</label>

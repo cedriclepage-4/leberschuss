@@ -499,10 +499,16 @@ check(klant.get("/seizoenen").headers["Location"].endswith("/"),
       "hij belandt dan op de thuispagina")
 check(all(klant.get(p).status_code == 200 for p in ALTIJD_OPEN),
       "Home, statistieken en toernooi blijven gewoon open")
+def sectieknop(html, naam):
+    """Staat er een knop met deze naam in de sectiebalk bovenaan?"""
+    import re
+    return re.search(r'class="sectie-knop[^"]*" href="[^"]*">\s*' + naam + r'\b', html) is not None
+
+
 thuis = klant.get("/").get_data(as_text=True)
 check("Globaal klassement" in thuis, "de thuispagina toont het globale klassement")
-check(">🏆</span> League" not in thuis, "de Leagueknop verdwijnt uit de balk")
-check(">🏠</span> Home" in thuis and ">🥇</span> Toernooi" in thuis,
+check(not sectieknop(thuis, "League"), "de Leagueknop verdwijnt uit de balk")
+check(sectieknop(thuis, "Home") and sectieknop(thuis, "Toernooi"),
       "Home en Toernooi blijven wel staan")
 
 conn.execute("UPDATE players SET role = 'eigenaar' WHERE id = 1")
@@ -516,7 +522,7 @@ conn.commit()
 check(all(klant.get(p).status_code == 200 for p in LEAGUE_PADEN),
       "met de league aan ziet iedereen ze weer")
 thuis = klant.get("/").get_data(as_text=True)
-check(">🏆</span> League" in thuis, "en staat de Leagueknop weer in de balk")
+check(sectieknop(thuis, "League"), "en staat de Leagueknop weer in de balk")
 check(thuis.count("sectie-knop") == 3, "er zijn dan drie tabbladen")
 
 # --------------------------------------------- accounts opeisen (claim) --

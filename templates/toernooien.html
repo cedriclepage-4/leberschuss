@@ -15,14 +15,14 @@
       <h3>{{ r.t['name'] }}</h3>
       <span class="pil pil-fase pil-{{ r.t['status'] }}">{{ r.label }}</span>
     </div>
-    <p class="stil klein-tekst">📅 {{ r.t['date']|dag }} · vanaf {{ r.t['start_tijd'] }}</p>
+    <p class="stil klein-tekst">{{ r.t['date']|dag }} · vanaf {{ r.t['start_tijd'] }}</p>
     {% if r.t['description'] %}<p class="team-beschrijving">{{ r.t['description'] }}</p>{% endif %}
     <div class="toernooi-cijfers">
       <span><strong>{{ r.teams }}</strong> teams</span>
       <span><strong>{{ r.gespeeld }}</strong>/{{ r.totaal }} gespeeld</span>
       <span><strong>{{ r.t['ko_teams'] }}</strong> naar de knockout</span>
     </div>
-    {% if r.winnaar %}<p class="toernooi-winnaar">🏆 {{ r.winnaar['name'] }}</p>{% endif %}
+    {% if r.winnaar %}<p class="toernooi-winnaar">Winnaar: {{ r.winnaar['name'] }}</p>{% endif %}
   </a>
   {% endfor %}
 </div>
@@ -39,7 +39,7 @@
     <li><strong>Bracketfase.</strong> Iedereen zit in één grote bracket en speelt een
         vast aantal wedstrijden tegen gelote tegenstanders. Winst = 3 punten.</li>
     <li><strong>Gelijke stand.</strong> Staan teams gelijk op punten, dan beslist eerst
-        het <strong>onderlinge duel</strong> — maar enkel als alle betrokken teams
+        het <strong>onderlinge duel</strong>, maar enkel als alle betrokken teams
         onderling gespeeld hebben. Daarna telt de <strong>kwaliteit</strong> van je
         overwinningen: de som van de punten van de teams die je versloeg. Wie even
         sterke teams klopte, wordt gescheiden op zijn hele <strong>programma</strong>:

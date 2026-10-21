@@ -73,7 +73,41 @@ CREATE TABLE IF NOT EXISTS matchdays (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     season_id INTEGER NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
     title     TEXT NOT NULL,
-    date      TEXT NOT NULL
+    date      TEXT NOT NULL,
+    -- Hoeveel wedstrijden kunnen er die avond tegelijk lopen? De wachtrij
+    -- koppelt nooit meer teams dan er tafels vrij zijn.
+    tafels    INTEGER NOT NULL DEFAULT 2
+);
+
+-- Teams schrijven zich in voor een seizoen. Ze staan meteen in het klassement,
+-- ook vóór hun eerste wedstrijd — anders lijkt het alsof ze niet meedoen.
+CREATE TABLE IF NOT EXISTS season_teams (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id INTEGER NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+    team_id   INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    moment    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (season_id, team_id)
+);
+
+-- "Uitdagen": het ene team vraagt, het andere aanvaardt of weigert.
+CREATE TABLE IF NOT EXISTS challenges (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    matchday_id INTEGER NOT NULL REFERENCES matchdays(id) ON DELETE CASCADE,
+    van_team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    naar_team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open', 'aanvaard', 'geweigerd', 'ingetrokken')),
+    game_id     INTEGER REFERENCES games(id) ON DELETE SET NULL,
+    moment      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- De wachtrij van een speeldag: wie staat er klaar voor een wedstrijd?
+CREATE TABLE IF NOT EXISTS wachtrij (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    matchday_id INTEGER NOT NULL REFERENCES matchdays(id) ON DELETE CASCADE,
+    team_id     INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    sinds       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE (matchday_id, team_id)
 );
 
 -- Aura binnen één seizoen: iedereen start er op 1000.
@@ -305,13 +339,38 @@ def _backup(pad: str) -> str:
     return kopie
 
 
+def _voeg_kolom_toe(conn, tabel, kolom, definitie):
+    """Voeg een kolom toe aan een bestaande tabel, ook bij een gelijktijdige start.
+
+    Gunicorn start zijn werkprocessen los van elkaar op en elk daarvan draait
+    init_db(). Ze kunnen dus alle drie tegelijk vaststellen dat de kolom nog
+    ontbreekt: eentje voegt ze toe, de andere twee botsen op "duplicate column
+    name" en zouden zonder deze afscherming meteen crashen — met een site die
+    na een herstart niet meer opkomt tot gevolg. De fout betekent hier enkel
+    dat een collega ons voor was, dus daar mag rustig overheen gestapt worden.
+    """
+    if kolom in _kolommen(conn, tabel):
+        return
+    try:
+        conn.execute(f"ALTER TABLE {tabel} ADD COLUMN {kolom} {definitie}")
+        conn.commit()
+    except sqlite3.OperationalError as fout:
+        conn.rollback()
+        if "duplicate column" not in str(fout).lower():
+            raise
+
+
+def _migreer_league(conn):
+    """Tafels per speeldag; de nieuwe tabellen maakt SCHEMA zelf al aan."""
+    if _kolommen(conn, "matchdays"):
+        _voeg_kolom_toe(conn, "matchdays", "tafels", "INTEGER NOT NULL DEFAULT 2")
+
+
 def _migreer_terugtrekken(conn):
     """Voeg de kolom toe die bijhoudt of een team zich teruggetrokken heeft."""
-    kolommen = _kolommen(conn, "tournament_teams")
-    if kolommen and "teruggetrokken" not in kolommen:
-        conn.execute("ALTER TABLE tournament_teams ADD COLUMN teruggetrokken "
-                     "INTEGER NOT NULL DEFAULT 0")
-        conn.commit()
+    if _kolommen(conn, "tournament_teams"):
+        _voeg_kolom_toe(conn, "tournament_teams", "teruggetrokken",
+                        "INTEGER NOT NULL DEFAULT 0")
 
 
 def _migreer_rollen(conn):
@@ -321,11 +380,8 @@ def _migreer_rollen(conn):
     daarna aangeduid met `python app.py --eigenaar <naam of nummer>`. Zo kan
     niemand zomaar organisator worden door een oude database te gebruiken.
     """
-    kolommen = _kolommen(conn, "players")
-    if kolommen and "role" not in kolommen:
-        conn.execute("ALTER TABLE players ADD COLUMN role TEXT NOT NULL "
-                     "DEFAULT 'speler'")
-        conn.commit()
+    if _kolommen(conn, "players"):
+        _voeg_kolom_toe(conn, "players", "role", "TEXT NOT NULL DEFAULT 'speler'")
 
 
 def _migreer(conn, pad):
@@ -443,6 +499,7 @@ def init_db(pad: str = DB_PATH) -> None:
     _migreer_rollen(conn)
     conn.executescript(SCHEMA)
     _migreer_terugtrekken(conn)
+    _migreer_league(conn)
     _hernummer_spelers(conn, pad)
     for sleutel, waarde in STANDAARD_INSTELLINGEN.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

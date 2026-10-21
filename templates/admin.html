@@ -12,10 +12,10 @@
 
 {% if not league_zichtbaar %}
 <div class="kaart aandacht-kaart">
-  <h3>🥇 Enkel toernooien</h3>
+  <h3>Enkel toernooien</h3>
   <p class="stil klein-tekst">Het leaguegedeelte staat uit: spelers zien alleen het
      toernooi, geen klassement, wedstrijden, statistieken of seizoenen. Jij ziet ze
-     nog wel — die pagina's zijn hieronder gemarkeerd. Aanzetten doe je met één
+     nog wel, die pagina's zijn hieronder gemarkeerd. Aanzetten doe je met één
      vinkje bij {% if is_eigenaar %}<a class="profiel-link" href="{{ url_for('admin_instellingen') }}#league">Instellingen</a>{% else %}de eigenaar{% endif %}.</p>
 </div>
 {% endif %}
@@ -25,12 +25,12 @@
   <h3>Vraagt je aandacht</h3>
   <ul class="ere-lijst">
     {% if cijfers.conflicten %}
-    <li>⚠️ <strong>{{ cijfers.conflicten }}</strong> wedstrijd(en) met tegenstrijdige
-        meldingen — <a class="profiel-link" href="{{ url_for('admin_seizoenen') }}">beslis zelf wie won</a>
+    <li><strong>{{ cijfers.conflicten }}</strong> wedstrijd(en) met tegenstrijdige
+        meldingen: <a class="profiel-link" href="{{ url_for('admin_seizoenen') }}">beslis zelf wie won</a>
         bij het juiste seizoen of toernooi.</li>
     {% endif %}
     {% if cijfers.uitnodigingen %}
-    <li>✉️ <strong>{{ cijfers.uitnodigingen }}</strong> teamuitnodiging(en) wachten nog
+    <li><strong>{{ cijfers.uitnodigingen }}</strong> teamuitnodiging(en) wachten nog
         op een antwoord van de spelers zelf.</li>
     {% endif %}
   </ul>
@@ -39,7 +39,6 @@
 
 <div class="admin-tegels">
   <a class="kaart tegel {{ 'tegel-uit' if not league_zichtbaar }}" href="{{ url_for('admin_seizoenen') }}">
-    <span class="tegel-icoon">🗓️</span>
     <h3>Seizoenen {% if not league_zichtbaar %}<span class="pil pil-verborgen">verborgen</span>{% endif %}</h3>
     <p class="stil klein-tekst">Seizoenen, speeldagen én de leaguewedstrijden die
        erin gespeeld worden. Elk seizoen heeft zijn eigen Aura-klassement.</p>
@@ -49,7 +48,6 @@
   </a>
 
   <a class="kaart tegel" href="{{ url_for('admin_toernooien') }}">
-    <span class="tegel-icoon">🥇</span>
     <h3>Toernooien</h3>
     <p class="stil klein-tekst">Toernooi aanmaken, teams en tafels toewijzen, loting
        genereren.</p>
@@ -58,7 +56,6 @@
   </a>
 
   <a class="kaart tegel" href="{{ url_for('admin_spelers') }}">
-    <span class="tegel-icoon">👥</span>
     <h3>Spelers &amp; teams</h3>
     <p class="stil klein-tekst">Wachtwoorden opnieuw instellen, spelers activeren of
        deactiveren, teams nakijken.</p>
@@ -66,7 +63,6 @@
   </a>
 
   <a class="kaart tegel" href="{{ url_for('admin_klassement') }}">
-    <span class="tegel-icoon">📊</span>
     <h3>Rangen &amp; statistieken</h3>
     <p class="stil klein-tekst">Eigen rangen op Aura en zelfgemaakte statistieken
        zoals “saves”.</p>
@@ -74,11 +70,10 @@
 
   {% if is_eigenaar %}
   <a class="kaart tegel" href="{{ url_for('admin_instellingen') }}">
-    <span class="tegel-icoon">⚙️</span>
     <h3>Instellingen</h3>
     <p class="stil klein-tekst">Wat de spelers zien, K-factoren, back-ups en het
        leegmaken of terugzetten van de database.</p>
-    <span class="pil pil-rol">👑 enkel eigenaar</span>
+    <span class="pil pil-rol">enkel eigenaar</span>
   </a>
   {% endif %}
 </div>

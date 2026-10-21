@@ -43,17 +43,17 @@
       <div class="wrap sectie-inner">
         <div class="sectie-keuze">
           <a class="sectie-knop {{ 'actief' if sectie == 'home' }}" href="{{ url_for('index') }}">
-            <span class="sectie-icoon">🏠</span> Home
+            Home
           </a>
           {# Staat het leaguegedeelte uit, dan is er voor spelers niets te zien. #}
           {% if league_toegankelijk %}
           <a class="sectie-knop {{ 'actief' if sectie == 'liga' }}" href="{{ url_for('seizoenen') }}">
-            <span class="sectie-icoon">🏆</span> League
+            League
             {% if not league_zichtbaar %}<span class="pil pil-verborgen">verborgen</span>{% endif %}
           </a>
           {% endif %}
           <a class="sectie-knop {{ 'actief' if sectie == 'toernooi' }}" href="{{ url_for('toernooien') }}">
-            <span class="sectie-icoon">🥇</span> Toernooi
+            Toernooi
           </a>
         </div>
         {# Hoort deze pagina bij geen enkel deel (profiel, inloggen, paneel),
@@ -108,7 +108,7 @@
     <div class="wrap">
       Leberschuss Tonzent · gemaakt door Jeugdhuis Tonzent Kampenhout
       {% if not is_organisator %}
-        <a class="voet-organisatie" href="{{ url_for('admin') }}">⚙ Organisatie</a>
+        <a class="voet-organisatie" href="{{ url_for('admin') }}">Organisatie</a>
       {% endif %}
     </div>
 
@@ -126,7 +126,6 @@
      bij het meldformulier. Verschijnt enkel als je effectief moet spelen. #}
   {% if nu_spelen %}
   <a class="nu-balk {{ 'nu-balk-gemeld' if nu_spelen.gemeld }}" href="{{ nu_spelen.url }}">
-    <span class="nu-icoon">{{ '⏳' if nu_spelen.gemeld else '🥅' }}</span>
     <span class="nu-tekst">
       <strong>{% if nu_spelen.gemeld %}Wachten op de tegenstander{% else %}Jouw wedstrijd{% endif %}</strong>
       <small>tegen {{ nu_spelen.tegenstander }}{% if nu_spelen.locatie %} · {{ nu_spelen.locatie }}{% endif %}

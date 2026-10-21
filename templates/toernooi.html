@@ -5,7 +5,7 @@
 
 <section class="held">
   <h1>{{ t['name'] }} <span class="pil pil-fase pil-{{ t['status'] }}">{{ label }}</span></h1>
-  <p>📅 {{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}
+  <p>{{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}
      {% if t['description'] %}<br>{{ t['description'] }}{% endif %}</p>
   <div class="held-cijfers">
     <div class="cijfer"><strong>{{ teams|length }}</strong><span>teams</span></div>
@@ -14,14 +14,14 @@
     {% if potten_aantal > 1 %}<div class="cijfer"><strong>{{ potten_aantal }}</strong><span>potten</span></div>{% endif %}
   </div>
   {% if heeft_loting %}
-  <p class="ruimte-boven">
+  <div class="knop-rij">
     <a class="knop primair" href="{{ url_for('toernooi_loting', toernooi_id=t['id']) }}">Naar loting</a>
     {% if is_organisator %}
     <a class="knop" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Beheren</a>
     <a class="knop" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}?beamer=1#stand"
-       title="Ververst zichzelf — zet dit venster op de beamer en laat het openstaan">📺 Beamermodus</a>
+       title="Ververst zichzelf. Zet dit venster op de beamer en laat het openstaan">Beamermodus</a>
     {% endif %}
-  </p>
+  </div>
   {% elif is_organisator %}
   <p class="ruimte-boven"><a class="knop primair" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Toernooi klaarzetten</a></p>
   {% endif %}
@@ -29,9 +29,9 @@
 
 {% if winnaar %}
 <div class="kaart winnaar-kaart">
-  <div class="winnaar-beker">🏆</div>
+  <div class="winnaar-beker"><svg class="beker-svg" viewBox="0 0 64 64" aria-hidden="true"><path d="M20 8h24v14a12 12 0 0 1-24 0z"/><path class="oor" d="M20 13h-7v3a9 9 0 0 0 9 9M44 13h7v3a9 9 0 0 1-9 9"/><path d="M29 33h6v10h-6z"/><path d="M22 47h20l2 9H20z"/></svg></div>
   <div>
-    <p class="record-titel">Toernooiwinnaar</p>
+    <p class="winnaar-label">Toernooiwinnaar</p>
     <p class="winnaar-naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=winnaar['id']) }}">{{ winnaar['name'] }}</a></p>
   </div>
 </div>
@@ -52,7 +52,7 @@
   {% else %}
   <button class="tab actief" data-tab="stand">Stand</button>
   {% endif %}
-  {% if tiebreaks %}<button class="tab" data-tab="gelijk">⚖️ Gelijke standen ({{ tiebreaks|length }})</button>{% endif %}
+  {% if tiebreaks %}<button class="tab" data-tab="gelijk">Gelijke standen ({{ tiebreaks|length }})</button>{% endif %}
   <button class="tab" data-tab="kalender">Kalender</button>
   {% if kolommen %}<button class="tab" data-tab="knockout">Knockout</button>{% endif %}
   <button class="tab" data-tab="teams">Teams</button>
@@ -62,7 +62,7 @@
 {% if session.get('speler_id') %}
 <div data-paneel="mijn" class="paneel">
   {% if mijn_wedstrijden %}
-  <p class="stil klein-tekst">Meld hier meteen de uitslag na afloop — je hoeft dus niet
+  <p class="stil klein-tekst">Meld hier meteen de uitslag na afloop. Je hoeft dus niet
      naar je profiel te gaan. Zodra iemand van elk team dezelfde winnaar meldt, is het
      resultaat officieel.</p>
   <div class="wedstrijd-lijst">
@@ -107,7 +107,7 @@
   <div class="kaart">
     <h3>Bracketfase</h3>
     {% if open_shootouts %}
-    <p class="shootout-melding">⚡ <strong>Nog {{ open_shootouts }} shootout(s).</strong>
+    <p class="shootout-melding"><strong>Nog {{ open_shootouts }} shootout(s).</strong>
        Deze teams staan gelijk tot en met hun programma en spelen om de laatste
        plaatsen: winnaar door, verliezer eruit.</p>
     {% endif %}
@@ -163,7 +163,7 @@
      <strong>onderlinge duel</strong>, maar enkel als alle teams uit die groep
      onderling gespeeld hebben. Daarna telt de <strong>kwaliteit</strong> van je
      overwinningen: de punten van de teams die je versloeg. Staat ook dat gelijk,
-     dan je hele <strong>programma</strong> — de punten van al je tegenstanders.</p>
+     dan je hele <strong>programma</strong>: de punten van al je tegenstanders.</p>
   <p class="stil klein-tekst">Valt het dan nog niet te scheiden én hangt er een
      knockoutticket van af, dan volgt <strong>één ronde shootouts</strong> tussen de
      teams rond de streep: precies zoveel partijen als er plaatsen te verdelen zijn,
@@ -181,13 +181,13 @@
       <h3>{{ groep.teams|length }} teams op {{ groep.punten }} punten</h3>
       {% if groep.status == 'shootout' %}<span class="pil pil-rood">shootout beslist</span>
       {% elif groep.status == 'onderling' %}<span class="pil pil-actief">onderling duel besliste</span>
-      {% elif groep.status == 'shootout_bezig' %}<span class="pil pil-rood">⏳ shootout bezig</span>
+      {% elif groep.status == 'shootout_bezig' %}<span class="pil pil-rood">shootout bezig</span>
       {% elif groep.status == 'shootout_klaar' %}<span class="pil pil-actief">shootout besliste</span>
       {% elif groep.status == 'kwaliteit' %}<span class="pil">kwaliteit besliste</span>
       {% elif groep.status == 'programma' %}<span class="pil">programma besliste</span>
-      {% elif groep.status == 'kringetje' %}<span class="pil pil-rol">🔄 gelijkspel — toernooikracht besliste</span>
+      {% elif groep.status == 'kringetje' %}<span class="pil pil-rol">gelijkspel, toernooikracht besliste</span>
       {% else %}<span class="pil">toernooikracht besliste</span>{% endif %}
-      {% if groep.raakt_ticket %}<span class="pil pil-toernooi">🎟️ ticket op het spel</span>{% endif %}
+      {% if groep.raakt_ticket %}<span class="pil pil-toernooi">ticket op het spel</span>{% endif %}
     </div>
     <p class="klein-tekst">{{ groep.uitleg }}</p>
 
@@ -255,7 +255,7 @@
           <tr>
             <td class="stil klein-tekst">{{ 'Shootout' if d.fase == 'shootout' else 'Bracket' }}</td>
             <td class="naam">{{ namen[d.team1] }} <span class="vs-klein">vs</span> {{ namen[d.team2] }}</td>
-            <td>{% if d.status == 'gespeeld' %}🏆 {{ namen[d.winnaar] }}
+            <td>{% if d.status == 'gespeeld' %}{{ namen[d.winnaar] }}
                 {% else %}<span class="stil">nog te spelen</span>{% endif %}</td>
           </tr>
           {% endfor %}
@@ -296,9 +296,9 @@
         </span>
       </div>
       <div class="wedstrijd-meta">
-        {% if g['status'] == 'gespeeld' %}🏆 {{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|datum }}
-        {% else %}📅 {{ g['scheduled_at']|datum }}{% endif %}
-        {% if g['location_id'] and loc_namen.get(g['location_id']) %} · 📍 {{ loc_namen[g['location_id']] }}{% endif %}
+        {% if g['status'] == 'gespeeld' %}{{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|datum }}
+        {% else %}{{ g['scheduled_at']|datum }}{% endif %}
+        {% if g['location_id'] and loc_namen.get(g['location_id']) %} · {{ loc_namen[g['location_id']] }}{% endif %}
         · <span class="pil">{{ g|fase }}</span>
       </div>
     </div>

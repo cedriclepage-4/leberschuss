@@ -768,8 +768,8 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
     stuk = (f"iedereen speelt nu {doel} wedstrijden in plaats van "
             f"{t['bracket_ronden']}" if doel != t["bracket_ronden"]
             else f"iedereen speelt nog altijd {doel} wedstrijden")
-    return True, (f"“{naam}” is teruggetrokken. Al hun wedstrijden — ook de al "
-                  f"ingevulde forfaits — zijn geschrapt en er zijn "
+    return True, (f"“{naam}” is teruggetrokken. Al hun wedstrijden (ook de al "
+                  f"ingevulde forfaits) zijn geschrapt en er zijn "
                   f"{len(nieuw)} nieuwe affiches geloot, zodat {stuk}.")
 
 
@@ -1203,7 +1203,7 @@ def tiebreak_groepen(db, tid):
             meespelers = sum(1 for r in rijen if r.get("onbeslist"))
             status, uitleg = "shootout", (
                 "Deze teams staan gelijk op punten, op de kwaliteit van hun "
-                "overwinningen én op hun programma — er valt niets meer te rekenen, "
+                "overwinningen én op hun programma. Er valt niets meer te rekenen, "
                 "en het gaat over een ticket voor de knockout. Wie ook daarna nog "
                 f"sowieso boven of onder de streep eindigt, blijft buiten schot; de "
                 f"{meespelers} ploegen rond de streep spelen om de overblijvende "
@@ -1565,7 +1565,7 @@ def evalueer(db, tid):
             db.execute("UPDATE tournaments SET status = ? WHERE id = ?",
                        (nieuwe_status, tid))
             if nieuwe_status == "afgelopen":
-                meldingen.append("De finale is gespeeld — het toernooi zit erop!")
+                meldingen.append("De finale is gespeeld, het toernooi zit erop!")
         db.commit()
         return meldingen
 
@@ -1621,7 +1621,7 @@ def evalueer(db, tid):
     else:
         geplaatst = [r["team_id"] for r in geordend[:t["ko_teams"]]]
         maak_knockout(db, t, geplaatst)
-        meldingen.append(f"De bracketfase is afgelopen — de laatste "
+        meldingen.append(f"De bracketfase is afgelopen. De laatste "
                          f"{t['ko_teams']} teams zijn geloot in het knockoutschema.")
     return meldingen
 

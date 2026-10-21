@@ -13,7 +13,7 @@
 <h2 class="sectiekop" id="league">Wat zien de spelers?</h2>
 <div class="kaart">
   <p class="stil klein-tekst">De site bestaat uit twee delen. Je kan het
-     leaguegedeelte — klassement, wedstrijden, statistieken en seizoenen —
+     leaguegedeelte (klassement, wedstrijden, statistieken en seizoenen)
      volledig verbergen en enkel met toernooien werken. Jij als organisator
      blijft alles zien, ook wanneer het uit staat, zodat je in alle rust kan
      klaarzetten. Aanzetten kan later met datzelfde vinkje: er gaat niets
@@ -34,13 +34,13 @@
 
 <h2 class="sectiekop" id="backup">Back-up</h2>
 <div class="kaart">
-  <p class="stil klein-tekst">De volledige competitie — spelers, teams, wedstrijden,
-     toernooien en alle ratings — zit in één bestand. <strong>Download er af en toe
+  <p class="stil klein-tekst">De volledige competitie (spelers, teams, wedstrijden,
+     toernooien en alle ratings) zit in één bestand. <strong>Download er af en toe
      eentje</strong>, zeker vlak vóór en vlak ná een toernooi: dan kan je altijd
      terug, ook als de server ermee ophoudt. Er wordt ook automatisch een kopie
      gemaakt telkens de site opstart.</p>
   <p class="rij-form">
-    <a class="knop primair" href="{{ url_for('backup_download') }}">⬇️ Download een back-up</a>
+    <a class="knop primair" href="{{ url_for('backup_download') }}">Download een back-up</a>
     <form method="post" action="{{ url_for('backup_nu') }}">
       <button type="submit" class="knop">Bewaar er nu eentje op de server</button>
     </form>
@@ -108,10 +108,10 @@
 
   <h3 class="ruimte-boven">Alles wissen</h3>
   <p class="stil klein-tekst">Wist alles van hierboven én <strong>alle spelers, teams,
-     accounts en profielfoto's</strong> — dus ook dat van jou. Je wordt uitgelogd en
+     accounts en profielfoto's</strong>, dus ook dat van jou. Je wordt uitgelogd en
      moet je opnieuw registreren; dat eerste account wordt dan automatisch weer
      eigenaar. Je instellingen, je zelfgemaakte <em>rangen</em> en je
-     <em>statistiektypes</em> blijven wel bestaan — die verwijder je apart bij
+     <em>statistiektypes</em> blijven wel bestaan. Die verwijder je apart bij
      <a class="profiel-link" href="{{ url_for('admin_klassement') }}">Rangen &amp; statistieken</a>.</p>
   <form method="post" action="{{ url_for('database_legen') }}">
     <input type="hidden" name="omvang" value="alles">
@@ -160,9 +160,9 @@
   <h3>Alles herberekenen</h3>
   <p class="stil klein-tekst">Speelt elke gespeelde wedstrijd chronologisch opnieuw af en
      berekent zo de permanente Aura, alle seizoens-Aura's en de toernooistanden opnieuw.
-     Handig als er iets niet lijkt te kloppen — je kan er niets mee stukmaken.</p>
+     Handig als er iets niet lijkt te kloppen. Je kan er niets mee stukmaken.</p>
   <form method="post" action="{{ url_for('herberekenen') }}">
-    <button type="submit" class="knop">🔄 Alle ratings herberekenen</button>
+    <button type="submit" class="knop">Alle ratings herberekenen</button>
   </form>
 </div>
 

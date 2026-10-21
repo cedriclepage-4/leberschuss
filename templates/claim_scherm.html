@@ -4,7 +4,7 @@
 
 {% if not open %}
 <div class="kaart aandacht-kaart">
-  <p class="klein-tekst">⚠️ Accounts opeisen staat <strong>dicht</strong>: wie deze code
+  <p class="klein-tekst">Accounts opeisen staat <strong>dicht</strong>: wie deze code
      scant, kan nog niets doen. Zet het open bij
      <a class="profiel-link" href="{{ url_for('admin_spelers') }}#claimen">Accounts opeisen</a>.</p>
 </div>
@@ -12,14 +12,14 @@
 
 <section class="scherm">
   <h1 class="scherm-titel">Scan en kies je naam</h1>
-  <p class="scherm-onder">Je account staat al klaar — je hoeft enkel een wachtwoord te kiezen.</p>
+  <p class="scherm-onder">Je account staat al klaar. Je hoeft enkel een wachtwoord te kiezen.</p>
 
   <div class="scherm-raster">
     <div class="qr-kader">
       {% if qr %}{{ qr }}
       {% else %}
       <p class="klein-tekst conflict-tekst">Geen QR-code: het pakket <code>segno</code>
-         ontbreekt. Installeer het met <code>pip install segno</code> — het adres
+         ontbreekt. Installeer het met <code>pip install segno</code>. Het adres
          hiernaast werkt ondertussen gewoon.</p>
       {% endif %}
     </div>

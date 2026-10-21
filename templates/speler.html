@@ -11,7 +11,7 @@
         {% if rang %}<span class="rang-pil groot" data-kleur="{{ rang['color'] }}">{{ rang['name'] }}</span>{% endif %}
         {% if not speler['active'] %}<span class="pil">inactief</span>{% endif %}
       </h1>
-      <p><span class="speler-id" title="Spelersnummer — handig om elkaar terug te vinden">#{{ speler['id'] }}</span>
+      <p><span class="speler-id" title="Spelersnummer, handig om elkaar terug te vinden">#{{ speler['id'] }}</span>
          {% if speler['nickname'] %}Accountnaam: {{ speler['name'] }} · {% endif %}{% if is_eigen %}Dit is jouw profiel. {% endif %}Lid sinds {{ speler['created_at']|datum }}.</p>
     </div>
   </div>
@@ -35,7 +35,7 @@
   {% for u in uitnodigingen %}
   <div class="kaart">
     <div class="wedstrijd-teams"><span class="team-naam">{{ u.naam }}</span></div>
-    <div class="wedstrijd-meta">✉️ {{ u.partner }} wil met jou een team vormen{% if u.beschrijving %} — “{{ u.beschrijving }}”{% endif %}</div>
+    <div class="wedstrijd-meta">{{ u.partner }} wil met jou een team vormen{% if u.beschrijving %}: “{{ u.beschrijving }}”{% endif %}</div>
     <div class="actie-rij ruimte-boven">
       <form method="post" action="{{ url_for('team_antwoord', team_id=u.id) }}" class="inline-form">
         <input type="hidden" name="actie" value="accepteren">
@@ -121,7 +121,7 @@
 <div class="kaart">
   <h3>Wachten op antwoord</h3>
   {% for v in verstuurd %}
-  <p class="stil">⏳ “{{ v.naam }}” — uitnodiging verstuurd naar {{ v.partner }}.</p>
+  <p class="stil">“{{ v.naam }}”: uitnodiging verstuurd naar {{ v.partner }}.</p>
   {% endfor %}
 </div>
 {% endif %}
@@ -160,11 +160,11 @@
   <form method="post" action="{{ url_for('profiel_instellingen') }}" enctype="multipart/form-data">
     <label>Je naam
       <input type="text" value="{{ speler['name'] }}" disabled></label>
-    <p class="stil klein-tekst velduitleg">🔒 Je echte naam hoort bij je account en ligt vast —
-       daarmee log je ook in. Klopt er iets niet? Vraag het aan een organisator.</p>
+    <p class="stil klein-tekst velduitleg">Je echte naam hoort bij je account en ligt vast.
+       Daarmee log je ook in. Klopt er iets niet? Vraag het aan een organisator.</p>
     <label>Bijnaam (zo verschijn je overal op de site; leeg = je echte naam)
       <input type="text" name="bijnaam" maxlength="30" value="{{ speler['nickname'] }}"></label>
-    <label>Profielfoto (png, jpg, webp of gif — max. 3 MB)
+    <label>Profielfoto (png, jpg, webp of gif, max. 3 MB)
       <input type="file" name="avatar" accept=".png,.jpg,.jpeg,.webp,.gif"></label>
     <button type="submit" class="knop primair">Opslaan</button>
   </form>

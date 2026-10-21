@@ -13,7 +13,7 @@
 
 {% if not league_zichtbaar %}
 <div class="kaart aandacht-kaart">
-  <p class="klein-tekst">🙈 Het leaguegedeelte staat uit: <strong>spelers zien de
+  <p class="klein-tekst">Het leaguegedeelte staat uit: <strong>spelers zien de
      seizoenen niet</strong>. Je kan hier gerust alles klaarzetten; het wordt pas
      zichtbaar wanneer je de league aanzet bij
      {% if is_eigenaar %}<a class="profiel-link" href="{{ url_for('admin_instellingen') }}#league">Instellingen</a>{% else %}de eigenaar{% endif %}.</p>
@@ -23,7 +23,7 @@
 <div class="kaart">
   <h3>Nieuw seizoen</h3>
   <form method="post" action="{{ url_for('seizoen_nieuw') }}" class="rij-form">
-    <input type="text" name="naam" placeholder="Naam (bv. Seizoen 2026–2027)" required>
+    <input type="text" name="naam" placeholder="Naam (bv. Seizoen 2026-2027)" required>
     <label class="inline-datum">Van <input type="date" name="start" required></label>
     <label class="inline-datum">Tot <input type="date" name="einde" required></label>
     <button type="submit" class="knop primair">Seizoen aanmaken</button>
@@ -40,14 +40,14 @@
       <button type="submit" class="knop gevaar klein">Verwijderen</button>
     </form>
   </div>
-  <div class="wedstrijd-meta">📅 {{ item.seizoen['start_date']|dag }} t.e.m. {{ item.seizoen['end_date']|dag }}
+  <div class="wedstrijd-meta">{{ item.seizoen['start_date']|dag }} t.e.m. {{ item.seizoen['end_date']|dag }}
     · {{ item.speeldagen|length }} speeldag{{ 'en' if item.speeldagen|length != 1 }}
     · {{ item.aantal_games }} wedstrijd{{ 'en' if item.aantal_games != 1 }}
     {%- if item.openstaand %} · <strong>{{ item.openstaand }} nog te spelen</strong>{% endif %}</div>
-  <p class="ruimte-boven">
+  <div class="knop-rij">
     <a class="knop primair" href="{{ url_for('admin_seizoen', seizoen_id=item.seizoen['id']) }}">Beheren</a>
     <a class="knop" href="{{ url_for('seizoen_detail', seizoen_id=item.seizoen['id']) }}">Publieke pagina</a>
-  </p>
+  </div>
 </div>
 {% else %}
 <div class="kaart leeg">Nog geen seizoenen. Maak er hierboven eentje aan.</div>

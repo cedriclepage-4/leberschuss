@@ -40,6 +40,7 @@ from flask import (Flask, abort, flash, g, redirect, render_template, request,
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import league as liga_motor
 import tournament as toernooi_motor
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
                       verbind, vrij_spelernummer)
@@ -96,7 +97,13 @@ MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
 
 _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png",
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
-                      "icon-maskable-512.png", "apple-touch-icon.png"}
+                      "icon-maskable-512.png", "apple-touch-icon.png",
+                      # lettertypes (Barlow), zelf gehost zodat ze ook offline werken
+                      "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2",
+                      "barlow-latin-600-normal.woff2", "barlow-latin-700-normal.woff2",
+                      "barlow-condensed-latin-600-normal.woff2",
+                      "barlow-condensed-latin-700-normal.woff2",
+                      "barlow-condensed-latin-800-normal.woff2"}
 _AVATAR_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
 _AVATAR_RE = re.compile(r"^avatar_[pt]\d+_[0-9a-f]{8}\.(png|jpg|jpeg|webp|gif)$")
 
@@ -404,21 +411,44 @@ def na_resultaat(db, game_id=None):
 
 def seizoen_klassement(db, seizoen_id):
     """Klassement binnen één seizoen (seizoens-Aura, iedereen startte op 1000)."""
-    spelers = db.execute(f"""
+    # Net als bij de teams: wie ingeschreven is hoort erbij te staan, ook vóór
+    # zijn eerste wedstrijd. De spelers van een ingeschreven team doen mee.
+    spelers = {r["pid"]: dict(r) for r in db.execute(f"""
         SELECT sr.*, {WEERGAVE} AS naam, p.avatar, p.id AS pid
         FROM season_ratings sr
         JOIN players p ON p.id = sr.entity_id
         WHERE sr.season_id = ? AND sr.entity_type = 'speler'
-        ORDER BY sr.elo DESC, naam
-    """, (seizoen_id,)).fetchall()
-    teams = db.execute("""
+    """, (seizoen_id,))}
+    for p in db.execute(f"""
+        SELECT p.id AS pid, {WEERGAVE} AS naam, p.avatar
+        FROM season_teams st
+        JOIN teams t ON t.id = st.team_id
+        JOIN players p ON p.id = t.player1_id OR p.id = t.player2_id
+        WHERE st.season_id = ?
+    """, (seizoen_id,)):
+        spelers.setdefault(p["pid"], {"pid": p["pid"], "naam": p["naam"],
+                                      "avatar": p["avatar"], "elo": START_ELO,
+                                      "gespeeld": 0, "winst": 0})
+    spelers = sorted(spelers.values(), key=lambda r: (-r["elo"], r["naam"]))
+    # Ingeschreven teams horen in het klassement te staan zodra ze zich
+    # inschrijven — ook vóór hun eerste wedstrijd. Wie nog niets speelde staat
+    # gewoon op de startwaarde met nul wedstrijden.
+    teams = {r["tid"]: dict(r) for r in db.execute("""
         SELECT sr.*, t.name AS naam, t.avatar, t.id AS tid
         FROM season_ratings sr
         JOIN teams t ON t.id = sr.entity_id
         WHERE sr.season_id = ? AND sr.entity_type = 'team'
-        ORDER BY sr.elo DESC, naam
-    """, (seizoen_id,)).fetchall()
-    return spelers, teams
+    """, (seizoen_id,))}
+    for t in db.execute("""
+        SELECT t.id AS tid, t.name AS naam, t.avatar
+        FROM season_teams st JOIN teams t ON t.id = st.team_id
+        WHERE st.season_id = ?
+    """, (seizoen_id,)):
+        teams.setdefault(t["tid"], {"tid": t["tid"], "naam": t["naam"],
+                                    "avatar": t["avatar"], "elo": START_ELO,
+                                    "gespeeld": 0, "winst": 0})
+    gesorteerd = sorted(teams.values(), key=lambda r: (-r["elo"], r["naam"]))
+    return spelers, gesorteerd
 
 
 def huidig_seizoen(db):
@@ -767,10 +797,10 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
                 label = f"Nog in de running · {KO_LABEL.get(volgende, 'knockout').lower()}"
                 klasse = "loopt"
             elif verst == 2 and gewonnen:
-                label = "🏆 Toernooiwinnaar"
+                label = "Toernooiwinnaar"
                 klasse = "goud"
             elif verst == 2:
-                label = "🥈 Finalist"
+                label = "Finalist"
                 klasse = "zilver"
             else:
                 label = f"Uitgeschakeld in de {KO_LABEL.get(verst, 'knockout').lower()}"
@@ -1351,8 +1381,21 @@ def index():
             ORDER BY date LIMIT 1
         """, (date.today().isoformat(),)).fetchone()
 
+    # Is er vandaag een speeldag? Dan hoort die bovenaan te staan met een knop
+    # erbij: op zo'n avond wil je niet drie keer doorklikken om te kunnen spelen.
+    speeldag_nu = klaar = zoekt = speelt = None
+    if league_toegankelijk():
+        speeldag_nu, is_vandaag = liga_motor.speeldag_vandaag(db)
+        if speeldag_nu is not None:
+            klaar, zoekt, speelt, _ = liga_motor.mijn_speeldagstatus(
+                db, speeldag_nu["id"], speeldag_nu["seizoen_id"],
+                mijn_teams(db, session.get("speler_id")))
+            speeldag_nu = dict(speeldag_nu, vandaag=is_vandaag)
+
     return render_template("index.html", spelers=spelers, teams=teams,
                            aantal_spelers=len(spelers), aantal_teams=len(teams),
+                           speeldag_nu=speeldag_nu, sd_klaar=klaar,
+                           sd_zoekt=zoekt, sd_speelt=speelt,
                            aantal_gespeeld=aantal_gespeeld, lopend=lopend,
                            lopend_label=(TOERNOOI_STATUS.get(lopend["status"], ("", ""))
                                          if lopend else None))
@@ -1396,11 +1439,18 @@ def seizoenen():
             WHERE md.season_id = ? AND g.status = 'gespeeld'
         """, (s["id"],)).fetchone()["n"]
         stats = seizoen_stats(db, s["id"]) if gespeeld else None
-        lijst.append({"seizoen": s, "status": seizoen_status(s),
+        status = seizoen_status(s)
+        lijst.append({"seizoen": s, "status": status,
                       "speeldagen": speeldagen, "gespeeld": gespeeld,
+                      # Inschrijven kan zolang het seizoen niet afgelopen is.
+                      "inschrijving": (inschrijfstatus(db, s["id"], session.get("speler_id"))
+                                       if status != "afgelopen" else []),
+                      "teams": len(liga_motor.ingeschreven(db, s["id"])),
                       "topklimmer": (stats["spelers_klim"][0] if stats and
                                      stats["spelers_klim"] else None)})
-    return render_template("seizoenen.html", lijst=lijst, start_elo=int(START_ELO))
+    vandaag_sd, is_vandaag = liga_motor.speeldag_vandaag(db)
+    return render_template("seizoenen.html", lijst=lijst, start_elo=int(START_ELO),
+                           vandaag_sd=vandaag_sd, sd_is_vandaag=is_vandaag)
 
 
 @app.route("/seizoen/<int:seizoen_id>")
@@ -1445,12 +1495,209 @@ def seizoen_detail(seizoen_id):
 
     sp_klassement, tm_klassement = seizoen_klassement(db, seizoen_id)
 
+    status = seizoen_status(seizoen)
+    vandaag_sd, is_vandaag = liga_motor.speeldag_vandaag(db)
+    if vandaag_sd is not None and vandaag_sd["seizoen_id"] != seizoen_id:
+        vandaag_sd = None
     return render_template("seizoen.html", seizoen=seizoen, huidig_seizoen=seizoen,
-                           status=seizoen_status(seizoen), speeldagen=speeldagen,
+                           vandaag_sd=vandaag_sd, sd_is_vandaag=is_vandaag,
+                           inschrijving=(inschrijfstatus(db, seizoen_id,
+                                                         session.get("speler_id"))
+                                         if status != "afgelopen" else []),
+                           ingeschreven_teams=liga_motor.ingeschreven(db, seizoen_id),
+                           status=status, speeldagen=speeldagen,
                            gepland=gepland, deltas=deltas,
                            stats_per_game=stats_per_game,
                            namen=namen, stats=seizoen_stats(db, seizoen_id),
                            sp_klassement=sp_klassement, tm_klassement=tm_klassement)
+
+
+# ---------------------------------------------------------------- speeldag --
+
+def mijn_teams(db, speler_id):
+    """De actieve teams waar deze speler in zit."""
+    if not speler_id:
+        return []
+    return db.execute("SELECT * FROM teams WHERE status = 'actief' AND "
+                      "(player1_id = ? OR player2_id = ?) ORDER BY name",
+                      (speler_id, speler_id)).fetchall()
+
+
+def inschrijfstatus(db, seizoen_id, speler_id):
+    """Per eigen team: doet het mee aan dit seizoen, en mag het er nog uit?
+
+    Wordt op elke pagina getoond waar een seizoen voorkomt, zodat inschrijven
+    nooit drie klikken diep zit.
+    """
+    if not speler_id:
+        return []
+    ingeschreven = {t["id"] for t in liga_motor.ingeschreven(db, seizoen_id)}
+    uit = []
+    for t in mijn_teams(db, speler_id):
+        gespeeld = db.execute("""
+            SELECT COUNT(*) AS n FROM games g
+            JOIN matchdays md ON md.id = g.matchday_id
+            WHERE md.season_id = ? AND (g.team1_id = ? OR g.team2_id = ?)
+        """, (seizoen_id, t["id"], t["id"])).fetchone()["n"]
+        uit.append({"team": t, "ingeschreven": t["id"] in ingeschreven,
+                    "mag_uit": t["id"] in ingeschreven and not gespeeld})
+    return uit
+
+
+def _mijn_team_of_fout(db, team_id):
+    """Mag ik namens dit team handelen? Geeft (team, foutmelding)."""
+    team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+    if not team:
+        return None, "Dat team bestaat niet."
+    if is_organisator():
+        return team, None                 # de organisatie mag bijspringen
+    speler_id = session.get("speler_id")
+    if speler_id not in (team["player1_id"], team["player2_id"]):
+        return None, "Je speelt zelf niet in dat team."
+    return team, None
+
+
+@app.route("/speeldag/<int:speeldag_id>")
+@league_vereist
+def speeldag(speeldag_id):
+    """De speeldag zelf: inschrijven, een tegenstander zoeken, uitdagen."""
+    db = get_db()
+    sd = db.execute("""
+        SELECT md.*, s.name AS seizoen, s.id AS seizoen_id
+        FROM matchdays md JOIN seasons s ON s.id = md.season_id WHERE md.id = ?
+    """, (speeldag_id,)).fetchone()
+    if not sd:
+        abort(404)
+
+    # Elke keer dat iemand kijkt, controleren we of er gekoppeld kan worden.
+    # Er draait geen achtergrondproces; dit ís de motor van de wachtrij.
+    for melding in liga_motor.koppel_wachtrij(db, speeldag_id):
+        flash(melding, "ok")
+
+    ik = session.get("speler_id")
+    eigen = mijn_teams(db, ik)
+    ingeschreven = {t["id"] for t in liga_motor.ingeschreven(db, sd["seizoen_id"])}
+    in_de_rij = {r["team_id"] for r in liga_motor.wachtrij(db, speeldag_id)}
+    aan_de_gang = liga_motor.bezig(db, speeldag_id)
+
+    mijn_status = []
+    for t in eigen:
+        mijn_status.append({
+            "team": t,
+            "ingeschreven": t["id"] in ingeschreven,
+            "zoekt": t["id"] in in_de_rij,
+            "speelt": t["id"] in aan_de_gang,
+            "uitdagingen": liga_motor.uitdagingen(db, speeldag_id, t["id"]),
+        })
+
+    # Wie kan je uitdagen? Ingeschreven teams die niet spelen en niet van jou zijn.
+    eigen_ids = {t["id"] for t in eigen}
+    tegenstanders = [t for t in liga_motor.ingeschreven(db, sd["seizoen_id"])
+                     if t["id"] not in eigen_ids and t["id"] not in aan_de_gang]
+
+    games = db.execute("SELECT * FROM games WHERE matchday_id = ? "
+                       "ORDER BY status, scheduled_at DESC, id DESC",
+                       (speeldag_id,)).fetchall()
+    return render_template("speeldag.html", sd=sd, huidig_seizoen=sd,
+                           mijn_status=mijn_status, tegenstanders=tegenstanders,
+                           games=games, namen=teamnamen(db),
+                           # De wachtrij zelf is enkel voor de organisatie.
+                           rij=(liga_motor.wachtrij(db, speeldag_id)
+                                if is_organisator() else None),
+                           status=(liga_motor.wachtrij_status(db, speeldag_id)
+                                   if is_organisator() else None))
+
+
+@app.route("/seizoen/<int:seizoen_id>/inschrijven", methods=["POST"])
+@speler_vereist
+@league_vereist
+def seizoen_inschrijven(seizoen_id):
+    db = get_db()
+    team, fout = _mijn_team_of_fout(db, int(request.form.get("team") or 0))
+    if fout:
+        flash(fout, "fout")
+    else:
+        ok, boodschap = liga_motor.inschrijven(db, seizoen_id, team["id"])
+        flash(boodschap, "ok" if ok else "fout")
+    return redirect(request.form.get("terug") or
+                    url_for("seizoen_detail", seizoen_id=seizoen_id))
+
+
+@app.route("/seizoen/<int:seizoen_id>/uitschrijven", methods=["POST"])
+@speler_vereist
+@league_vereist
+def seizoen_uitschrijven(seizoen_id):
+    db = get_db()
+    team, fout = _mijn_team_of_fout(db, int(request.form.get("team") or 0))
+    if fout:
+        flash(fout, "fout")
+    else:
+        ok, boodschap = liga_motor.uitschrijven(db, seizoen_id, team["id"])
+        flash(boodschap, "ok" if ok else "fout")
+    return redirect(request.form.get("terug") or
+                    url_for("seizoen_detail", seizoen_id=seizoen_id))
+
+
+@app.route("/speeldag/<int:speeldag_id>/zoeken", methods=["POST"])
+@speler_vereist
+@league_vereist
+def speeldag_zoeken(speeldag_id):
+    """Een tegenstander zoeken (of daarmee stoppen)."""
+    db = get_db()
+    team, fout = _mijn_team_of_fout(db, int(request.form.get("team") or 0))
+    if fout:
+        flash(fout, "fout")
+    elif request.form.get("stop"):
+        ok, boodschap = liga_motor.verlaten(db, speeldag_id, team["id"])
+        flash(boodschap, "ok" if ok else "fout")
+    else:
+        ok, boodschap = liga_motor.aansluiten(db, speeldag_id, team["id"])
+        flash(boodschap, "ok" if ok else "fout")
+        if ok:
+            for melding in liga_motor.koppel_wachtrij(db, speeldag_id):
+                flash(melding, "ok")
+    return redirect(url_for("speeldag", speeldag_id=speeldag_id))
+
+
+@app.route("/speeldag/<int:speeldag_id>/uitdagen", methods=["POST"])
+@speler_vereist
+@league_vereist
+def speeldag_uitdagen(speeldag_id):
+    db = get_db()
+    team, fout = _mijn_team_of_fout(db, int(request.form.get("team") or 0))
+    if fout:
+        flash(fout, "fout")
+    else:
+        ok, boodschap = liga_motor.uitdagen(db, speeldag_id, team["id"],
+                                            int(request.form.get("tegen") or 0))
+        flash(boodschap, "ok" if ok else "fout")
+    return redirect(url_for("speeldag", speeldag_id=speeldag_id))
+
+
+@app.route("/uitdaging/<int:uitdaging_id>", methods=["POST"])
+@speler_vereist
+@league_vereist
+def uitdaging_antwoord(uitdaging_id):
+    db = get_db()
+    c = db.execute("SELECT * FROM challenges WHERE id = ?", (uitdaging_id,)).fetchone()
+    if not c:
+        flash("Die uitdaging bestaat niet meer.", "fout")
+        return redirect(url_for("index"))
+    aanvaard = request.form.get("antwoord") == "ja"
+    # Aanvaarden of weigeren doet de uitgedaagde ploeg; intrekken de uitdager.
+    kant = c["naar_team_id"] if request.form.get("antwoord") else c["van_team_id"]
+    team, fout = _mijn_team_of_fout(db, kant)
+    if fout:
+        flash(fout, "fout")
+    elif not request.form.get("antwoord"):
+        db.execute("UPDATE challenges SET status = 'ingetrokken' WHERE id = ?",
+                   (uitdaging_id,))
+        db.commit()
+        flash("Uitdaging ingetrokken.", "ok")
+    else:
+        ok, boodschap = liga_motor.beantwoord_uitdaging(db, uitdaging_id, aanvaard)
+        flash(boodschap, "ok" if ok else "fout")
+    return redirect(url_for("speeldag", speeldag_id=c["matchday_id"]))
 
 
 # --------------------------------------------------------------- profielen --
@@ -1802,7 +2049,7 @@ def claim_account(speler_id):
             session["speler_id"] = speler_id
             g.pop("ik", None)
             flash(f"Welkom, {bijnaam or weergave(speler)}! Dit account is nu van jou. "
-                  "Onthoud je wachtwoord — je logt voortaan in met "
+                  "Onthoud je wachtwoord: je logt voortaan in met "
                   f"“{speler['name']}” of met #{speler_id}.", "ok")
             return redirect(url_for("speler_profiel", speler_id=speler_id))
 
@@ -1875,7 +2122,7 @@ def team_nieuw():
                    (naam, beschrijving, speler_id, partner_id,
                     (eigen_elo + partner["elo"]) / 2.0))
         db.commit()
-        flash(f"Team “{naam}” aangemaakt — zodra "
+        flash(f"Team “{naam}” aangemaakt. Zodra "
               f"{partner['nickname'] or partner['name']} de uitnodiging aanvaardt, "
               "kunnen jullie wedstrijden spelen.", "ok")
     return redirect(url_for("speler_profiel", speler_id=speler_id))
@@ -2068,7 +2315,7 @@ def wedstrijd_melden(game_id):
         db.commit()
         for melding in na_resultaat(db, game_id):
             flash(melding, "ok")
-        flash("Beide teams meldden dezelfde uitslag — het resultaat is officieel en "
+        flash("Beide teams meldden dezelfde uitslag. Het resultaat is officieel en "
               "de Aura-ratings zijn bijgewerkt!", "ok")
     else:
         flash("Oei: het andere team meldde een andere winnaar. Het resultaat blijft "
@@ -2464,6 +2711,28 @@ def speeldag_nieuw():
     db.commit()
     flash(f"“{titel}” toegevoegd aan {seizoen['name']}.", "ok")
     return terug
+
+
+@app.route("/admin/speeldagen/<int:speeldag_id>/tafels", methods=["POST"])
+@login_vereist
+def speeldag_tafels(speeldag_id):
+    """Hoeveel wedstrijden kunnen er die avond tegelijk lopen?"""
+    db = get_db()
+    rij = db.execute("SELECT season_id FROM matchdays WHERE id = ?",
+                     (speeldag_id,)).fetchone()
+    try:
+        tafels = max(1, min(20, int(request.form.get("tafels", ""))))
+    except ValueError:
+        flash("Geef een aantal tafels tussen 1 en 20.", "fout")
+    else:
+        db.execute("UPDATE matchdays SET tafels = ? WHERE id = ?", (tafels, speeldag_id))
+        db.commit()
+        flash(f"Aangepast naar {tafels} tafel(s).", "ok")
+        for melding in liga_motor.koppel_wachtrij(db, speeldag_id):
+            flash(melding, "ok")
+    if rij:
+        return redirect(url_for("admin_seizoen", seizoen_id=rij["season_id"]) + "#speeldagen")
+    return redirect(url_for("admin_seizoenen"))
 
 
 @app.route("/admin/speeldagen/<int:speeldag_id>/verwijderen", methods=["POST"])
@@ -2875,7 +3144,7 @@ def wedstrijd_resultaat(game_id):
     db.commit()
     for melding in na_resultaat(db, game_id):
         flash(melding, "ok")
-    flash("Resultaat opgeslagen — de Aura-ratings en klassementen zijn bijgewerkt.", "ok")
+    flash("Resultaat opgeslagen. De Aura-ratings en klassementen zijn bijgewerkt.", "ok")
     if game["tournament_id"]:
         return redirect(url_for("toernooi_beheer", toernooi_id=game["tournament_id"])
                         + "#openstaand")
@@ -2981,7 +3250,7 @@ def rang_nieuw():
         db.execute("INSERT INTO ranks (name, min_elo, max_elo, color) VALUES (?, ?, ?, ?)",
                    (naam, min_elo, max_elo, kleur))
         db.commit()
-        flash(f"Rang “{naam}” toegevoegd ({min_elo:.0f}–{max_elo:.0f} Aura).", "ok")
+        flash(f"Rang “{naam}” toegevoegd ({min_elo:.0f} tot {max_elo:.0f} Aura).", "ok")
     except Exception:
         flash(f"Er bestaat al een rang met de naam “{naam}”.", "fout")
     return redirect(url_for("admin_klassement") + "#rangen")
@@ -3227,8 +3496,8 @@ def database_legen():
         db.execute("UPDATE settings SET value = '0' WHERE key = 'claim_open'")
         db.commit()
         session.clear()
-        flash("De database is volledig leeggemaakt. Maak nu een nieuw account aan — "
-              "het eerste account wordt automatisch de eigenaar. Een back-up van de "
+        flash("De database is volledig leeggemaakt. Maak nu een nieuw account aan. "
+              "Het eerste account wordt automatisch de eigenaar. Een back-up van de "
               f"oude stand staat in backups/{os.path.basename(kopie)}.", "ok")
         return redirect(url_for("registreren"))
 

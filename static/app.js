@@ -125,7 +125,7 @@
       var aantal = treffers.filter(function (o) { return !o.uit; }).length;
       if (teller) {
         teller.textContent = !term ? "" : (aantal === 0
-          ? "Geen speler gevonden — probeer een deel van de naam of het nummer."
+          ? "Geen speler gevonden. Probeer een deel van de naam of het nummer."
           : aantal + (aantal === 1 ? " speler gevonden" : " spelers gevonden"));
       }
       if (aantal === 1) {
@@ -175,7 +175,7 @@
     window.addEventListener("beforeinstallprompt", function (e) {
       e.preventDefault();
       bewaard = e;
-      toon("📲 Zet Leberschuss op je startscherm — dan opent het als een app.", true);
+      toon("Zet Leberschuss op je startscherm, dan opent het als een app.", true);
     });
 
     knop.addEventListener("click", function () {
@@ -199,7 +199,7 @@
       /* Geen installatieknop mogelijk, dus enkel uitleg. "Niet nu" past hier
          niet als tekst — je stelt niets uit, je hebt het gelezen of niet. */
       weg.textContent = "Oké";
-      toon("📲 Op je startscherm zetten? Tik op het deel-icoon onderaan en kies "
+      toon("Op je startscherm zetten? Tik op het deel-icoon onderaan en kies "
            + "“Zet op beginscherm”.", false);
     }
   })();
