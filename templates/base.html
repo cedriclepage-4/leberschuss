@@ -82,6 +82,27 @@
     </div>
   </header>
 
+  {# Iemand schreef een nieuw team in met jou erin: bovenaan elke pagina, ook
+     boven de grote kop van de thuispagina, tot je antwoordt. #}
+  {% if te_bevestigen %}<div class="wrap ploeg-melding-wrap">
+    {% set m = te_bevestigen %}
+    <div class="kaart ploeg-melding" role="alert">
+      <p class="ploeg-melding-label">Je bent ingeschreven</p>
+      <p class="ploeg-melding-tekst"><strong>{{ m['door'] or 'Iemand' }}</strong> heeft jullie ingeschreven
+         voor <strong>{{ m['toernooi'] }}</strong> ({{ m['date']|dag }}, vanaf {{ m['start_tijd'] }}),
+         met het nieuwe team <strong>“{{ m['team'] }}”</strong>.</p>
+      <div class="ploeg-melding-knoppen">
+        <form method="post" action="{{ url_for('inschrijving_ok', toernooi_id=m['tournament_id'], team_id=m['team_id'], volgende=request.path) }}">
+          <button type="submit" class="knop primair">OK, top!</button>
+        </form>
+        <form method="post" action="{{ url_for('inschrijving_klopt_niet', toernooi_id=m['tournament_id'], team_id=m['team_id'], volgende=request.path) }}"
+              data-confirm="Je wordt uitgeschreven voor {{ m['toernooi'] }} en uit “{{ m['team'] }}” gehaald. Zeker?">
+          <button type="submit" class="knop gevaar">Dit klopt niet</button>
+        </form>
+      </div>
+    </div>
+  </div>{% endif %}
+
   {# Ruimte voor een kop over de volle breedte (enkel de thuispagina). #}
   {% block boven %}{% endblock %}
 
@@ -103,6 +124,7 @@
         </div>
       {% endif %}
     {% endwith %}
+
 
     {% block inhoud %}{% endblock %}
   </main>
@@ -132,10 +154,66 @@
     <span class="nu-tekst">
       <strong>{% if nu_spelen.gemeld %}Wachten op de tegenstander{% else %}Jouw wedstrijd{% endif %}</strong>
       <small>tegen {{ nu_spelen.tegenstander }}{% if nu_spelen.locatie %} · {{ nu_spelen.locatie }}{% endif %}
-        · {{ nu_spelen.wanneer|uur }}</small>
+        {%- if not nu_spelen.toernooi %} · {{ nu_spelen.wanneer|uur }}{% endif %}</small>
     </span>
     <span class="nu-actie">{{ 'Bekijken' if nu_spelen.gemeld else 'Uitslag melden' }} ›</span>
   </a>
+  {% endif %}
+
+  {% if viering and viering.soort == 'inschrijving' %}
+  {# Het grote scherm na het inschrijven voor een toernooi (zie viering.js). #}
+  <div class="viering viering-winst viering-inschrijving" role="dialog" aria-modal="true"
+       aria-label="Ingeschreven" tabindex="-1">
+    <div class="viering-vlak"></div>
+    <canvas class="viering-confetti" aria-hidden="true"></canvas>
+    <div class="viering-inhoud">
+      <div class="viering-icoon" aria-hidden="true">
+        <div class="viering-stralen"></div>
+        <svg class="viering-vink" viewBox="0 0 100 100"><circle class="vink-cirkel" cx="50" cy="50" r="44"/><path class="vink-lijn" d="M30 52 L44 66 L71 37"/></svg>
+      </div>
+      <p class="viering-titel">{{ 'Op de wachtlijst' if viering.wachtlijst else 'Ingeschreven!' }}</p>
+      <p class="viering-tegen">{{ viering.team }}{% if viering.partner and viering.partner not in viering.team %} · met {{ viering.partner }}{% endif %}</p>
+      <p class="viering-verder">{{ viering.toernooi }}</p>
+      <p class="viering-status">
+        {% if viering.wachtlijst %}<span class="viering-wacht">Je staat {{ viering.wachtlijst }}. Schrijft er iemand uit, dan schuif je vanzelf op.</span>
+        {% else %}<span class="viering-wacht">Tot dan! Je ploegmaat ziet de inschrijving ook op zijn profiel.</span>{% endif %}
+      </p>
+      <p class="viering-sluit">Tik om verder te gaan</p>
+    </div>
+  </div>
+  <script src="{{ url_for('statisch', bestand='viering.js') }}"></script>
+  {% elif viering %}
+  {# Het grote scherm na het melden van een uitslag (zie viering.js). #}
+  <div class="viering {{ 'viering-winst' if viering.gewonnen else 'viering-verlies' }}"
+       role="dialog" aria-modal="true" aria-label="{{ 'Gewonnen' if viering.gewonnen else 'Verloren' }}" tabindex="-1">
+    <div class="viering-vlak"></div>
+    <canvas class="viering-confetti" aria-hidden="true"></canvas>
+    <div class="viering-inhoud">
+      <div class="viering-icoon" aria-hidden="true">
+        <div class="viering-stralen"></div>
+        {% if viering.gewonnen %}
+        <svg class="viering-beker" viewBox="0 0 64 64"><path d="M20 8h24v14a12 12 0 0 1-24 0z"/><path class="oor" d="M20 13h-7v3a9 9 0 0 0 9 9M44 13h7v3a9 9 0 0 1-9 9"/><path d="M29 33h6v10h-6z"/><path d="M22 47h20l2 9H20z"/></svg>
+        {% else %}
+        <svg class="viering-vink" viewBox="0 0 100 100"><circle class="vink-cirkel" cx="50" cy="50" r="44"/><path class="vink-lijn" d="M30 52 L44 66 L71 37"/></svg>
+        {% endif %}
+      </div>
+      <p class="viering-titel">{{ 'Gewonnen!' if viering.gewonnen else 'Verloren' }}</p>
+      <p class="viering-tegen">tegen {{ viering.tegen }}</p>
+      {% if viering.verder %}<p class="viering-verder">{{ viering.verder }}</p>{% endif %}
+      <p class="viering-status">
+        {% if viering.officieel %}
+          <span class="viering-pil">Officieel</span>
+          {% if viering.aura is not none %}<span class="viering-aura">{{ '+' if viering.aura >= 0 }}{{ viering.aura }} Aura</span>{% endif %}
+        {% else %}
+          <span class="viering-pil">Gemeld</span>
+          <span class="viering-wacht">Officieel zodra {{ viering.tegen }} hetzelfde meldt</span>
+        {% endif %}
+      </p>
+      {% if not viering.gewonnen %}<p class="viering-troost">Kop op, de volgende is voor jullie.</p>{% endif %}
+      <p class="viering-sluit">Tik om verder te gaan</p>
+    </div>
+  </div>
+  <script src="{{ url_for('statisch', bestand='viering.js') }}"></script>
   {% endif %}
 
   <script src="{{ url_for('statisch', bestand='app.js') }}"></script>

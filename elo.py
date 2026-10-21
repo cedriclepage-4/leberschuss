@@ -48,8 +48,13 @@ FASE_LABEL = {
     "knockout": "Knockout",
 }
 
-KO_LABEL = {2: "Finale", 4: "Halve finale", 8: "Kwartfinale",
-            16: "Achtste finale", 32: "Zestiende finale"}
+# De kleine finale (om de derde plaats) tussen de verliezers van de halve
+# finales. In de database is dat een knockoutwedstrijd met ronde 3: zo valt hij
+# vanzelf tussen de halve finales (4) en de finale (2) in elke sortering.
+KLEINE_FINALE = 3
+
+KO_LABEL = {2: "Finale", KLEINE_FINALE: "Kleine finale", 4: "Halve finale",
+            8: "Kwartfinale", 16: "Achtste finale", 32: "Zestiende finale"}
 
 
 # In de knockout weegt een nederlaag maar half zo zwaar als een overwinning.
@@ -75,6 +80,10 @@ def fase_factor(fase: str, ronde=None, verloren: bool = False) -> float:
             n = int(ronde)
         except (TypeError, ValueError):
             n = None
+        if n == KLEINE_FINALE:
+            # Geen vermenigvuldiger en geen halve straf: een gewone wedstrijd
+            # die voor beide kanten even zwaar telt.
+            return 1.0
         f = KO_FACTOR.get(n, 1.25)
         return f * KO_VERLIES if verloren else f
     return FASE_FACTOR.get(fase, 1.0)

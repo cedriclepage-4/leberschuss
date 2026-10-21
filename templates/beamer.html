@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>{{ gegevens.naam }} · Beamer · Leberschuss Tonzent</title>
+  <link rel="stylesheet" href="{{ url_for('statisch', bestand='style.css') }}">
+  <link rel="icon" href="{{ url_for('statisch', bestand=logo_bestand) }}">
+</head>
+{# ---------------------------------------------------------------------
+   Beamerscherm van een toernooi. Laadt één keer en haalt daarna elke
+   {{ elke }} seconden de nieuwe stand op (zie beamer.js). Zo blijft het
+   ook in volledig scherm staan. Met ?demo=1 verzint het scherm zelf
+   uitslagen, om de animaties te bekijken zonder iets in te vullen.
+   --------------------------------------------------------------------- #}
+<body class="bm">
+  <canvas class="bm-rook" aria-hidden="true"></canvas>
+
+  <header class="bm-kop">
+    <a class="bm-logo" href="{{ url_for('toernooi_detail', toernooi_id=toernooi_id) }}" title="Terug naar de toernooipagina">
+      <img src="{{ url_for('statisch', bestand=logo_bestand) }}" alt="Leberschuss Tonzent">
+    </a>
+    <div class="bm-titel">
+      <h1>{{ gegevens.naam }}</h1>
+      <span class="bm-fase" data-fase-label>{{ gegevens.status_label }}</span>
+    </div>
+    <div class="bm-bediening">
+      <div class="bm-wissel" role="tablist" aria-label="Weergave">
+        <button type="button" data-weergave="stand">Stand</button>
+        <button type="button" data-weergave="knockout">Knockout</button>
+      </div>
+      <div class="bm-live" title="Ververst elke {{ elke }} seconden">
+        <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="bm-ring-bg" cx="18" cy="18" r="15"/><circle class="bm-ring" cx="18" cy="18" r="15"/></svg>
+        <span>Live</span>
+      </div>
+      <button type="button" class="bm-scherm-knop" data-volledig>Volledig scherm</button>
+    </div>
+  </header>
+
+  <main class="bm-midden">
+    <section class="bm-hoofd" aria-live="polite">
+      <div class="bm-stand" data-paneel="stand" hidden></div>
+      <div class="bm-bracket" data-paneel="knockout" hidden></div>
+    </section>
+
+    <aside class="bm-zij">
+      <h2>Laatste uitslagen</h2>
+      <ol class="bm-feed" data-feed></ol>
+      {% if qr %}
+      <div class="bm-qr">
+        <div class="bm-qr-code">{{ qr }}</div>
+        <div class="bm-qr-tekst"><strong>Volg mee op je gsm</strong><span>{{ adres }}</span></div>
+      </div>
+      {% endif %}
+    </aside>
+  </main>
+
+  <div class="bm-melding" data-melding hidden></div>
+  <div class="bm-feest" data-feest hidden>
+    <canvas class="bm-confetti" aria-hidden="true"></canvas>
+    <div class="bm-feest-inhoud">
+      <svg class="bm-feest-beker" viewBox="0 0 64 64" aria-hidden="true"><path d="M20 8h24v14a12 12 0 0 1-24 0z"/><path class="oor" d="M20 13h-7v3a9 9 0 0 0 9 9M44 13h7v3a9 9 0 0 1-9 9"/><path d="M29 33h6v10h-6z"/><path d="M22 47h20l2 9H20z"/></svg>
+      <p class="bm-feest-label">Toernooiwinnaar</p>
+      <p class="bm-feest-naam" data-feest-naam></p>
+      <p class="bm-feest-spelers" data-feest-spelers></p>
+    </div>
+  </div>
+
+  <script id="beamer-gegevens" type="application/json">{{ gegevens|tojson }}</script>
+  <script>
+    window.BEAMER = {
+      bron: "{{ url_for('toernooi_beamer_json', toernooi_id=toernooi_id) }}",
+      elke: {{ elke }},
+      demo: {{ 'true' if request.args.get('demo') == '1' else 'false' }}
+    };
+  </script>
+  <script src="{{ url_for('statisch', bestand='rook.js') }}"></script>
+  <script src="{{ url_for('statisch', bestand='beamer.js') }}"></script>
+</body>
+</html>

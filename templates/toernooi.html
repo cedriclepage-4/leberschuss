@@ -7,19 +7,26 @@
   <h1>{{ t['name'] }} <span class="pil pil-fase pil-{{ t['status'] }}">{{ label }}</span></h1>
   <p>{{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}
      {% if t['description'] %}<br>{{ t['description'] }}{% endif %}</p>
+  {% if t['status'] != 'opzet' %}
   <div class="held-cijfers">
     <div class="cijfer"><strong>{{ teams|length }}</strong><span>teams</span></div>
     <div class="cijfer"><strong>{{ t['bracket_ronden'] }}</strong><span>wedstrijden per team</span></div>
     <div class="cijfer"><strong>{{ t['ko_teams'] }}</strong><span>naar de knockout</span></div>
     {% if potten_aantal > 1 %}<div class="cijfer"><strong>{{ potten_aantal }}</strong><span>potten</span></div>{% endif %}
   </div>
+  {% elif teams|length >= ZICHTBAAR_VANAF or is_organisator %}
+  {# Vóór de loting: enkel hoeveel teams er al zijn, en pas vanaf een handvol. #}
+  <div class="held-cijfers">
+    <div class="cijfer"><strong>{{ teams|length }}</strong><span>teams ingeschreven</span></div>
+  </div>
+  {% endif %}
   {% if heeft_loting %}
   <div class="knop-rij">
     <a class="knop primair" href="{{ url_for('toernooi_loting', toernooi_id=t['id']) }}">Naar loting</a>
     {% if is_organisator %}
     <a class="knop" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Beheren</a>
-    <a class="knop" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}?beamer=1#stand"
-       title="Ververst zichzelf. Zet dit venster op de beamer en laat het openstaan">Beamermodus</a>
+    <a class="knop" href="{{ url_for('toernooi_beamer', toernooi_id=t['id']) }}"
+       title="Groot scherm met de stand of het knockoutschema. Zet het op de beamer en laat het openstaan: het werkt zichzelf bij.">Beamerscherm</a>
     {% endif %}
   </div>
   {% elif is_organisator %}
@@ -38,10 +45,11 @@
 {% endif %}
 
 {% if t['status'] == 'opzet' %}
-<div class="kaart leeg">
-  <p>Dit toernooi is nog niet geloot.</p>
-  <p class="klein-tekst">De organisatie stelt de deelnemende teams samen. Zodra alles klaar is,
-     wordt er geloot en verschijnt hier het volledige programma.</p>
+<div class="kaart inschrijf-kaart">
+  <h2 class="inschrijf-titel">De inschrijvingen zijn open</h2>
+  <p>Schrijf je team in voor {{ t['date']|dag }}. Eén van jullie twee volstaat.
+     Zodra er geloot is, verschijnt hier het volledige programma.</p>
+  <a class="knop primair groot" href="{{ url_for('toernooi_inschrijven', toernooi_id=t['id']) }}">Schrijf je in</a>
 </div>
 {% else %}
 
@@ -272,7 +280,7 @@
 
 <div data-paneel="kalender" class="paneel verborgen">
   {% for groep in groepen %}
-  <h3 class="maandkop">{{ groep.titel }}{% if groep.tijd %} · {{ groep.tijd|datum }}{% endif %}</h3>
+  <h3 class="maandkop">{{ groep.titel }}</h3>
   <div class="wedstrijd-lijst">
     {% for g in groep.games %}
     <div class="kaart wedstrijd">
@@ -296,10 +304,9 @@
         </span>
       </div>
       <div class="wedstrijd-meta">
-        {% if g['status'] == 'gespeeld' %}{{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|datum }}
-        {% else %}{{ g['scheduled_at']|datum }}{% endif %}
-        {% if g['location_id'] and loc_namen.get(g['location_id']) %} · {{ loc_namen[g['location_id']] }}{% endif %}
-        · <span class="pil">{{ g|fase }}</span>
+        {% if g['status'] == 'gespeeld' %}{{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|datum }} · {% endif %}
+        {%- if g['location_id'] and loc_namen.get(g['location_id']) %}{{ loc_namen[g['location_id']] }} · {% endif %}
+        <span class="pil">{{ g|fase }}</span>
       </div>
     </div>
     {% endfor %}
@@ -316,7 +323,9 @@
       {% for kolom in kolommen %}
       <div class="bracket-kolom">
         <div class="bracket-titel">{{ kolom.titel }}</div>
-        {% for g in kolom.games %}
+        {% set kleine = kolom.kleine_finale %}
+        {% for g in kolom.games + ([kleine] if kleine else []) %}
+        {% if g is sameas kleine %}<div class="bracket-titel bracket-titel-klein">Kleine finale</div>{% endif %}
         <div class="bracket-game {{ 'gespeeld' if g['status'] == 'gespeeld' }}">
           {% for kant in [1, 2] %}
             {% set team_id = g['team1_id'] if kant == 1 else g['team2_id'] %}
@@ -326,10 +335,11 @@
               {% else %}<em class="stil">—</em>{% endif %}
             </div>
           {% endfor %}
-          <div class="bracket-meta">
-            {% if g['status'] == 'gespeeld' %}{{ g['played_at']|dag }}
-            {% else %}{{ g['scheduled_at']|datum }}{% endif %}
-          </div>
+          {% if g['status'] == 'gespeeld' %}
+          <div class="bracket-meta">{{ g['played_at']|datum }}</div>
+          {% elif g['location_id'] and loc_namen.get(g['location_id']) %}
+          <div class="bracket-meta">{{ loc_namen[g['location_id']] }}</div>
+          {% endif %}
         </div>
         {% endfor %}
       </div>

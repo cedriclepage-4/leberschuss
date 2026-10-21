@@ -40,7 +40,7 @@
 
 <h2 class="sectiekop">De affiches</h2>
 {% for ronde in rondes %}
-<h3 class="maandkop">Speelronde {{ ronde.nummer }}{% if ronde.tijd %} · {{ ronde.tijd|datum }}{% endif %}</h3>
+<h3 class="maandkop">Speelronde {{ ronde.nummer }}</h3>
 <div class="affiche-raster">
   {% for a in ronde.affiches %}
   <div class="kaart affiche-kaart">
@@ -55,9 +55,7 @@
       <span class="affiche-naam">{{ a.b }}</span>
       <span class="klein-tekst stil">{{ a.b_elo }} Aura</span>
     </div>
-    <div class="affiche-tijd">
-      {{ a.tijd|datum }}{% if a.locatie %} · {{ a.locatie }}{% endif %}
-    </div>
+    {% if a.locatie %}<div class="affiche-tijd">{{ a.locatie }}</div>{% endif %}
   </div>
   {% endfor %}
 </div>

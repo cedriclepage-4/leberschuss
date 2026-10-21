@@ -10,19 +10,24 @@
 {% if lijst %}
 <div class="toernooi-raster">
   {% for r in lijst %}
-  <a class="kaart toernooi-kaart" href="{{ url_for('toernooi_detail', toernooi_id=r.t['id']) }}">
+  <a class="kaart toernooi-kaart" href="{{ url_for('toernooi_inschrijven', toernooi_id=r.t['id']) if r.t['status'] == 'opzet' else url_for('toernooi_detail', toernooi_id=r.t['id']) }}">
     <div class="toernooi-kop">
       <h3>{{ r.t['name'] }}</h3>
       <span class="pil pil-fase pil-{{ r.t['status'] }}">{{ r.label }}</span>
     </div>
     <p class="stil klein-tekst">{{ r.t['date']|dag }} · vanaf {{ r.t['start_tijd'] }}</p>
     {% if r.t['description'] %}<p class="team-beschrijving">{{ r.t['description'] }}</p>{% endif %}
+    {% if r.t['status'] != 'opzet' %}
     <div class="toernooi-cijfers">
       <span><strong>{{ r.teams }}</strong> teams</span>
       <span><strong>{{ r.gespeeld }}</strong>/{{ r.totaal }} gespeeld</span>
       <span><strong>{{ r.t['ko_teams'] }}</strong> naar de knockout</span>
     </div>
+    {% elif r.teams >= ZICHTBAAR_VANAF or is_organisator %}
+    <div class="toernooi-cijfers"><span><strong>{{ r.teams }}</strong> teams ingeschreven</span></div>
+    {% endif %}
     {% if r.winnaar %}<p class="toernooi-winnaar">Winnaar: {{ r.winnaar['name'] }}</p>{% endif %}
+    {% if r.t['status'] == 'opzet' %}<p class="toernooi-winnaar">Inschrijvingen open: schrijf je in ›</p>{% endif %}
   </a>
   {% endfor %}
 </div>

@@ -21,7 +21,7 @@ import sqlite3
 import time
 from urllib.parse import urlparse
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 from itertools import groupby
 
@@ -87,6 +87,11 @@ else:
 app.config["SESSION_COOKIE_HTTPONLY"] = True     # niet leesbaar voor javascript
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"    # niet meesturen vanaf andere sites
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("HTTPS") == "1"
+# Ingelogd blijven op je toestel, ook als je de site of de app sluit: de
+# sessiecookie blijft een jaar geldig en elk bezoek schuift die termijn op.
+# Wie een jaar niet langskomt, of op "Uitloggen" tikt, moet opnieuw inloggen.
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=365)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 
 if os.environ.get("ACHTER_PROXY") == "1":
     from werkzeug.middleware.proxy_fix import ProxyFix
@@ -98,6 +103,7 @@ MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
 _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png",
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
                       "icon-maskable-512.png", "apple-touch-icon.png", "thuis.js",
+                      "rook.js", "beamer.js", "viering.js",
                       # lettertypes (Barlow), zelf gehost zodat ze ook offline werken
                       "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2",
                       "barlow-latin-600-normal.woff2", "barlow-latin-700-normal.woff2",
@@ -136,6 +142,9 @@ def controleer_sessie():
                                    (speler_id,)).fetchone()
         if not bestaat:
             session.pop("speler_id", None)
+        elif not session.permanent:
+            # Ook wie al ingelogd was vóór deze regel, blijft voortaan ingelogd.
+            session.permanent = True
 
 
 def instelling(db, sleutel, standaard=None):
@@ -193,11 +202,16 @@ def de_eigenaar(db):
                       (ROL_EIGENAAR,)).fetchone()
 
 
+# Vóór de loting zien spelers niet wie er ingeschreven is, en het aantal teams
+# pas vanaf dit aantal: een bijna leeg toernooi schrikt anderen af.
+INSCHRIJVINGEN_ZICHTBAAR_VANAF = 5
+
+
 @app.context_processor
 def rollen_in_templates():
     """Zo kunnen de sjablonen `ik`, `is_organisator` en `is_eigenaar` gebruiken."""
     return {"ik": huidige_speler(), "is_organisator": is_organisator(),
-            "is_eigenaar": is_eigenaar()}
+            "is_eigenaar": is_eigenaar(), "ZICHTBAAR_VANAF": INSCHRIJVINGEN_ZICHTBAAR_VANAF}
 
 
 def login_vereist(f):
@@ -746,7 +760,7 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
             FROM tournaments tn
             JOIN tournament_teams tt ON tt.tournament_id = tn.id
             JOIN teams t ON t.id = tt.team_id
-            WHERE tt.team_id = ?
+            WHERE tt.team_id = ? AND tn.status != 'opzet'
             ORDER BY tn.date DESC, tn.id DESC
         """, (team_id,))
     else:
@@ -756,7 +770,7 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
             FROM tournaments tn
             JOIN tournament_teams tt ON tt.tournament_id = tn.id
             JOIN teams t ON t.id = tt.team_id
-            WHERE t.player1_id = ? OR t.player2_id = ?
+            WHERE (t.player1_id = ? OR t.player2_id = ?) AND tn.status != 'opzet'
             ORDER BY tn.date DESC, tn.id DESC
         """, (speler_id, speler_id))
 
@@ -802,6 +816,11 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
             elif verst == 2:
                 label = "Finalist"
                 klasse = "zilver"
+            elif verst == 3 and gewonnen:          # kleine finale gewonnen
+                label = "Derde plaats"
+                klasse = "brons"
+            elif verst == 3:
+                label = "Vierde plaats"
             else:
                 label = f"Uitgeschakeld in de {KO_LABEL.get(verst, 'knockout').lower()}"
                 klasse = "brons" if verst == 4 else ""
@@ -1240,12 +1259,23 @@ def extra_context():
             nu_spelen = actieve_wedstrijd(get_db(), session["speler_id"])
         except Exception:
             nu_spelen = None            # nooit een pagina laten crashen hierdoor
+    te_bevestigen = None
+    if session.get("speler_id") and request.endpoint not in (
+            None, "statisch", "media", "service_worker", "manifest"):
+        try:
+            te_bevestigen = _te_bevestigen(get_db(), session["speler_id"])
+        except Exception:
+            te_bevestigen = None
 
     return {"logo_bestand": naam, "sectie": sectie, "terug": _terugknop(pad),
             "league_zichtbaar": league_zichtbaar(),
             "league_toegankelijk": league_toegankelijk(),
             "claim_venster_open": claim_open(),
-            "nu_spelen": nu_spelen}
+            "nu_spelen": nu_spelen,
+            "te_bevestigen": te_bevestigen,
+            # Het grote scherm na het melden van een uitslag: één keer tonen.
+            "viering": session.pop("viering", None) if request.endpoint not in (
+                None, "statisch", "media", "service_worker", "manifest") else None}
 
 
 def seizoen_status(s):
@@ -1718,10 +1748,12 @@ def speler_profiel(speler_id):
 
     is_eigen = (session.get("speler_id") == speler_id)
 
-    # Teams van deze speler (actief); voor de eigenaar ook de uitnodigingen.
+    # Teams van deze speler: de actieve en de onvolledige (die hij oprichtte).
+    # Voor de speler zelf ook de uitnodigingen die hij kreeg.
     teams = []
-    uitnodigingen = []   # ontvangen (te beantwoorden)
-    verstuurd = []       # zelf verstuurd, wacht op antwoord
+    onvolledig = []
+    open_uitnodiging = {r["team_id"]: r["player_id"] for r in db.execute(
+        "SELECT team_id, player_id FROM team_invitations")}
     for t in db.execute("SELECT * FROM teams WHERE player1_id = ? OR player2_id = ? "
                         "ORDER BY elo DESC", (speler_id, speler_id)):
         partner_id = t["player2_id"] if t["player1_id"] == speler_id else t["player1_id"]
@@ -1733,10 +1765,37 @@ def speler_profiel(speler_id):
             info["gespeeld"] = ts["gespeeld"]
             info["winst"] = ts["winst"]
             teams.append(info)
-        elif is_eigen and t["player2_id"] == speler_id:
-            uitnodigingen.append(info)
-        elif is_eigen:
-            verstuurd.append(info)
+        else:
+            genodigde = open_uitnodiging.get(t["id"])
+            info["genodigde"] = namen_sp.get(genodigde) if genodigde else None
+            onvolledig.append(info)
+    uitnodigingen = []
+    if is_eigen:
+        for r in db.execute("SELECT t.* FROM team_invitations i JOIN teams t "
+                            "ON t.id = i.team_id WHERE i.player_id = ? ORDER BY i.created_at",
+                            (speler_id,)):
+            uitnodigingen.append({"id": r["id"], "naam": r["name"],
+                                  "beschrijving": r["description"],
+                                  "partner": namen_sp.get(r["player1_id"], "?")})
+
+    # Toernooien waarvoor deze speler (met een van zijn teams) al ingeschreven is.
+    inschrijvingen = []
+    for r in db.execute("""
+        SELECT tn.id, tn.name, tn.date, tn.start_tijd, t.name AS team, t.id AS team_id,
+               t.player1_id, t.player2_id
+        FROM tournament_teams tt
+        JOIN tournaments tn ON tn.id = tt.tournament_id
+        JOIN teams t ON t.id = tt.team_id
+        WHERE tn.status = 'opzet' AND (t.player1_id = ? OR t.player2_id = ?)
+        ORDER BY tn.date
+    """, (speler_id, speler_id)):
+        partner_id = r["player2_id"] if r["player1_id"] == speler_id else r["player1_id"]
+        wacht = toernooi_motor.wachtlijst(db, r["id"])
+        inschrijvingen.append({"id": r["id"], "naam": r["name"], "datum": r["date"],
+                               "start": r["start_tijd"], "team": r["team"],
+                               "partner": namen_sp.get(partner_id, "?"),
+                               "wachtlijst": (wacht.index(r["team_id"]) + 1)
+                                             if r["team_id"] in wacht else None})
 
     eigen_stats = db.execute("""
         SELECT st.name, st.unit, SUM(gs.value) AS totaal,
@@ -1815,7 +1874,8 @@ def speler_profiel(speler_id):
                            verlies=s["gespeeld"] - s["winst"],
                            pct=(100.0 * s["winst"] / s["gespeeld"]) if s["gespeeld"] else None,
                            rang=rang_voor(speler["elo"], rangen), teams=teams,
-                           uitnodigingen=uitnodigingen, verstuurd=verstuurd,
+                           uitnodigingen=uitnodigingen, onvolledig=onvolledig,
+                           inschrijvingen=inschrijvingen,
                            eigen_stats=eigen_stats, historiek=historiek,
                            namen=namen, punten=punten, is_eigen=is_eigen,
                            meldingen=meldingen, actieve_types=actieve_types,
@@ -1829,8 +1889,17 @@ def team_profiel(team_id):
     if not team:
         abort(404)
     is_lid = session.get("speler_id") in (team["player1_id"], team["player2_id"])
-    if team["status"] != "actief" and not (is_lid or is_organisator()):
-        abort(404)
+    is_oprichter = session.get("speler_id") == team["player1_id"]
+    uitnodiging = db.execute(f"""
+        SELECT i.*, {WEERGAVE} AS naam FROM team_invitations i
+        JOIN players p ON p.id = i.player_id WHERE i.team_id = ?
+    """, (team_id,)).fetchone()
+    kandidaten = []
+    if is_oprichter and team["status"] == "onvolledig" and not uitnodiging:
+        kandidaten = db.execute(f"""
+            SELECT p.id, {WEERGAVE} AS naam FROM players p
+            WHERE p.active = 1 AND p.id != ? ORDER BY naam
+        """, (team["player1_id"],)).fetchall()
 
     _, tm_stats = speel_statistieken(db)
     s = tm_stats.get(team_id, {"gespeeld": 0, "winst": 0})
@@ -1867,7 +1936,8 @@ def team_profiel(team_id):
                            stats=s, verlies=s["gespeeld"] - s["winst"],
                            pct=(100.0 * s["winst"] / s["gespeeld"]) if s["gespeeld"] else None,
                            historiek=historiek, namen=namen, is_lid=is_lid,
-                           heeft_games=heeft_games,
+                           is_oprichter=is_oprichter, uitnodiging=uitnodiging,
+                           kandidaten=kandidaten, heeft_games=heeft_games,
                            punten=elo_verloop(db, team_id, "team"),
                            seizoen_ratings=seizoen_ratings,
                            toernooien=toernooien_team, titels=titels)
@@ -1875,15 +1945,42 @@ def team_profiel(team_id):
 
 # ------------------------------------------------------------ spelersaccounts
 
+def _volgende():
+    """Waar moet je na het inloggen of registreren naartoe? (enkel deze site)"""
+    v = request.args.get("volgende") or ""
+    return v if v.startswith("/") and not v.startswith("//") else ""
+
+
 @app.route("/registreren", methods=["GET", "POST"])
 def registreren():
     db = get_db()
     # Het állereerste account wordt eigenaar: iemand moet de organisatie kunnen doen.
     eerste = db.execute("SELECT COUNT(*) AS n FROM players").fetchone()["n"] == 0
+    volgende = _volgende()
     if request.method == "POST":
         naam = " ".join((request.form.get("naam") or "").split())
         bijnaam = (request.form.get("bijnaam") or "").strip()
         ww = request.form.get("wachtwoord") or ""
+        bestaand = db.execute("SELECT * FROM players WHERE name = ? COLLATE NOCASE",
+                              (naam,)).fetchone() if naam else None
+        if (bestaand is not None and not bestaand["password_hash"]
+                and bestaand["aangemaakt_door"] and len(ww) >= 6 and len(bijnaam) <= 30):
+            # Een ploegmaat schreef je al in en maakte zo een account op jouw naam.
+            if request.form.get("dat_ben_ik") == "ja":
+                db.execute("UPDATE players SET password_hash = ?, nickname = ?, "
+                           "aangemaakt_door = NULL WHERE id = ?",
+                           (generate_password_hash(ww), bijnaam, bestaand["id"]))
+                _log_claim(db, bestaand, "claim")
+                db.commit()
+                session["speler_id"] = bestaand["id"]
+                session.permanent = True        # ingelogd blijven op dit toestel
+                g.pop("ik", None)
+                flash(f"Welkom bij Leberschuss Tonzent, {bijnaam or bestaand['name']}! "
+                      f"Je account (spelersnummer #{bestaand['id']}) is nu van jou.", "ok")
+                return redirect(volgende or url_for("speler_profiel", speler_id=bestaand["id"]))
+            return render_template("registreren.html", eerste=eerste, volgende=volgende,
+                                   overname=_overname_info(db, bestaand),
+                                   ingevuld={"naam": bestaand["name"], "bijnaam": bijnaam})
         if len(naam) < 3 or len(naam) > 40:
             flash("Vul je echte voor- en achternaam in (3 tot 40 tekens).", "fout")
         elif len(bijnaam) > 30:
@@ -1899,6 +1996,7 @@ def registreren():
                             ROL_EIGENAAR if eerste else ROL_SPELER, START_ELO))
                 db.commit()
                 session["speler_id"] = nummer
+                session.permanent = True        # ingelogd blijven op dit toestel
                 flash(f"Welkom bij Leberschuss Tonzent, {bijnaam or naam}! Je "
                       f"spelersnummer is #{nummer} en je start op {START_ELO:.0f} Aura. "
                       "Maak of aanvaard een team om mee te spelen.", "ok")
@@ -1906,12 +2004,31 @@ def registreren():
                     flash("Jij bent het eerste account en dus meteen de eigenaar van "
                           "deze site: jij kan anderen organisator maken via het "
                           "organisatiepaneel.", "ok")
-                return redirect(url_for("speler_profiel", speler_id=nummer))
+                return redirect(volgende or url_for("speler_profiel", speler_id=nummer))
             except Exception:
                 db.rollback()
-                flash("Er bestaat al een account met die naam. Ben jij dat? Log dan "
-                      "in. Anders: zet er iets bij, bv. je tweede voornaam.", "fout")
-    return render_template("registreren.html", eerste=eerste)
+                if bestaand is not None and not bestaand["password_hash"]:
+                    flash("Er staat al een account op jouw naam klaar, aangemaakt door de "
+                          "organisatie. Vraag hen om het opeisvenster te openen; dan kies "
+                          "je er zelf een wachtwoord voor.", "fout")
+                else:
+                    flash("Er bestaat al een account met die naam. Ben jij dat? Log dan "
+                          "in. Anders: zet er iets bij, bv. je tweede voornaam.", "fout")
+    return render_template("registreren.html", eerste=eerste, volgende=volgende,
+                           overname=None, ingevuld={})
+
+
+def _overname_info(db, speler):
+    """Wie maakte dit account aan, en in welke teams/toernooien staat het al?"""
+    maker = db.execute("SELECT * FROM players WHERE id = ?", (speler["aangemaakt_door"],)).fetchone()
+    teams = []
+    for t in db.execute("SELECT * FROM teams WHERE player1_id = ? OR player2_id = ?",
+                        (speler["id"], speler["id"])):
+        toernooien = [r["name"] for r in db.execute(
+            "SELECT tn.name FROM tournament_teams tt JOIN tournaments tn ON tn.id = tt.tournament_id "
+            "WHERE tt.team_id = ? ORDER BY tn.date", (t["id"],))]
+        teams.append({"naam": t["name"], "toernooien": toernooien})
+    return {"maker": weergave(maker) if maker else "een ploegmaat", "teams": teams}
 
 
 @app.route("/inloggen", methods=["GET", "POST"])
@@ -1927,10 +2044,11 @@ def inloggen():
             (ingave, int(sleutel) if sleutel.isdigit() else -1)).fetchone()
         if speler and speler["password_hash"] and check_password_hash(speler["password_hash"], ww):
             session["speler_id"] = speler["id"]
+            session.permanent = True        # ingelogd blijven op dit toestel
             g.pop("ik", None)
             flash(f"Welkom terug, {weergave(speler)}!", "ok")
-            volgende = request.args.get("volgende") or ""
-            if volgende.startswith("/") and not volgende.startswith("//"):
+            volgende = _volgende()
+            if volgende:
                 return redirect(volgende)
             return redirect(url_for("speler_profiel", speler_id=speler["id"]))
         flash("Naam of wachtwoord klopt niet.", "fout")
@@ -2047,6 +2165,7 @@ def claim_account(speler_id):
             _log_claim(db, speler, "claim")
             db.commit()
             session["speler_id"] = speler_id
+            session.permanent = True        # ingelogd blijven op dit toestel
             g.pop("ik", None)
             flash(f"Welkom, {bijnaam or weergave(speler)}! Dit account is nu van jou. "
                   "Onthoud je wachtwoord: je logt voortaan in met "
@@ -2089,6 +2208,44 @@ def profiel_instellingen():
     return redirect(url_for("speler_profiel", speler_id=speler_id))
 
 
+# ------------------------------------------------------------------ teams --
+#
+# Een team begint bij één speler: de oprichter. Zolang er geen tweede speler
+# is, is het team "onvolledig". De oprichter kan iemand uitnodigen (één
+# uitnodiging tegelijk); aanvaardt die, dan is het team actief en kan het
+# spelen. Weigert hij, dan blijft het team gewoon bestaan en kan de oprichter
+# iemand anders vragen.
+
+def _uitnodiging_probleem(db, team, partner_id):
+    """Waarom kan deze speler (nu) niet uitgenodigd worden? None = het mag."""
+    partner = db.execute("SELECT * FROM players WHERE id = ? AND active = 1",
+                         (partner_id,)).fetchone()
+    if not partner or partner_id == team["player1_id"]:
+        return "Kies een geldige teamgenoot."
+    if db.execute("SELECT 1 FROM teams WHERE status = 'actief' AND "
+                  "((player1_id = ? AND player2_id = ?) OR (player1_id = ? AND player2_id = ?))",
+                  (team["player1_id"], partner_id, partner_id, team["player1_id"])).fetchone():
+        return "Jullie twee hebben al een team samen."
+    if db.execute("SELECT 1 FROM team_invitations i JOIN teams t ON t.id = i.team_id "
+                  "WHERE t.player1_id = ? AND i.player_id = ? AND t.id != ?",
+                  (team["player1_id"], partner_id, team["id"])).fetchone():
+        return "Je hebt die speler al uitgenodigd voor een ander team."
+    return None
+
+
+def _nodig_uit(db, team, partner_id):
+    """Zet een uitnodiging klaar. Geeft (gelukt, boodschap)."""
+    probleem = _uitnodiging_probleem(db, team, partner_id)
+    if probleem:
+        return False, probleem
+    db.execute("DELETE FROM team_invitations WHERE team_id = ?", (team["id"],))
+    db.execute("INSERT INTO team_invitations (team_id, player_id) VALUES (?, ?)",
+               (team["id"], partner_id))
+    partner = db.execute("SELECT * FROM players WHERE id = ?", (partner_id,)).fetchone()
+    return True, (f"{partner['nickname'] or partner['name']} is uitgenodigd voor "
+                  f"“{team['name']}”. Zodra die aanvaardt, kunnen jullie spelen.")
+
+
 @app.route("/team/nieuw", methods=["POST"])
 @speler_vereist
 def team_nieuw():
@@ -2096,36 +2253,76 @@ def team_nieuw():
     speler_id = session["speler_id"]
     naam = (request.form.get("naam") or "").strip()
     beschrijving = (request.form.get("beschrijving") or "").strip()[:200]
+    partner_veld = (request.form.get("partner") or "").strip()
+    try:
+        partner_id = int(partner_veld) if partner_veld else None
+    except ValueError:
+        partner_id = None
+
+    if not naam or len(naam) > 40:
+        flash("Geef je team een naam van maximaal 40 tekens.", "fout")
+        return redirect(url_for("speler_profiel", speler_id=speler_id))
+    if db.execute("SELECT 1 FROM teams WHERE name = ?", (naam,)).fetchone():
+        flash("Er bestaat al een team met die naam.", "fout")
+        return redirect(url_for("speler_profiel", speler_id=speler_id))
+    if partner_id is not None:
+        # Eerst nakijken of de uitnodiging kan, vóór het team er is.
+        probleem = _uitnodiging_probleem(db, {"id": 0, "player1_id": speler_id}, partner_id)
+        if probleem:
+            flash(probleem, "fout")
+            return redirect(url_for("speler_profiel", speler_id=speler_id))
+
+    eigen_elo = db.execute("SELECT elo FROM players WHERE id = ?",
+                           (speler_id,)).fetchone()["elo"]
+    cur = db.execute("INSERT INTO teams (name, description, player1_id, status, elo) "
+                     "VALUES (?, ?, ?, 'onvolledig', ?)",
+                     (naam, beschrijving, speler_id, eigen_elo))
+    team = db.execute("SELECT * FROM teams WHERE id = ?", (cur.lastrowid,)).fetchone()
+    if partner_id is not None:
+        _ok, boodschap = _nodig_uit(db, team, partner_id)
+        flash(f"Team “{naam}” aangemaakt. {boodschap}", "ok")
+    else:
+        flash(f"Team “{naam}” aangemaakt. Het is nog onvolledig: nodig een "
+              "teamgenoot uit op de teampagina.", "ok")
+    db.commit()
+    if partner_id is None:
+        return redirect(url_for("team_profiel", team_id=team["id"]))
+    return redirect(url_for("speler_profiel", speler_id=speler_id))
+
+
+@app.route("/team/<int:team_id>/uitnodigen", methods=["POST"])
+@speler_vereist
+def team_uitnodigen(team_id):
+    db = get_db()
+    speler_id = session["speler_id"]
+    team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+    if not team or team["player1_id"] != speler_id:
+        abort(403)
+    if team["status"] != "onvolledig":
+        flash("Dit team is al volledig.", "fout")
+        return redirect(url_for("team_profiel", team_id=team_id))
     try:
         partner_id = int(request.form.get("partner", ""))
     except ValueError:
         flash("Kies een teamgenoot.", "fout")
-        return redirect(url_for("speler_profiel", speler_id=speler_id))
+        return redirect(url_for("team_profiel", team_id=team_id))
+    ok, boodschap = _nodig_uit(db, team, partner_id)
+    db.commit()
+    flash(boodschap, "ok" if ok else "fout")
+    return redirect(url_for("team_profiel", team_id=team_id))
 
-    partner = db.execute("SELECT * FROM players WHERE id = ? AND active = 1",
-                         (partner_id,)).fetchone()
-    if not partner or partner_id == speler_id:
-        flash("Kies een geldige teamgenoot.", "fout")
-    elif not naam or len(naam) > 40:
-        flash("Geef je team een naam van maximaal 40 tekens.", "fout")
-    elif db.execute("SELECT 1 FROM teams WHERE (player1_id = ? AND player2_id = ?) "
-                    "OR (player1_id = ? AND player2_id = ?)",
-                    (speler_id, partner_id, partner_id, speler_id)).fetchone():
-        flash("Jullie twee hebben al een team (of een openstaande uitnodiging).", "fout")
-    elif db.execute("SELECT 1 FROM teams WHERE name = ?", (naam,)).fetchone():
-        flash("Er bestaat al een team met die naam.", "fout")
-    else:
-        eigen_elo = db.execute("SELECT elo FROM players WHERE id = ?",
-                               (speler_id,)).fetchone()["elo"]
-        db.execute("INSERT INTO teams (name, description, player1_id, player2_id, "
-                   "status, elo) VALUES (?, ?, ?, ?, 'in_afwachting', ?)",
-                   (naam, beschrijving, speler_id, partner_id,
-                    (eigen_elo + partner["elo"]) / 2.0))
-        db.commit()
-        flash(f"Team “{naam}” aangemaakt. Zodra "
-              f"{partner['nickname'] or partner['name']} de uitnodiging aanvaardt, "
-              "kunnen jullie wedstrijden spelen.", "ok")
-    return redirect(url_for("speler_profiel", speler_id=speler_id))
+
+@app.route("/team/<int:team_id>/uitnodiging-intrekken", methods=["POST"])
+@speler_vereist
+def team_uitnodiging_intrekken(team_id):
+    db = get_db()
+    team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+    if not team or team["player1_id"] != session["speler_id"]:
+        abort(403)
+    db.execute("DELETE FROM team_invitations WHERE team_id = ?", (team_id,))
+    db.commit()
+    flash("Uitnodiging ingetrokken. Je kan iemand anders uitnodigen.", "ok")
+    return redirect(url_for("team_profiel", team_id=team_id))
 
 
 @app.route("/team/<int:team_id>/antwoord", methods=["POST"])
@@ -2134,16 +2331,29 @@ def team_antwoord(team_id):
     db = get_db()
     speler_id = session["speler_id"]
     team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
-    if not team or team["status"] != "in_afwachting" or team["player2_id"] != speler_id:
+    uitnodiging = db.execute("SELECT * FROM team_invitations WHERE team_id = ? AND "
+                             "player_id = ?", (team_id, speler_id)).fetchone()
+    if not team or not uitnodiging or team["status"] != "onvolledig":
         flash("Deze uitnodiging bestaat niet (meer).", "fout")
         return redirect(url_for("speler_profiel", speler_id=speler_id))
 
     if request.form.get("actie") == "accepteren":
-        db.execute("UPDATE teams SET status = 'actief' WHERE id = ?", (team_id,))
+        if db.execute("SELECT 1 FROM teams WHERE status = 'actief' AND "
+                      "((player1_id = ? AND player2_id = ?) OR (player1_id = ? AND player2_id = ?))",
+                      (team["player1_id"], speler_id, speler_id, team["player1_id"])).fetchone():
+            db.execute("DELETE FROM team_invitations WHERE id = ?", (uitnodiging["id"],))
+            db.commit()
+            flash("Jullie twee hebben intussen al een ander team samen.", "fout")
+            return redirect(url_for("speler_profiel", speler_id=speler_id))
+        elos = [r["elo"] for r in db.execute("SELECT elo FROM players WHERE id IN (?, ?)",
+                                             (team["player1_id"], speler_id))]
+        db.execute("UPDATE teams SET player2_id = ?, status = 'actief', elo = ? WHERE id = ?",
+                   (speler_id, sum(elos) / len(elos), team_id))
+        db.execute("DELETE FROM team_invitations WHERE team_id = ?", (team_id,))
         db.commit()
         flash(f"Je maakt nu deel uit van team “{team['name']}”. Veel succes!", "ok")
     else:
-        db.execute("DELETE FROM teams WHERE id = ?", (team_id,))
+        db.execute("DELETE FROM team_invitations WHERE id = ?", (uitnodiging["id"],))
         db.commit()
         flash("Uitnodiging geweigerd.", "ok")
     return redirect(url_for("speler_profiel", speler_id=speler_id))
@@ -2215,6 +2425,40 @@ def team_opheffen(team_id):
     return redirect(url_for("speler_profiel", speler_id=speler_id))
 
 
+def _viering(db, game, speler_id, gewonnen, tegen_naam, officieel):
+    """Wat het grote scherm na het melden toont (zie viering.js).
+
+    Gewonnen of verloren, tegen wie, en of het al officieel is. Is het
+    officieel, dan ook je Aura-verschil en (in de knockout) waar je nu staat.
+    """
+    v = {"gewonnen": bool(gewonnen), "tegen": tegen_naam, "officieel": bool(officieel),
+         "aura": None, "verder": None}
+    if officieel:
+        r = db.execute("""
+            SELECT elo_na - elo_voor AS d FROM rating_history
+            WHERE game_id = ? AND entity_type = 'speler' AND entity_id = ?
+              AND scope = 'permanent'
+        """, (game["id"], speler_id)).fetchone()
+        if r is not None and r["d"] is not None:
+            v["aura"] = int(round(r["d"]))
+        if game["fase"] == "knockout":
+            from elo import KO_LABEL, KLEINE_FINALE
+            if game["ronde"] == 2:
+                v["verder"] = "Toernooiwinnaar!" if gewonnen else "Tweede plaats"
+            elif game["ronde"] == KLEINE_FINALE:
+                v["verder"] = "Derde plaats" if gewonnen else "Vierde plaats"
+            elif gewonnen and game["volgende_game_id"]:
+                volgende = db.execute("SELECT ronde FROM games WHERE id = ?",
+                                      (game["volgende_game_id"],)).fetchone()
+                if volgende:
+                    v["verder"] = f"Door naar de {KO_LABEL.get(volgende['ronde'], 'volgende ronde').lower()}"
+            elif not gewonnen and game["ronde"] == 4:
+                v["verder"] = "Nog een kans op brons in de kleine finale"
+            elif not gewonnen:
+                v["verder"] = f"Uitgeschakeld in de {KO_LABEL.get(game['ronde'], 'knockout').lower()}"
+    return v
+
+
 @app.route("/wedstrijd/<int:game_id>/melden", methods=["POST"])
 def wedstrijd_melden(game_id):
     speler_id = session.get("speler_id")
@@ -2253,7 +2497,7 @@ def wedstrijd_melden(game_id):
     if vorige is not None:
         namen = teamnamen(db)
         flash(f"Werk eerst je vorige wedstrijd af: {namen[vorige['team1_id']]} tegen "
-              f"{namen[vorige['team2_id']]} van {filter_datum(vorige['scheduled_at'])}. "
+              f"{namen[vorige['team2_id']]} uit speelronde {vorige['ronde']}. "
               "De wedstrijden worden op volgorde gespeeld.", "fout")
         return redirect(terug)
 
@@ -2305,9 +2549,12 @@ def wedstrijd_melden(game_id):
 
     tegen = db.execute("SELECT * FROM game_reports WHERE game_id = ? AND team_id = ?",
                        (game_id, tegen_team)).fetchone()
+    tegen_naam = teamnamen(db).get(tegen_team, "de tegenstander")
     if tegen is None:
         flash("Je melding is geregistreerd. Zodra iemand van het andere team dezelfde "
               "uitslag meldt, wordt het resultaat officieel.", "ok")
+        session["viering"] = _viering(db, game, speler_id, keuze == "wij", tegen_naam,
+                                      officieel=False)
     elif tegen["winner_team_id"] == winnaar_team:
         db.execute("UPDATE games SET status = 'gespeeld', winner_team_id = ?, "
                    "played_at = ? WHERE id = ?",
@@ -2317,6 +2564,8 @@ def wedstrijd_melden(game_id):
             flash(melding, "ok")
         flash("Beide teams meldden dezelfde uitslag. Het resultaat is officieel en "
               "de Aura-ratings zijn bijgewerkt!", "ok")
+        session["viering"] = _viering(db, game, speler_id, keuze == "wij", tegen_naam,
+                                      officieel=True)
     else:
         flash("Oei: het andere team meldde een andere winnaar. Het resultaat blijft "
               "open tot de meldingen overeenkomen of een organisator beslist.", "fout")
@@ -2474,8 +2723,7 @@ def admin():
         "gespeeld": tel("SELECT COUNT(*) AS n FROM games WHERE status = 'gespeeld' "
                         "AND fase != 'shootout'"),
         "conflicten": _conflicten(db),
-        "uitnodigingen": tel("SELECT COUNT(*) AS n FROM teams "
-                             "WHERE status = 'in_afwachting'"),
+        "uitnodigingen": tel("SELECT COUNT(*) AS n FROM team_invitations"),
     }
     lopend = db.execute("""
         SELECT * FROM tournaments WHERE status IN ('bracket', 'knockout')
@@ -2621,8 +2869,10 @@ def admin_spelers():
         teams.append({"id": t["id"], "naam": t["name"], "status": t["status"],
                       "elo": t["elo"], "avatar": t["avatar"], "wedstrijden": aantal,
                       "blokkerend": [x["name"] for x in bezig],
-                      "leden": f'{namen_sp.get(t["player1_id"], "?")} & '
-                               f'{namen_sp.get(t["player2_id"], "?")}'})
+                      "leden": (f'{namen_sp.get(t["player1_id"], "?")} & '
+                                f'{namen_sp.get(t["player2_id"], "?")}'
+                                if t["player2_id"] else
+                                f'{namen_sp.get(t["player1_id"], "?")} (zoekt een teamgenoot)')})
     log = db.execute("SELECT * FROM claim_log ORDER BY moment DESC, id DESC "
                      "LIMIT 40").fetchall()
     return render_template("admin_spelers.html", spelers=spelers, teams=teams,
@@ -3624,11 +3874,15 @@ def _toernooi_of_404(db, toernooi_id):
     t = toernooi_motor.toernooi(db, toernooi_id)
     if not t:
         abort(404)
+    # Een knockout die al liep vóór de kleine finale bestond, krijgt er hier
+    # alsnog een (doet niets als hij er al is of niet meer kan).
+    if t["status"] == "knockout" and toernooi_motor.kleine_finale(db, toernooi_id) is None:
+        toernooi_motor.evalueer(db, toernooi_id)
     return t
 
 
 TOERNOOI_STATUS = {
-    "opzet": ("In opbouw", "De organisatie stelt de teams nog samen."),
+    "opzet": ("Inschrijvingen open", "Schrijf je team in. Bij de loting begint het toernooi."),
     "bracket": ("Bracketfase", "Alle teams spelen in één grote bracket."),
     "knockout": ("Knockout", "De besten strijden om de beker."),
     "afgelopen": ("Afgelopen", "Dit toernooi zit erop."),
@@ -3640,8 +3894,7 @@ def toernooien():
     db = get_db()
     lijst = []
     for t in db.execute("SELECT * FROM tournaments ORDER BY date DESC, id DESC"):
-        aantal = db.execute("SELECT COUNT(*) AS n FROM tournament_teams "
-                            "WHERE tournament_id = ?", (t["id"],)).fetchone()["n"]
+        aantal = len(toernooi_motor.deelnemers(db, t["id"], ook_teruggetrokken=True))
         gespeeld = db.execute("SELECT COUNT(*) AS n FROM games WHERE tournament_id = ? "
                               "AND status = 'gespeeld'", (t["id"],)).fetchone()["n"]
         totaal = db.execute("SELECT COUNT(*) AS n FROM games WHERE tournament_id = ?",
@@ -3725,6 +3978,407 @@ def toernooi_detail(toernooi_id):
                            heeft_loting=t["status"] != "opzet")
 
 
+# ------------------------------------------------------------- inschrijven --
+#
+# Een openbare pagina per toernooi waarmee spelers hun team vooraf inschrijven.
+# Bedoeld om rond te sturen (affiche, QR-code), dus zo eenvoudig mogelijk:
+#   * niet ingelogd: account maken of inloggen, en je komt hier terug;
+#   * al een team met je ploegmaat: dat team aanduiden en klaar;
+#   * nog geen team: naam van je ploegmaat intikken. Bestaat die speler al, dan
+#     nemen we die; anders maken we een account op die naam aan, dat de echte
+#     persoon overneemt door zich met precies die naam te registreren.
+# Eén van de twee spelers schrijft in; elk van beiden kan het team ook weer
+# uitschrijven, zolang er nog niet geloot is. Met een maximum komen de laatste
+# inschrijvers op een wachtlijst, die vanzelf opschuift.
+
+def _inschrijvingen(db, tid):
+    """Alle ingeschreven teams in volgorde van inschrijven, met wachtlijstplaats."""
+    wacht = toernooi_motor.wachtlijst(db, tid)
+    namen_sp = weergavenamen(db)
+    uit = []
+    for r in db.execute("""
+        SELECT tt.team_id, tt.ingeschreven_door, t.name, t.player1_id, t.player2_id, t.avatar
+        FROM tournament_teams tt JOIN teams t ON t.id = tt.team_id
+        WHERE tt.tournament_id = ? AND tt.teruggetrokken = 0 ORDER BY tt.id
+    """, (tid,)):
+        uit.append({"id": r["team_id"], "naam": r["name"], "avatar": r["avatar"],
+                    "spelers": [r["player1_id"], r["player2_id"]],
+                    "spelernamen": " & ".join(namen_sp.get(p, "?") for p in
+                                              (r["player1_id"], r["player2_id"]) if p),
+                    "wachtlijst": (wacht.index(r["team_id"]) + 1) if r["team_id"] in wacht else None})
+    return uit
+
+
+def _inschrijf_boodschap(db, tid, team_id):
+    wacht = toernooi_motor.wachtlijst(db, tid)
+    if team_id in wacht:
+        return f"op de wachtlijst (plaats {wacht.index(team_id) + 1})"
+    return None
+
+
+@app.route("/toernooi/<int:toernooi_id>/inschrijven", methods=["GET"])
+def toernooi_inschrijven(toernooi_id):
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    ik = session.get("speler_id")
+    lijst = _inschrijvingen(db, toernooi_id)
+    bezet = {p: x for x in lijst for p in x["spelers"] if p}
+    mijn = next((x for x in lijst if ik in x["spelers"]), None) if ik else None
+
+    mijn_teams = []
+    if ik and not mijn:
+        namen_sp = weergavenamen(db)
+        for team in mijn_teams_van(db, ik):
+            partner = team["player2_id"] if team["player1_id"] == ik else team["player1_id"]
+            probleem = None
+            if partner in bezet:
+                probleem = (f"{namen_sp.get(partner, '?')} is al ingeschreven met "
+                            f"“{bezet[partner]['naam']}”")
+            mijn_teams.append({"id": team["id"], "naam": team["name"], "avatar": team["avatar"],
+                               "partner": namen_sp.get(partner, "?"), "probleem": probleem})
+    spelers = [] if not ik else [
+        {"id": r["id"], "naam": r["naam"], "echt": r["name"]}
+        for r in db.execute(f"SELECT p.id, p.name, {WEERGAVE} AS naam FROM players p "
+                            "WHERE p.active = 1 AND p.id != ? ORDER BY naam", (ik,))]
+    bevestigd = sum(1 for x in lijst if not x["wachtlijst"])
+    terug = url_for("toernooi_inschrijven", toernooi_id=toernooi_id)
+    return render_template("inschrijven.html", t=t, lijst=lijst, mijn=mijn,
+                           mijn_teams=mijn_teams, spelers=spelers, bevestigd=bevestigd,
+                           open=t["status"] == "opzet", terug=terug,
+                           ik_naam=weergave(huidige_speler()) if ik else "",
+                           adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id),
+                           qr=qr_svg(externe_url("toernooi_inschrijven", toernooi_id=toernooi_id)))
+
+
+def mijn_teams_van(db, speler_id):
+    """Actieve teams van een speler, alfabetisch."""
+    return db.execute("SELECT * FROM teams WHERE status = 'actief' AND "
+                      "(player1_id = ? OR player2_id = ?) ORDER BY name",
+                      (speler_id, speler_id)).fetchall()
+
+
+@app.route("/toernooi/<int:toernooi_id>/inschrijven", methods=["POST"])
+@speler_vereist
+def toernooi_inschrijven_post(toernooi_id):
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    ik = session["speler_id"]
+    terug = url_for("toernooi_inschrijven", toernooi_id=toernooi_id)
+    if t["status"] != "opzet":
+        flash("De inschrijvingen voor dit toernooi zijn gesloten: er is al geloot.", "fout")
+        return redirect(terug)
+    lijst = _inschrijvingen(db, toernooi_id)
+    bezet = {p: x for x in lijst for p in x["spelers"] if p}
+    if ik in bezet:
+        flash(f"Je bent al ingeschreven met “{bezet[ik]['naam']}”.", "fout")
+        return redirect(terug)
+
+    keuze = request.form.get("keuze") or ""
+    te_bevestigen = None
+    if keuze.startswith("team:"):
+        # 1. Een bestaand team van mij.
+        try:
+            team_id = int(keuze[5:])
+        except ValueError:
+            team_id = -1
+        team = db.execute("SELECT * FROM teams WHERE id = ? AND status = 'actief' AND "
+                          "(player1_id = ? OR player2_id = ?)", (team_id, ik, ik)).fetchone()
+        if not team:
+            flash("Kies een van je eigen teams.", "fout")
+            return redirect(terug)
+    else:
+        # 2. Een (nieuwe) ploegmaat: bestaande speler of nieuwe naam.
+        partner_naam = " ".join((request.form.get("partner_naam") or "").split())
+        try:
+            partner_id = int(request.form.get("partner_id") or 0)
+        except ValueError:
+            partner_id = 0
+        partner = None
+        if partner_id:
+            partner = db.execute("SELECT * FROM players WHERE id = ? AND active = 1",
+                                 (partner_id,)).fetchone()
+        if partner is None and partner_naam:
+            # Dezelfde naam (hoofdletters maken niet uit) = dezelfde persoon.
+            partner = db.execute("SELECT * FROM players WHERE name = ? COLLATE NOCASE",
+                                 (partner_naam,)).fetchone()
+        if partner is None:
+            if len(partner_naam) < 3 or len(partner_naam) > 40 or " " not in partner_naam:
+                flash("Tik de volledige naam van je ploegmaat in (voor- en achternaam).", "fout")
+                return redirect(terug + "#nieuw")
+            nummer = vrij_spelernummer(db)
+            db.execute("INSERT INTO players (id, name, nickname, password_hash, role, elo, "
+                       "aangemaakt_door) VALUES (?, ?, '', NULL, ?, ?, ?)",
+                       (nummer, partner_naam, ROL_SPELER, START_ELO, ik))
+            partner = db.execute("SELECT * FROM players WHERE id = ?", (nummer,)).fetchone()
+        if partner["id"] == ik:
+            flash("Je kan niet met jezelf in een team.", "fout")
+            return redirect(terug + "#nieuw")
+        if partner["id"] in bezet:
+            db.rollback()
+            flash(f"{weergave(partner)} is al ingeschreven met “{bezet[partner['id']]['naam']}”. "
+                  "Is dat een vergissing? Dan kan een van hen dat team uitschrijven.", "fout")
+            return redirect(terug)
+        # Hebben jullie al een team samen? Dan nemen we dat.
+        team = db.execute("SELECT * FROM teams WHERE status = 'actief' AND "
+                          "((player1_id = ? AND player2_id = ?) OR (player1_id = ? AND player2_id = ?))",
+                          (ik, partner["id"], partner["id"], ik)).fetchone()
+        if team is None:
+            # Nieuw duo: heeft de ploegmaat al een eigen account, dan krijgt hij
+            # een melding en kan hij het ongedaan maken. (Een klaargezet account
+            # ziet het bij het registreren; een bestaand team kent elkaar al.)
+            te_bevestigen = partner["id"] if partner["password_hash"] else None
+            teamnaam = (request.form.get("teamnaam") or "").strip()[:40]
+            if not teamnaam:
+                teamnaam = f"{weergave(huidige_speler())} & {weergave(partner)}"[:40]
+            if db.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE", (teamnaam,)).fetchone():
+                db.rollback()
+                flash(f"Er bestaat al een team met de naam “{teamnaam}”. Kies een andere naam.", "fout")
+                return redirect(terug + "#nieuw")
+            elos = [r["elo"] for r in db.execute("SELECT elo FROM players WHERE id IN (?, ?)",
+                                                 (ik, partner["id"]))]
+            cur = db.execute("INSERT INTO teams (name, player1_id, player2_id, status, elo) "
+                             "VALUES (?, ?, ?, 'actief', ?)",
+                             (teamnaam, ik, partner["id"], sum(elos) / len(elos)))
+            team = db.execute("SELECT * FROM teams WHERE id = ?", (cur.lastrowid,)).fetchone()
+            # Een eventuele openstaande uitnodiging tussen jullie twee is nu overbodig.
+            db.execute("DELETE FROM team_invitations WHERE player_id = ? AND team_id IN "
+                       "(SELECT id FROM teams WHERE player1_id = ? AND status = 'onvolledig')",
+                       (partner["id"], ik))
+
+    partner_id = team["player2_id"] if team["player1_id"] == ik else team["player1_id"]
+    if partner_id in bezet:
+        db.rollback()
+        flash("Je ploegmaat is al ingeschreven met een ander team.", "fout")
+        return redirect(terug)
+    db.execute("INSERT INTO tournament_teams (tournament_id, team_id, ingeschreven_door, "
+               "ingeschreven_op, te_bevestigen) VALUES (?, ?, ?, datetime('now', 'localtime'), ?)",
+               (toernooi_id, team["id"], ik, te_bevestigen))
+    db.commit()
+    partner_naam = weergavenamen(db).get(partner_id, "je ploegmaat")
+    wacht = _inschrijf_boodschap(db, toernooi_id, team["id"])
+    session["viering"] = {"soort": "inschrijving", "toernooi": t["name"], "team": team["name"],
+                          "partner": partner_naam, "wachtlijst": wacht}
+    flash(f"“{team['name']}” is ingeschreven voor {t['name']}"
+          + (f", {wacht}." if wacht else ". Tot dan!"), "ok")
+    return redirect(terug)
+
+
+@app.route("/toernooi/<int:toernooi_id>/uitschrijven", methods=["POST"])
+@speler_vereist
+def toernooi_uitschrijven(toernooi_id):
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    ik = session["speler_id"]
+    terug = url_for("toernooi_inschrijven", toernooi_id=toernooi_id)
+    try:
+        team_id = int(request.form.get("team", ""))
+    except ValueError:
+        team_id = -1
+    team = db.execute("SELECT * FROM teams WHERE id = ? AND (player1_id = ? OR player2_id = ?)",
+                      (team_id, ik, ik)).fetchone()
+    if not team:
+        abort(403)
+    if t["status"] != "opzet":
+        flash("Er is al geloot: uitschrijven kan nu enkel nog via de organisatie.", "fout")
+        return redirect(terug)
+    voor = toernooi_motor.wachtlijst(db, toernooi_id)
+    db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
+               (toernooi_id, team_id))
+    db.commit()
+    na = set(toernooi_motor.wachtlijst(db, toernooi_id))
+    flash(f"“{team['name']}” is uitgeschreven voor {t['name']}.", "ok")
+    opgeschoven = [x for x in voor if x not in na and x != team_id]
+    if opgeschoven:
+        naam = db.execute("SELECT name FROM teams WHERE id = ?", (opgeschoven[0],)).fetchone()["name"]
+        flash(f"“{naam}” schuift daardoor op van de wachtlijst.", "ok")
+    return redirect(terug)
+
+
+# ------------------------------------------------- melding voor de ploegmaat --
+#
+# Schrijft iemand een nieuw team in met een speler die al een account heeft,
+# dan ziet die speler bij zijn volgende bezoek een melding. "OK" laat alles zoals
+# het is; "Dit klopt niet" schrijft het team uit en haalt hem er weer uit.
+
+def _te_bevestigen(db, speler_id):
+    """De eerste openstaande melding voor deze speler, of None."""
+    return db.execute(f"""
+        SELECT tt.tournament_id, tt.team_id, tn.name AS toernooi, tn.date, tn.start_tijd,
+               t.name AS team, {WEERGAVE.replace('p.', 'd.')} AS door
+        FROM tournament_teams tt
+        JOIN tournaments tn ON tn.id = tt.tournament_id AND tn.status = 'opzet'
+        JOIN teams t ON t.id = tt.team_id
+        LEFT JOIN players d ON d.id = tt.ingeschreven_door
+        WHERE tt.te_bevestigen = ?
+        ORDER BY tt.id LIMIT 1""", (speler_id,)).fetchone()
+
+
+def _melding_rij(db, toernooi_id, team_id):
+    rij = db.execute("SELECT * FROM tournament_teams WHERE tournament_id = ? AND team_id = ? "
+                     "AND te_bevestigen = ?", (toernooi_id, team_id, session["speler_id"])).fetchone()
+    if not rij:
+        abort(404)
+    return rij
+
+
+@app.route("/inschrijving/<int:toernooi_id>/<int:team_id>/ok", methods=["POST"])
+@speler_vereist
+def inschrijving_ok(toernooi_id, team_id):
+    db = get_db()
+    _melding_rij(db, toernooi_id, team_id)
+    db.execute("UPDATE tournament_teams SET te_bevestigen = NULL "
+               "WHERE tournament_id = ? AND team_id = ?", (toernooi_id, team_id))
+    db.commit()
+    return redirect(_volgende() or url_for("toernooi_inschrijven", toernooi_id=toernooi_id))
+
+
+@app.route("/inschrijving/<int:toernooi_id>/<int:team_id>/klopt-niet", methods=["POST"])
+@speler_vereist
+def inschrijving_klopt_niet(toernooi_id, team_id):
+    """Uitschrijven én de ploegmaat weer uit het (nieuwe) team halen."""
+    db = get_db()
+    _melding_rij(db, toernooi_id, team_id)
+    ik = session["speler_id"]
+    team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
+    t = toernooi_motor.toernooi(db, toernooi_id)
+    voor = toernooi_motor.wachtlijst(db, toernooi_id)
+    db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
+               (toernooi_id, team_id))
+    andere = team["player2_id"] if team["player1_id"] == ik else team["player1_id"]
+    gespeeld = db.execute("SELECT 1 FROM games WHERE team1_id = ? OR team2_id = ? LIMIT 1",
+                          (team_id, team_id)).fetchone()
+    lopend = db.execute("""SELECT 1 FROM tournament_teams tt JOIN tournaments tn
+                           ON tn.id = tt.tournament_id AND tn.status != 'opzet'
+                           WHERE tt.team_id = ? LIMIT 1""", (team_id,)).fetchone()
+    if not gespeeld and not lopend:
+        # Het team bestond enkel door deze inschrijving: ik ga eruit, de andere
+        # blijft alleen achter (onvolledig) en kan iemand anders uitnodigen.
+        db.execute("UPDATE teams SET player1_id = ?, player2_id = NULL, status = 'onvolledig' "
+                   "WHERE id = ?", (andere, team_id))
+        # Ook nergens anders meer ingeschreven: alleen kan je niet meedoen.
+        db.execute("""DELETE FROM tournament_teams WHERE team_id = ? AND tournament_id IN
+                      (SELECT id FROM tournaments WHERE status = 'opzet')""", (team_id,))
+    db.commit()
+    flash(f"In orde: je bent uitgeschreven voor {t['name']} en je zit niet meer in "
+          f"“{team['name']}”.", "ok")
+    na = set(toernooi_motor.wachtlijst(db, toernooi_id))
+    for x in voor:
+        if x not in na and x != team_id:
+            n = db.execute("SELECT name FROM teams WHERE id = ?", (x,)).fetchone()
+            if n:
+                flash(f"“{n['name']}” schuift daardoor op van de wachtlijst.", "ok")
+            break
+    return redirect(_volgende() or url_for("index"))
+
+
+# ------------------------------------------------------------ beamerscherm --
+#
+# Eén groot scherm voor op de beamer, dat de fase van het toernooi volgt: de
+# stand tijdens de bracketfase, het knockoutschema daarna. De pagina laadt één
+# keer; daarna haalt ze om de 20 seconden de gegevens op via /beamer.json en
+# toont ze de veranderingen met een animatie. Zo blijft het scherm ook in
+# volledig scherm staan (herladen zou dat telkens afsluiten).
+
+def _beamer_gegevens(db, toernooi_id):
+    from elo import KO_LABEL
+    t = toernooi_motor.toernooi(db, toernooi_id)
+    teams = {x["id"]: x for x in toernooi_motor.deelnemers(db, toernooi_id,
+                                                           ook_teruggetrokken=True)}
+
+    def team(team_id):
+        if not team_id or team_id not in teams:
+            return None
+        x = teams[team_id]
+        return {"id": team_id, "naam": x["naam"], "spelers": x["spelers"],
+                "foto": url_for("media", bestand=x["avatar"]) if x["avatar"] else None}
+
+    stand = []
+    if t["status"] != "opzet":
+        geordend, _ = toernooi_motor.stand(db, toernooi_id)
+        for r in geordend:
+            stand.append({"id": r["team_id"], "naam": r["naam"], "spelers": r["spelers"],
+                          "foto": url_for("media", bestand=r["avatar"]) if r["avatar"] else None,
+                          "positie": r["positie"], "gespeeld": r["gespeeld"],
+                          "winst": r["winst"], "verlies": r["verlies"],
+                          "punten": r["punten"], "vorm": r["vorm"][-5:],
+                          "doorstoot": r["doorstoot"], "onbeslist": r["onbeslist"],
+                          "gedeeld": r.get("gedeeld", False)})
+
+    def wedstrijd(g):
+        return {"id": g["id"], "ronde": g["ronde"], "positie": g["positie"],
+                "volgende": g["volgende_game_id"], "slot": g["volgende_slot"],
+                "team1": team(g["team1_id"]), "team2": team(g["team2_id"]),
+                "winnaar": g["winner_team_id"], "gespeeld": g["status"] == "gespeeld",
+                "tijd": g["scheduled_at"]}
+
+    kolommen = []
+    kleine = None
+    for kolom in toernooi_motor.knockout_kolommen(db, toernooi_id):
+        kolommen.append({"titel": kolom["titel"], "ronde": kolom["ronde"],
+                         "games": [wedstrijd(g) for g in kolom["games"]]})
+        if kolom["kleine_finale"] is not None:
+            kleine = wedstrijd(kolom["kleine_finale"])
+
+    kampioen = None
+    if kolommen and kolommen[-1]["games"] and kolommen[-1]["games"][0]["gespeeld"]:
+        kampioen = team(kolommen[-1]["games"][0]["winnaar"])
+
+    laatste = []
+    for g in db.execute("""
+        SELECT * FROM games WHERE tournament_id = ? AND status = 'gespeeld'
+        ORDER BY played_at DESC, (fase = 'knockout') DESC,
+                 CASE WHEN fase = 'knockout' THEN ronde END ASC, id DESC LIMIT 7
+    """, (toernooi_id,)):
+        if g["fase"] == "knockout":
+            label = KO_LABEL.get(g["ronde"], "Knockout")
+        elif g["fase"] == "shootout":
+            label = "Shootout"
+        else:
+            label = f"Speelronde {g['ronde']}" if g["ronde"] else "Bracketfase"
+        laatste.append({"id": g["id"], "label": label, "team1": team(g["team1_id"]),
+                        "team2": team(g["team2_id"]), "winnaar": g["winner_team_id"]})
+
+    # Een vingerafdruk van alles wat op het scherm kan veranderen: is die gelijk,
+    # dan hoeft de pagina niets te doen.
+    afdruk = hashlib.sha1(json.dumps([t["status"], stand, kolommen, kleine, laatste],
+                                     sort_keys=True, default=str).encode()).hexdigest()[:12]
+    fase = "knockout" if t["status"] in ("knockout", "afgelopen") else "stand"
+    return {"versie": afdruk, "naam": t["name"], "status": t["status"],
+            "status_label": TOERNOOI_STATUS.get(t["status"], ("", ""))[0],
+            "fase": fase, "cut": t["ko_teams"], "stand": stand,
+            "knockout": {"kolommen": kolommen, "kleine_finale": kleine,
+                         "kampioen": kampioen},
+            "laatste": laatste}
+
+
+@app.route("/toernooi/<int:toernooi_id>/beamer")
+def toernooi_beamer(toernooi_id):
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    if t["status"] == "opzet" and not is_organisator():
+        return redirect(url_for("toernooi_detail", toernooi_id=toernooi_id))
+    gegevens = _beamer_gegevens(db, toernooi_id)
+    adres = externe_url("toernooi_detail", toernooi_id=toernooi_id)
+    try:
+        elke = max(3, min(120, int(request.args.get("elke", 20))))
+    except ValueError:
+        elke = 20
+    return render_template("beamer.html", gegevens=gegevens, toernooi_id=toernooi_id,
+                           adres=adres, qr=qr_svg(adres), elke=elke)
+
+
+@app.route("/toernooi/<int:toernooi_id>/beamer.json")
+def toernooi_beamer_json(toernooi_id):
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    if t["status"] == "opzet" and not is_organisator():
+        abort(404)
+    antwoord = app.response_class(json.dumps(_beamer_gegevens(db, toernooi_id)),
+                                  mimetype="application/json")
+    antwoord.headers["Cache-Control"] = "no-store"
+    return antwoord
+
+
 @app.route("/toernooi/<int:toernooi_id>/loting")
 def toernooi_loting(toernooi_id):
     db = get_db()
@@ -3776,7 +4430,27 @@ def toernooi_nieuw():
 def toernooi_beheer(toernooi_id):
     db = get_db()
     t = _toernooi_of_404(db, toernooi_id)
-    teams = toernooi_motor.deelnemers(db, toernooi_id)
+    teams = toernooi_motor.deelnemers(db, toernooi_id, ook_wachtlijst=True)
+    wacht = toernooi_motor.wachtlijst(db, toernooi_id)
+    for team in teams:
+        team["wachtlijst"] = (wacht.index(team["id"]) + 1) if team["id"] in wacht else None
+    if t["status"] == "opzet":
+        # Vóór de loting: in volgorde van inschrijving, met wie en wanneer.
+        info = {r["team_id"]: r for r in db.execute(f"""
+            SELECT tt.team_id, tt.id AS volgorde, tt.ingeschreven_op,
+                   {WEERGAVE.replace('p.', 'd.')} AS door
+            FROM tournament_teams tt LEFT JOIN players d ON d.id = tt.ingeschreven_door
+            WHERE tt.tournament_id = ?""", (toernooi_id,))}
+        zonder_account = {r["id"] for r in db.execute(
+            "SELECT id FROM players WHERE password_hash IS NULL")}
+        namen_w = weergavenamen(db)
+        for team in teams:
+            r = info.get(team["id"])
+            team["door"] = r["door"] if r else None
+            team["op"] = r["ingeschreven_op"] if r else ""
+            team["zonder_account"] = [namen_w.get(pid, "?") for pid in
+                                      (team["player1_id"], team["player2_id"]) if pid in zonder_account]
+        teams.sort(key=lambda x: info[x["id"]]["volgorde"] if x["id"] in info else 0)
     gekozen = {x["id"] for x in teams}
 
     namen_sp = weergavenamen(db)
@@ -3824,11 +4498,15 @@ def toernooi_beheer(toernooi_id):
     return render_template("admin_toernooi.html", t=t, teams=teams,
                            beschikbaar=beschikbaar,
                            locaties=toernooi_motor.locaties(db, toernooi_id),
+                           loc_namen={l["id"]: l["name"] for l in
+                                      toernooi_motor.locaties(db, toernooi_id)},
                            openstaand=openstaand, recent=recent,
                            namen=teamnamen(db),
                            meldingen_per_game=meldingen_per_game,
                            inzet=toernooi_motor.shootout_inzet(db, toernooi_id),
                            potten_aantal=toernooi_motor.potten_aantal(db, toernooi_id),
+                           inschrijf_adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id),
+                           wachtend=len(wacht),
                            terugtrek_opties={
                                team["id"]: toernooi_motor.terugtrek_opties(
                                    db, toernooi_id, team["id"])
@@ -3851,7 +4529,11 @@ def toernooi_instellingen(toernooi_id):
             "bracket_ronden": int(request.form.get("ronden") or t["bracket_ronden"]),
             "ko_teams": int(request.form.get("ko_teams") or t["ko_teams"]),
             "slot_minuten": int(request.form.get("slot") or t["slot_minuten"]),
+            "max_teams": (int(request.form["max_teams"]) if (request.form.get("max_teams") or "").strip()
+                          else None),
         }
+        if velden["max_teams"] is not None and velden["max_teams"] < 4:
+            raise ValueError
     except ValueError:
         flash("Vul geldige getallen in.", "fout")
         return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
@@ -3903,8 +4585,8 @@ def toernooi_teams(toernooi_id):
                              f"speelt al voor “{bezet[botsing]}”")
             continue
         try:
-            db.execute("INSERT INTO tournament_teams (tournament_id, team_id) "
-                       "VALUES (?, ?)", (toernooi_id, team_id))
+            db.execute("INSERT INTO tournament_teams (tournament_id, team_id, ingeschreven_op) "
+                       "VALUES (?, ?, datetime('now', 'localtime'))", (toernooi_id, team_id))
             toegevoegd += 1
             bezet[team["player1_id"]] = team["name"]
             bezet[team["player2_id"]] = team["name"]
@@ -3929,10 +4611,15 @@ def toernooi_team_weg(toernooi_id, team_id):
     if t["status"] != "opzet":
         flash("Het toernooi is al geloot; je kan de deelnemers niet meer wijzigen.", "fout")
     else:
+        wacht_voor = set(toernooi_motor.wachtlijst(db, toernooi_id))
+        naam = db.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()
         db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
                    (toernooi_id, team_id))
         db.commit()
-        flash("Team uit het toernooi gehaald.", "ok")
+        flash(f"“{naam['name'] if naam else 'Team'}” uit het toernooi gehaald.", "ok")
+        for tid_ in wacht_voor - set(toernooi_motor.wachtlijst(db, toernooi_id)) - {team_id}:
+            n = db.execute("SELECT name FROM teams WHERE id = ?", (tid_,)).fetchone()
+            flash(f"“{n['name']}” schuift daardoor op van de wachtlijst.", "ok")
     return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
 
 
@@ -3959,7 +4646,11 @@ def toernooi_team_terugtrekken(toernooi_id, team_id):
 @login_vereist
 def toernooi_locatie_nieuw(toernooi_id):
     db = get_db()
-    _toernooi_of_404(db, toernooi_id)
+    t = _toernooi_of_404(db, toernooi_id)
+    if t["status"] != "opzet":
+        flash("Na de loting liggen de tafels vast. Maak eerst de loting ongedaan "
+              "als je ze wil wijzigen.", "fout")
+        return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id) + "#locaties")
     naam = (request.form.get("naam") or "").strip()
     if not naam:
         flash("Geef de locatie een naam, bv. “Tafel 1”.", "fout")
@@ -3979,6 +4670,11 @@ def toernooi_locatie_nieuw(toernooi_id):
 @login_vereist
 def toernooi_locatie_weg(toernooi_id, locatie_id):
     db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    if t["status"] != "opzet":
+        flash("Na de loting liggen de tafels vast: de wedstrijden op die tafel "
+              "zouden anders hun plaats kwijtraken.", "fout")
+        return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id) + "#locaties")
     db.execute("DELETE FROM tournament_locations WHERE id = ? AND tournament_id = ?",
                (locatie_id, toernooi_id))
     db.commit()

@@ -21,13 +21,26 @@
     <div class="cijfer"><strong>{{ stats['winst'] }}</strong><span>gewonnen</span></div>
     <div class="cijfer"><strong>{{ verlies }}</strong><span>verloren</span></div>
     {% if pct is not none %}<div class="cijfer"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
-    {% if toernooi_stats.gespeeld %}
-    <div class="cijfer"><strong>{{ toernooi_stats.winst }}/{{ toernooi_stats.gespeeld }}</strong><span>toernooiwedstrijden</span></div>
-    {% endif %}
   </div>
 </section>
 
 {% with toon_team = true %}{% include "_palmares.html" %}{% endwith %}
+
+{% if inschrijvingen and (is_eigen or is_organisator) %}
+<h2 class="sectiekop">Ingeschreven voor</h2>
+<div class="wedstrijd-lijst">
+  {% for i in inschrijvingen %}
+  <a class="kaart lopend-kaart" href="{{ url_for('toernooi_inschrijven', toernooi_id=i.id) }}">
+    <span class="lopend-tekst">
+      <span class="lopend-label">{{ 'Wachtlijst, plaats ' ~ i.wachtlijst if i.wachtlijst else 'Ingeschreven' }}</span>
+      <strong>{{ i.naam }}</strong>
+      <small>{{ i.datum|dag }} · vanaf {{ i.start }} · met {{ i.partner }} in “{{ i.team }}”</small>
+    </span>
+    {% if is_eigen %}<span class="lopend-actie">Bekijken ›</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if is_eigen and uitnodigingen %}
 <h2 class="sectiekop">Teamuitnodigingen</h2>
@@ -113,47 +126,60 @@
   </table>
 </div>
 {% else %}
-<div class="kaart leeg">{% if is_eigen %}Je zit nog in geen enkel team.{% else %}Deze speler zit nog in geen enkel actief team.{% endif %}</div>
+<div class="kaart leeg">{% if is_eigen %}Je zit nog in geen enkel volledig team.{% else %}Deze speler zit nog in geen enkel actief team.{% endif %}</div>
+{% endif %}
+
+{% if onvolledig %}
+<div class="kaart">
+  <h3>Onvolledige teams</h3>
+  <p class="stil klein-tekst">Een team met nog maar één speler. Het kan spelen zodra er een
+     teamgenoot bij is.</p>
+  <ul class="onvolledig-lijst">
+    {% for o in onvolledig %}
+    <li>
+      <a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=o.id) }}">
+        {%- if o.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=o.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ o.naam[0]|upper }}</span>{% endif %} {{ o.naam }}</a>
+      <span class="pil">onvolledig</span>
+      {% if is_eigen %}
+        {% if o.genodigde %}<span class="stil klein-tekst">uitnodiging verstuurd naar {{ o.genodigde }}</span>
+        {% else %}<a class="profiel-link klein-tekst" href="{{ url_for('team_profiel', team_id=o.id) }}#uitnodigen">nodig iemand uit</a>{% endif %}
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
 {% endif %}
 
 {% if is_eigen %}
-{% if verstuurd %}
-<div class="kaart">
-  <h3>Wachten op antwoord</h3>
-  {% for v in verstuurd %}
-  <p class="stil">“{{ v.naam }}”: uitnodiging verstuurd naar {{ v.partner }}.</p>
-  {% endfor %}
-</div>
-{% endif %}
 <div class="kaart">
   <h3>Nieuw team maken</h3>
-  <p class="stil klein-tekst">Kies een teamgenoot en verzin een naam. Je teamgenoot moet de
-     uitnodiging eerst aanvaarden voor jullie kunnen spelen. Je kan in meerdere teams zitten.</p>
-  {% if partners %}
+  <p class="stil klein-tekst">Verzin een naam en kies eventueel meteen een teamgenoot. Zonder
+     teamgenoot is je team voorlopig onvolledig; je kan later nog iemand uitnodigen. Je
+     teamgenoot moet de uitnodiging aanvaarden voor jullie kunnen spelen. Je kan in
+     meerdere teams zitten.</p>
   <form method="post" action="{{ url_for('team_nieuw') }}">
-    <label>Teamgenoot zoeken op naam of spelersnummer
+    <div class="rij-form">
+      <input type="text" name="naam" placeholder="Teamnaam" maxlength="40" required>
+    </div>
+    <label>Beschrijving (optioneel)
+      <input type="text" name="beschrijving" maxlength="200" placeholder="Bv. de onklopbare kelderkampioenen"></label>
+    {% if partners %}
+    <label>Teamgenoot (optioneel): zoek op naam of spelersnummer
       <input type="search" id="partner-zoek" data-filter-doel="#partner-keuze"
              placeholder="Bv. “jef” of “12”" autocomplete="off">
     </label>
-    <select name="partner" id="partner-keuze" required
+    <select name="partner" id="partner-keuze"
             {% if partners|length > 6 %}size="8"{% endif %} class="partner-keuze">
-      <option value="" disabled selected>Kies je teamgenoot…</option>
+      <option value="" selected>Nog niemand, ik nodig later iemand uit</option>
       {% for pt in partners %}
       <option value="{{ pt['id'] }}" data-term="{{ pt['naam'] }} {{ pt['id'] }}">
         #{{ pt['id'] }} · {{ pt['naam'] }}</option>
       {% endfor %}
     </select>
     <p class="stil klein-tekst" id="partner-teller"></p>
-    <div class="rij-form">
-      <input type="text" name="naam" placeholder="Teamnaam" maxlength="40" required>
-    </div>
-    <label>Beschrijving (optioneel)
-      <input type="text" name="beschrijving" maxlength="200" placeholder="Bv. de onklopbare kelderkampioenen"></label>
-    <button type="submit" class="knop primair">Uitnodiging versturen</button>
+    {% endif %}
+    <button type="submit" class="knop primair">Team aanmaken</button>
   </form>
-  {% else %}
-  <p class="stil">Er zijn nog geen andere spelers om mee te teamen.</p>
-  {% endif %}
 </div>
 <div class="kaart">
   <h3>Profielinstellingen</h3>

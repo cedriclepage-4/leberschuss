@@ -28,6 +28,8 @@ import math
 import random
 from datetime import datetime, timedelta
 
+from elo import KLEINE_FINALE
+
 PUNTEN_WINST = 3
 TIJDFORMAAT = "%Y-%m-%dT%H:%M"
 
@@ -45,11 +47,29 @@ def locaties(db, tid):
                       "ORDER BY id", (tid,)).fetchall()
 
 
-def deelnemers(db, tid, ook_teruggetrokken=False):
+def wachtlijst(db, tid):
+    """De teams (id's) die op de wachtlijst staan, in volgorde.
+
+    Heeft het toernooi een maximum, dan zijn de eerste zoveel ingeschreven teams
+    (in volgorde van inschrijven) zeker van hun plaats; de rest wacht. Schrijft
+    iemand zich uit, dan schuift de wachtlijst vanzelf op. Na de loting is er
+    geen wachtlijst meer (wie er nog op stond, is bij het loten geschrapt).
+    """
+    t = toernooi(db, tid)
+    if not t or t["status"] != "opzet" or not t["max_teams"]:
+        return []
+    ids = [r["team_id"] for r in db.execute(
+        "SELECT team_id FROM tournament_teams WHERE tournament_id = ? AND "
+        "teruggetrokken = 0 ORDER BY id", (tid,))]
+    return ids[t["max_teams"]:]
+
+
+def deelnemers(db, tid, ook_teruggetrokken=False, ook_wachtlijst=False):
     """Teams van dit toernooi, met naam, permanente Aura en de twee spelers.
 
     Wie zich teruggetrokken heeft, doet niet meer mee: die valt uit de stand, uit
-    de loting en uit alle berekeningen.
+    de loting en uit alle berekeningen. Wie op de wachtlijst staat, telt ook
+    (nog) niet mee, tenzij je daar uitdrukkelijk om vraagt.
     """
     rijen = db.execute(f"""
         SELECT tt.team_id AS id, tt.pot, tt.seed, tt.start_elo, tt.teruggetrokken,
@@ -63,10 +83,14 @@ def deelnemers(db, tid, ook_teruggetrokken=False):
     """, (tid,)).fetchall()
     namen = {r["id"]: r["naam"] for r in db.execute(
         f"SELECT p.id, {WEERGAVE} AS naam FROM players p")}
+    wacht = set() if ook_wachtlijst else set(wachtlijst(db, tid))
     uit = []
     for r in rijen:
+        if r["id"] in wacht:
+            continue
         d = dict(r)
-        d["spelers"] = f'{namen.get(r["player1_id"], "?")} & {namen.get(r["player2_id"], "?")}'
+        d["spelers"] = (f'{namen.get(r["player1_id"], "?")} & {namen.get(r["player2_id"], "?")}'
+                        if r["player2_id"] else f'{namen.get(r["player1_id"], "?")} (nog zonder teamgenoot)')
         uit.append(d)
     return uit
 
@@ -401,6 +425,112 @@ def loot_rondes(team_ids, pot_van, ronden, rng=None):
 
 # ---------------------------------------------------------------- kalender --
 
+def _verschil(sloten):
+    """Hoe ver liep een team ooit voor op een ander (in gespeelde wedstrijden)?"""
+    tel = {t_: 0 for slot in sloten for g in slot for t_ in g[:2]}
+    grootste = 0
+    for slot in sloten:
+        for a, b, _nr in slot:
+            tel[a] += 1
+            tel[b] += 1
+        grootste = max(grootste, max(tel.values()) - min(tel.values()))
+    return grootste
+
+
+def _tijdsloten_poging(games, plafond, rng, streng):
+    """Eén poging om de wedstrijden op tijdsloten te leggen (zie _tijdsloten)."""
+    open_ = list(games)
+    tel = {t_: 0 for g in games for t_ in g[:2]}
+    # Wie is de volgende tegenstander van elk team? Wie op een team wacht dat
+    # achterstaat, moet zo snel mogelijk aan de beurt kunnen komen.
+    per_team = {}
+    for a, b, nr in games:
+        per_team.setdefault(a, []).append((nr, b))
+        per_team.setdefault(b, []).append((nr, a))
+    volgende = {}
+    for t_, lijst in per_team.items():
+        lijst.sort()
+        for (nr, _o), na in zip(lijst, lijst[1:] + [None]):
+            volgende[(t_, nr)] = na[1] if na else None
+
+    sloten, vorig = [], set()
+    while open_:
+        laagste = {}
+        for a, b, nr in open_:
+            for t_ in (a, b):
+                laagste[t_] = min(laagste.get(t_, nr), nr)
+        achter = min(tel[t_] for t_ in laagste)
+        klaar = [g for g in open_ if laagste[g[0]] == g[2] and laagste[g[1]] == g[2]]
+
+        def wacht(g):
+            w = [tel[o] for o in (volgende[(g[0], g[2])], volgende[(g[1], g[2])]) if o is not None]
+            return min(w) if w else 99
+
+        # Wie het minst speelde eerst; dan wie een achterstaand team vrijmaakt;
+        # dan de vroegste speelronde; liefst teams die net rustten.
+        sleutel = {g: (max(tel[g[0]], tel[g[1]]), wacht(g), tel[g[0]] + tel[g[1]], g[2],
+                       (g[0] in vorig) + (g[1] in vorig), rng.random()) for g in klaar}
+        klaar.sort(key=sleutel.get)
+        slot, bezet = [], set()
+        for g in klaar:
+            if len(slot) >= plafond:
+                break
+            if g[0] in bezet or g[1] in bezet:
+                continue
+            if streng and max(tel[g[0]], tel[g[1]]) > achter:
+                continue                  # liever een tafel vrij dan iemand ver voor
+            slot.append(g)
+            bezet.update(g[:2])
+        if not slot:                      # nooit vastlopen
+            g = klaar[0] if klaar else open_[0]
+            slot, bezet = [g], set(g[:2])
+        for g in slot:
+            open_.remove(g)
+            tel[g[0]] += 1
+            tel[g[1]] += 1
+        sloten.append(slot)
+        vorig = bezet
+    return sloten
+
+
+def _tijdsloten(games, plafond=None, rng=None, pogingen=40):
+    """Zet wedstrijden met een speelronde op tijdsloten, met de tafels als grens.
+
+    Een **speelronde** is voor elk team zijn zoveelste wedstrijd: in
+    speelronde 3 speelt elk team zijn derde partij (bij een oneven aantal teams
+    rust er telkens één). Een **tijdslot** is één moment waarop alle tafels
+    tegelijk spelen. Zijn er minder tafels dan wedstrijden in een speelronde,
+    dan loopt een speelronde over meerdere tijdsloten, en een tafel die vrijkomt
+    krijgt al een wedstrijd uit de volgende speelronde, maar enkel van teams
+    die hun vorige wedstrijd al speelden. Zo klopt de volgorde per team altijd.
+
+    Daarbovenop moet het eerlijk blijven: geen enkel team mag ooit twee
+    wedstrijden achterstaan op een ander (zoals een ploeg die nog niets
+    speelde terwijl de rest er al twee heeft). We proberen een aantal
+    volgordes, ook eentje die liever even een tafel vrijlaat, en houden de
+    eerlijkste; bij gelijke eerlijkheid de kortste avond.
+
+    `games` is een lijst (team_a, team_b, speelronde). Geeft een lijst van
+    tijdsloten, elk een lijst van zulke wedstrijden.
+    """
+    if not games:
+        return []
+    rng = rng or random.Random()
+    plafond = plafond or len(games)
+    teams = {t_ for g in games for t_ in g[:2]}
+    meeste = max(sum(1 for g in games if t_ in g[:2]) for t_ in teams)
+    minimum = max(math.ceil(len(games) / plafond), meeste)
+    beste, beste_sleutel = None, None
+    for poging in range(pogingen):
+        sloten = _tijdsloten_poging(games, plafond, rng, streng=poging % 2 == 1)
+        sleutel = (_verschil(sloten) > 1, len(sloten), _verschil(sloten))
+        if beste_sleutel is None or sleutel < beste_sleutel:
+            beste, beste_sleutel = sloten, sleutel
+        if not sleutel[0] and sleutel[1] == minimum:
+            break                         # eerlijk én zo kort als kan
+    return beste
+
+
 def _plan(rondes, tafel_ids, start, slot_minuten):
     """Zet elke wedstrijd op een tijdstip en een tafel. Geeft per ronde een lijst
     van (team_a, team_b, tijdstip, locatie_id)."""
@@ -482,6 +612,11 @@ def genereer(db, tid, rng=None):
         return False, fout
 
     t = toernooi(db, tid)
+    # Wie bij het loten nog op de wachtlijst staat, valt af: het toernooi zit vol.
+    # (Pas geschrapt op het moment dat de loting echt weggeschreven wordt.)
+    op_wachtlijst = wachtlijst(db, tid)
+    afgevallen = [db.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()["name"]
+                  for team_id in op_wachtlijst]
     teams = deelnemers(db, tid)
     # Staat iedereen op dezelfde rating — het geval bij een eerste toernooi — dan
     # zeggen potten niets: elke indeling is dan even willekeurig. We loten dan
@@ -491,28 +626,49 @@ def genereer(db, tid, rng=None):
     pot_van = potten_verdelen(teams, aantal_potten, rng)
     rng = rng or random.Random()
 
-    try:
-        rondes = loot_rondes([x["id"] for x in teams], pot_van,
-                             t["bracket_ronden"], rng)
-    except ValueError as e:
-        return False, str(e)
-
     tafel_ids = [l["id"] for l in locaties(db, tid)]
-    # De loting bepaalt wélke wedstrijden er zijn; de kalender plant ze daarna over
-    # het hele toernooi heen in, zodat er nooit een tafel stilstaat.
-    alle_paren = [paar for ronde in rondes for paar in ronde]
-    speelrondes = verdeel_in_rondes(alle_paren, rng,
-                                    max_per_ronde=len(tafel_ids) or None,
-                                    voorstel=rondes)
-    gepland, _einde = _plan(speelrondes, tafel_ids, _starttijd(t), t["slot_minuten"])
+    plafond = len(tafel_ids) or None
+    # De loting levert speelrondes waarin elk team één keer speelt. Die worden
+    # daarna op de tafels gelegd: zijn er te weinig tafels, dan loopt een
+    # speelronde over meerdere tijdsloten (zie _tijdsloten).
+    #
+    # Bij een oneven aantal teams rust er elke speelronde iemand, en dan hangt
+    # het van de loting af of iedereen netjes gelijk kan blijven. We loten dan
+    # een aantal keer en houden de eerlijkste (nog voor iemand iets gezien heeft).
+    beste = None
+    pogingen = 80 if len(teams) % 2 else 5
+    for _poging in range(pogingen):
+        try:
+            rondes_ = loot_rondes([x["id"] for x in teams], pot_van,
+                                  t["bracket_ronden"], rng)
+        except ValueError as e:
+            if beste is None:
+                return False, str(e)       # dit gaat gewoon niet met deze teams
+            break
+        games_ = [(a, b, nr) for nr, ronde in enumerate(rondes_, start=1) for a, b in ronde]
+        sloten_ = _tijdsloten(games_, plafond, rng)
+        sleutel = (_verschil(sloten_) > 1, len(sloten_))
+        if beste is None or sleutel < beste[0]:
+            beste = (sleutel, rondes_, games_, sloten_)
+        minimum = max(math.ceil(len(games_) / (plafond or len(games_))), t["bracket_ronden"])
+        if not sleutel[0] and sleutel[1] == minimum:
+            break
+    if beste is None:
+        return False, "De loting lukte niet; probeer een ander aantal wedstrijden per team."
+    _sleutel, rondes, games, sloten = beste
+    gepland, _einde = _plan([[(a, b) for a, b, _nr in slot] for slot in sloten],
+                            tafel_ids, _starttijd(t), t["slot_minuten"])
 
+    for team_id in op_wachtlijst:
+        db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
+                   (tid, team_id))
     db.execute("DELETE FROM games WHERE tournament_id = ?", (tid,))
     for team in teams:
         db.execute("UPDATE tournament_teams SET pot = ?, start_elo = ? "
                    "WHERE tournament_id = ? AND team_id = ?",
                    (pot_van[team["id"]], team["elo"], tid, team["id"]))
-    for nummer, paren in enumerate(gepland, start=1):
-        for a, b, moment, loc in paren:
+    for slot, paren in zip(sloten, gepland):
+        for (a, b, nummer), (_a, _b, moment, loc) in zip(slot, paren):
             db.execute("""
                 INSERT INTO games (team1_id, team2_id, tournament_id, fase, ronde,
                                    scheduled_at, location_id)
@@ -520,13 +676,15 @@ def genereer(db, tid, rng=None):
             """, (a, b, tid, nummer, moment.strftime(TIJDFORMAAT), loc))
     db.execute("UPDATE tournaments SET status = 'bracket' WHERE id = ?", (tid,))
     db.commit()
-    aantal = sum(len(p) for p in gepland)
-    duur = len(gepland) * t["slot_minuten"]
+    aantal = len(games)
+    duur = len(sloten) * t["slot_minuten"]
+    verloop = (f"{len(rondes)} speelrondes" if len(sloten) == len(rondes)
+               else f"{len(rondes)} speelrondes in {len(sloten)} tijdsloten")
+    extra = (f" Van de wachtlijst vielen af: {', '.join(afgevallen)}." if afgevallen else "")
     return True, (f"Toernooi geloot: {len(teams)} teams, {t['bracket_ronden']} "
-                  f"wedstrijden per team, {aantal} wedstrijden in de bracketfase "
-                  f"verdeeld over {len(gepland)} speelrondes "
-                  f"(± {duur // 60}u{duur % 60:02d} met "
-                  f"{len(tafel_ids) or 'onbeperkt'} tafel(s)).")
+                  f"wedstrijden per team, {aantal} wedstrijden in de bracketfase, "
+                  f"{verloop} (± {duur // 60}u{duur % 60:02d} met "
+                  f"{len(tafel_ids) or 'onbeperkt'} tafel(s)).{extra}")
 
 
 def _aanvulparen(deficit, ontmoet, rng, pogingen=4000):
@@ -748,18 +906,32 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
     if nieuw:
         tafel_ids = [l["id"] for l in locaties(db, tid)]
         start = _laatste_moment(db, tid, _starttijd(t)) + timedelta(minutes=t["slot_minuten"])
-        speelrondes = verdeel_in_rondes(nieuw, rng, max_per_ronde=len(tafel_ids) or None)
-        gepland, _ = _plan(speelrondes, tafel_ids, start, t["slot_minuten"])
-        volgnr = (db.execute("SELECT COALESCE(MAX(ronde), 0) AS n FROM games WHERE "
-                             "tournament_id = ? AND fase = 'bracket'", (tid,)).fetchone()["n"])
-        for paren in gepland:
-            volgnr += 1
-            for a, b, moment, loc in paren:
+        # Voorlopige speelrondes, enkel om de volgorde per team te bewaken bij het
+        # inplannen: altijd ná de hoogste speelronde die het team al heeft.
+        # Daarna wordt alles netjes hernummerd (zie hernummer_speelrondes).
+        teller = {b: 0 for b in blijvers}
+        for g in db.execute("SELECT team1_id, team2_id, ronde FROM games WHERE "
+                            "tournament_id = ? AND fase = 'bracket'", (tid,)):
+            for kant in (g["team1_id"], g["team2_id"]):
+                if kant in teller:
+                    teller[kant] = max(teller[kant], g["ronde"] or 0)
+        games = []
+        for ronde in verdeel_in_rondes(nieuw, rng):
+            for a, b in ronde:
+                nummer = max(teller[a], teller[b]) + 1
+                teller[a] = teller[b] = nummer
+                games.append((a, b, nummer))
+        sloten = _tijdsloten(games, len(tafel_ids) or None, rng)
+        gepland, _ = _plan([[(a, b) for a, b, _nr in slot] for slot in sloten],
+                           tafel_ids, start, t["slot_minuten"])
+        for slot, paren in zip(sloten, gepland):
+            for (a, b, nummer), (_a, _b, moment, loc) in zip(slot, paren):
                 db.execute("""
                     INSERT INTO games (team1_id, team2_id, tournament_id, fase, ronde,
                                        scheduled_at, location_id)
                     VALUES (?, ?, ?, 'bracket', ?, ?, ?)
-                """, (a, b, tid, volgnr, moment.strftime(TIJDFORMAAT), loc))
+                """, (a, b, tid, nummer, moment.strftime(TIJDFORMAAT), loc))
+    hernummer_speelrondes(db, tid)
     if doel != t["bracket_ronden"]:
         db.execute("UPDATE tournaments SET bracket_ronden = ? WHERE id = ?", (doel, tid))
     db.commit()
@@ -771,6 +943,24 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
     return True, (f"“{naam}” is teruggetrokken. Al hun wedstrijden (ook de al "
                   f"ingevulde forfaits) zijn geschrapt en er zijn "
                   f"{len(nieuw)} nieuwe affiches geloot, zodat {stuk}.")
+
+
+def hernummer_speelrondes(db, tid):
+    """Geef elke bracketwedstrijd als speelronde het volgnummer voor de teams.
+
+    Na een terugtrekking vallen er wedstrijden weg (die tegen de afwezige
+    ploeg), en dan klopt "speelronde 3 = je derde wedstrijd" niet meer voor
+    iedereen. We lopen de kalender af in tijdsvolgorde: elke wedstrijd krijgt
+    het volgende nummer van de twee teams; hebben ze er niet even veel gespeeld,
+    dan telt het hoogste. Zo stijgen de nummers per team altijd netjes.
+    """
+    teller = {}
+    for g in db.execute("SELECT id, team1_id, team2_id FROM games WHERE tournament_id = ? "
+                        "AND fase = 'bracket' ORDER BY scheduled_at, id", (tid,)).fetchall():
+        nummer = max(teller.get(g["team1_id"], 0), teller.get(g["team2_id"], 0)) + 1
+        teller[g["team1_id"]] = teller[g["team2_id"]] = nummer
+        db.execute("UPDATE games SET ronde = ? WHERE id = ?", (nummer, g["id"]))
+    db.commit()
 
 
 def herloot(db, tid):
@@ -948,7 +1138,7 @@ def stand(db, tid, hypothese=None):
     # punten → onderling → shootouts → kwaliteit → programma → Aura → loting.
     lijst = list(rijen.values())
     lijst.sort(key=lambda r: (-r["punten"], -r["kwaliteit"], -r["programma"],
-                              -r["kracht"], lot_sleutel(tid, r["team_id"])))
+                              -round(r["kracht"], 6), lot_sleutel(tid, r["team_id"])))
 
     geordend = []
     onbesliste_groepen = []
@@ -1067,7 +1257,9 @@ def _orden_groep(groep, bracket, shootouts, onbesliste_groepen, tid):
     def sleutel(r):
         # De volgorde zonder shootouts: eerst het rekenwerk, dan de
         # toernooikracht en ten slotte de loting.
-        return rekenwerk(r) + (-r.get("kracht", 0.0), lot_sleutel(tid, r["team_id"]))
+        # Afgerond: twee wiskundig gelijke krachten verschillen soms in de
+        # vijftiende decimaal; dan hoort de loting te beslissen, niet die ruis.
+        return rekenwerk(r) + (-round(r.get("kracht", 0.0), 6), lot_sleutel(tid, r["team_id"]))
 
     gesorteerd = sorted(groep, key=sleutel)
 
@@ -1362,6 +1554,10 @@ def maak_knockout(db, t, geplaatst):
         lagen.append(nieuwe)
         grootte *= 2
 
+    # De kleine finale: de verliezers van de halve finales spelen om plaats 3.
+    # Enkel als er halve finales zijn (minstens 4 teams in de knockout).
+    kleine = [nieuw(KLEINE_FINALE, 1, None, None)] if n >= 4 else []
+
     eerste = lagen[-1]
     volgorde = seed_volgorde(n)
     for i, gid in enumerate(eerste):
@@ -1370,9 +1566,13 @@ def maak_knockout(db, t, geplaatst):
                    (geplaatst[s1 - 1], geplaatst[s2 - 1], gid))
 
     # Kalender: van de eerste knockoutronde naar de finale, tafels respecteren.
-    rondes = [[(None, None)] * len(laag) for laag in reversed(lagen)]
+    # De kleine finale krijgt een eigen moment vlak vóór de finale.
+    volgorde_lagen = list(reversed(lagen))
+    if kleine:
+        volgorde_lagen.insert(len(volgorde_lagen) - 1, kleine)
+    rondes = [[(None, None)] * len(laag) for laag in volgorde_lagen]
     _tijden, _ = _plan(rondes, tafel_ids, start, t["slot_minuten"])
-    for laag, tijden in zip(reversed(lagen), _tijden):
+    for laag, tijden in zip(volgorde_lagen, _tijden):
         for gid, (_a, _b, moment, loc) in zip(laag, tijden):
             db.execute("UPDATE games SET scheduled_at = ?, location_id = ? WHERE id = ?",
                        (moment.strftime(TIJDFORMAAT), loc, gid))
@@ -1536,6 +1736,59 @@ def shootout_inzet(db, tid):
     return inzet
 
 
+def kleine_finale(db, tid):
+    """De wedstrijd om de derde plaats, of None (bv. bij een oud toernooi)."""
+    return db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = "
+                      "'knockout' AND ronde = ?", (tid, KLEINE_FINALE)).fetchone()
+
+
+def _kleine_finale_bijwerken(db, t):
+    """Zorg dat de kleine finale bestaat en de juiste teams heeft.
+
+    * Een toernooi dat al in de knockout zat vóór de kleine finale bestond,
+      krijgt er alsnog een, zolang de halve finales niet allebei gespeeld zijn.
+      Hij komt op het moment van de finale; de finale schuift één slot op.
+    * De verliezer van halve finale 1 komt op plaats 1, die van halve finale 2
+      op plaats 2.
+
+    Geeft de kleine finale terug (of None als er geen is).
+    """
+    tid = t["id"]
+    halve = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = "
+                       "'knockout' AND ronde = 4 ORDER BY positie", (tid,)).fetchall()
+    if len(halve) != 2:
+        return None                       # knockout zonder halve finales
+    kleine = kleine_finale(db, tid)
+    if kleine is None:
+        if t["status"] != "knockout" or all(g["status"] == "gespeeld" for g in halve):
+            return None
+        finale = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = "
+                            "'knockout' AND ronde = 2", (tid,)).fetchone()
+        moment = finale["scheduled_at"] if finale else None
+        db.execute("""
+            INSERT INTO games (tournament_id, fase, ronde, positie, scheduled_at,
+                               location_id)
+            VALUES (?, 'knockout', ?, 1, ?, ?)
+        """, (tid, KLEINE_FINALE, moment, finale["location_id"] if finale else None))
+        if finale and moment:
+            try:
+                later = datetime.fromisoformat(moment) + timedelta(minutes=t["slot_minuten"])
+                db.execute("UPDATE games SET scheduled_at = ? WHERE id = ?",
+                           (later.strftime(TIJDFORMAAT), finale["id"]))
+            except ValueError:
+                pass
+        kleine = kleine_finale(db, tid)
+
+    for g in halve:
+        if g["status"] != "gespeeld" or not g["winner_team_id"]:
+            continue
+        verliezer = g["team2_id"] if g["winner_team_id"] == g["team1_id"] else g["team1_id"]
+        kolom = "team1_id" if g["positie"] == 1 else "team2_id"
+        if kleine[kolom] != verliezer:
+            db.execute(f"UPDATE games SET {kolom} = ? WHERE id = ?", (verliezer, kleine["id"]))
+    return kleine_finale(db, tid)
+
+
 def evalueer(db, tid):
     """Werk de toestand van het toernooi bij. Idempotent: mag na élk resultaat
     (en na elke herberekening) opnieuw gedraaid worden.
@@ -1557,10 +1810,13 @@ def evalueer(db, tid):
                 kolom = "team1_id" if g["volgende_slot"] == 1 else "team2_id"
                 db.execute(f"UPDATE games SET {kolom} = ? WHERE id = ?",
                            (g["winner_team_id"], g["volgende_game_id"]))
+        kleine = _kleine_finale_bijwerken(db, t)
         finale = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = "
                             "'knockout' AND ronde = 2", (tid,)).fetchone()
-        nieuwe_status = "afgelopen" if (finale and finale["status"] == "gespeeld") \
-            else "knockout"
+        klaar = bool(finale and finale["status"] == "gespeeld")
+        if kleine is not None and kleine["status"] != "gespeeld":
+            klaar = False                 # eerst nog de strijd om plaats 3
+        nieuwe_status = "afgelopen" if klaar else "knockout"
         if nieuwe_status != t["status"]:
             db.execute("UPDATE tournaments SET status = ? WHERE id = ?",
                        (nieuwe_status, tid))
@@ -1684,6 +1940,11 @@ def mag_wissen(db, game):
         if volgende and volgende["status"] == "gespeeld":
             return ("De volgende knockoutronde is al gespeeld. Wis eerst dat "
                     "resultaat en werk zo terug naar deze wedstrijd.")
+        if game["ronde"] == 4:
+            kleine = kleine_finale(db, tid)
+            if kleine is not None and kleine["status"] == "gespeeld":
+                return ("De kleine finale is al gespeeld met de verliezer van deze "
+                        "halve finale. Wis eerst dat resultaat.")
     return None
 
 
@@ -1709,6 +1970,15 @@ def herstel_na_wissen(db, tid, fase, game=None):
                        "played_at = NULL WHERE id = ? AND status = 'gespeeld'",
                        (game["volgende_game_id"],))
             db.commit()
+        if game is not None and game["ronde"] == 4:
+            # Ook de verliezer die naar de kleine finale ging, moet daar weer weg.
+            kleine = kleine_finale(db, tid)
+            if kleine is not None:
+                kolom = "team1_id" if game["positie"] == 1 else "team2_id"
+                db.execute(f"UPDATE games SET {kolom} = NULL, status = 'gepland', "
+                           "winner_team_id = NULL, played_at = NULL WHERE id = ?",
+                           (kleine["id"],))
+                db.commit()
         return
     if fase not in ("bracket", "shootout"):
         return
@@ -1776,7 +2046,7 @@ def knockout_kolommen(db, tid):
     from elo import KO_LABEL
     rondes = [r["ronde"] for r in db.execute(
         "SELECT DISTINCT ronde FROM games WHERE tournament_id = ? AND "
-        "fase = 'knockout' ORDER BY ronde DESC", (tid,))]
+        "fase = 'knockout' AND ronde != ? ORDER BY ronde DESC", (tid, KLEINE_FINALE))]
     kolommen = []
     for nummer in rondes:
         games = db.execute("SELECT * FROM games WHERE tournament_id = ? AND "
@@ -1784,7 +2054,10 @@ def knockout_kolommen(db, tid):
                            (tid, nummer)).fetchall()
         kolommen.append({"ronde": nummer,
                          "titel": KO_LABEL.get(nummer, f"Ronde van {nummer}"),
-                         "games": games})
+                         "games": games, "kleine_finale": None})
+    # De kleine finale staat in de laatste kolom, onder de finale.
+    if kolommen:
+        kolommen[-1]["kleine_finale"] = kleine_finale(db, tid)
     return kolommen
 
 

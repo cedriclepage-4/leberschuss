@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block titel %}Inschrijven · {{ t['name'] }}{% endblock %}
+{% block body_klasse %}thuis inschrijf-pagina{% endblock %}
+
+{% block boven %}
+{# De kop in de stijl van de thuispagina: rook en het 3D-logo. Een goede
+   eerste indruk voor wie via de affiche of de groepschat binnenkomt. #}
+{% set wachtend = lijst|selectattr('wachtlijst')|list %}
+<section class="thuis-held inschrijf-held">
+  <canvas class="rook" aria-hidden="true"></canvas>
+  <div class="wrap thuis-raster">
+    <div class="thuis-tekst">
+      <p class="inschrijf-boven">Inschrijven voor</p>
+      <h1>{{ t['name'] }}</h1>
+      <p class="inschrijf-wanneer">{{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}</p>
+      {% if t['description'] %}<p class="inschrijf-omschrijving">{{ t['description'] }}</p>{% endif %}
+      {% if bevestigd >= ZICHTBAAR_VANAF or is_organisator %}
+      {# Spelers zien enkel het aantal, en pas vanaf een handvol teams. #}
+      <div class="held-cijfers">
+        <div class="cijfer"><strong>{{ bevestigd }}{% if t['max_teams'] %}<small> / {{ t['max_teams'] }}</small>{% endif %}</strong>
+          <span>{{ 'teams ingeschreven' if not t['max_teams'] else 'plaatsen bezet' }}</span></div>
+        {% if wachtend and is_organisator %}<div class="cijfer"><strong>{{ wachtend|length }}</strong><span>op de wachtlijst</span></div>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% include "_logo3d.html" %}
+  </div>
+</section>
+{% endblock %}
+
+{% block inhoud %}
+{# -----------------------------------------------------------------------
+   Inschrijfpagina van een toernooi. Openbaar, om rond te sturen.
+   Zie app.toernooi_inschrijven voor de mogelijke situaties.
+   ----------------------------------------------------------------------- #}
+
+{% set wachtend = lijst|selectattr('wachtlijst')|list %}
+{% set volzet = t['max_teams'] and bevestigd >= t['max_teams'] %}
+
+{% if not open %}
+<div class="kaart inschrijf-kaart">
+  <h2 class="inschrijf-titel">De inschrijvingen zijn gesloten</h2>
+  <p class="stil">Er is al geloot. Volg het toernooi op de toernooipagina.</p>
+  <a class="knop primair" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}">Naar het toernooi</a>
+</div>
+
+{% elif not session.get('speler_id') %}
+{# ------------------------------------------------------- niet ingelogd -- #}
+<div class="kaart inschrijf-kaart">
+  <h2 class="inschrijf-titel">Schrijf je team in</h2>
+  <p>Daarvoor heb je een spelersaccount nodig. Dat is zo gemaakt, en daarna kom je
+     meteen hier terug.</p>
+  <div class="inschrijf-knoppen">
+    <a class="knop primair groot" href="{{ url_for('registreren', volgende=terug) }}">Account maken</a>
+    <a class="knop groot" href="{{ url_for('inloggen', volgende=terug) }}">Ik heb al een account</a>
+  </div>
+  <p class="stil klein-tekst">Heeft je ploegmaat jullie al ingeschreven? Maak dan een account
+     met je volledige naam, precies zoals hij die intikte: je account staat al klaar en
+     wordt dan van jou.</p>
+</div>
+
+{% elif mijn %}
+{# --------------------------------------------------- al ingeschreven -- #}
+<div class="kaart inschrijf-kaart {{ 'inschrijf-wacht' if mijn.wachtlijst else 'inschrijf-ok' }}">
+  <h2 class="inschrijf-titel">{{ 'Je staat op de wachtlijst' if mijn.wachtlijst else 'Je bent ingeschreven' }}</h2>
+  <p>Met <strong>{{ mijn.naam }}</strong>{% if mijn.naam != mijn.spelernamen %} ({{ mijn.spelernamen }}){% endif %}.
+     {% if mijn.wachtlijst %}Je staat op plaats {{ mijn.wachtlijst }} van de wachtlijst. Schrijft
+     er een team uit, dan schuif je vanzelf op.{% else %}Tot {{ t['date']|dag }}!{% endif %}</p>
+  <form method="post" action="{{ url_for('toernooi_uitschrijven', toernooi_id=t['id']) }}"
+        data-confirm="“{{ mijn.naam }}” uitschrijven voor {{ t['name'] }}?{% if not mijn.wachtlijst and t['max_teams'] %} Je plaats gaat dan naar de wachtlijst.{% endif %}">
+    <input type="hidden" name="team" value="{{ mijn.id }}">
+    <button type="submit" class="knop gevaar klein">Uitschrijven</button>
+  </form>
+</div>
+
+{% else %}
+{# --------------------------------------------------------- inschrijven -- #}
+<div class="kaart inschrijf-kaart">
+  <h2 class="inschrijf-titel">Met wie speel je?</h2>
+  {% if volzet %}<p class="inschrijf-volzet">Het toernooi is volzet. Schrijf je toch in: je komt
+     dan op de wachtlijst en schuift vanzelf op als er een team afhaakt.</p>{% endif %}
+  <form method="post" action="{{ url_for('toernooi_inschrijven_post', toernooi_id=t['id']) }}" id="inschrijf-form">
+    <div class="inschrijf-keuzes">
+      {% for team in mijn_teams %}
+      <label class="inschrijf-keuze {{ 'keuze-uit' if team.probleem }}">
+        <input type="radio" name="keuze" value="team:{{ team.id }}" {{ 'disabled' if team.probleem }}
+               {{ 'checked' if loop.first and not team.probleem }}>
+        {% if team.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=team.avatar) }}" alt="">
+        {% else %}<span class="avatar-mini avatar-fallback">{{ team.naam[0]|upper }}</span>{% endif %}
+        <span class="inschrijf-keuze-tekst">
+          <strong>{{ team.naam }}</strong>
+          <span>met {{ team.partner }}</span>
+          {% if team.probleem %}<span class="klein-tekst conflict-tekst">{{ team.probleem }}</span>{% endif %}
+        </span>
+      </label>
+      {% endfor %}
+      <label class="inschrijf-keuze" id="nieuw">
+        <input type="radio" name="keuze" value="nieuw" {{ 'checked' if not mijn_teams or (mijn_teams|rejectattr('probleem')|list|length == 0) }}>
+        <span class="avatar-mini avatar-fallback">+</span>
+        <span class="inschrijf-keuze-tekst">
+          <strong>{{ 'Met iemand anders' if mijn_teams else 'Kies je ploegmaat' }}</strong>
+          <span>{{ 'Nieuw team met een andere ploegmaat' if mijn_teams else 'We maken jullie team meteen aan' }}</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="inschrijf-nieuw" data-nieuw>
+      <label>Naam van je ploegmaat
+        <input type="text" name="partner_naam" id="partner-naam" autocomplete="off" maxlength="40"
+               placeholder="Voor- en achternaam, of zoek een speler"></label>
+      <input type="hidden" name="partner_id" id="partner-id">
+      <ul class="suggesties" id="suggesties" hidden></ul>
+      <p class="stil klein-tekst velduitleg" id="partner-uitleg">Staat je ploegmaat er niet tussen?
+         Tik zijn volledige naam: wij zetten een account voor hem klaar, en dat wordt van hem
+         zodra hij zich met die naam registreert.</p>
+      <label>Teamnaam (optioneel)
+        <input type="text" name="teamnaam" id="teamnaam" maxlength="40" placeholder="{{ ik_naam }} & …"></label>
+    </div>
+
+    <button type="submit" class="knop primair groot breed">Inschrijven</button>
+  </form>
+</div>
+<script>
+  /* Ploegmaat zoeken: suggesties uit de bestaande spelers. Kies je er een, dan
+     schrijven we met die speler in; anders maakt de server een account klaar. */
+  (function () {
+    var spelers = {{ spelers|tojson }};
+    var ik = {{ ik_naam|tojson }};
+    var form = document.getElementById("inschrijf-form");
+    var blok = form.querySelector("[data-nieuw]");
+    var veld = document.getElementById("partner-naam");
+    var idVeld = document.getElementById("partner-id");
+    var lijst = document.getElementById("suggesties");
+    var uitleg = document.getElementById("partner-uitleg");
+    var teamnaam = document.getElementById("teamnaam");
+
+    function nieuwGekozen() {
+      var k = form.querySelector('input[name="keuze"]:checked');
+      return k && k.value === "nieuw";
+    }
+    function toonBlok() {
+      blok.hidden = !nieuwGekozen();
+      veld.required = nieuwGekozen();
+    }
+    form.querySelectorAll('input[name="keuze"]').forEach(function (r) { r.addEventListener("change", toonBlok); });
+    toonBlok();
+
+    function zet(naam, id) {
+      veld.value = naam; idVeld.value = id || "";
+      lijst.hidden = true;
+      teamnaam.placeholder = ik + " & " + (naam.split(" ")[0] || "…");
+      uitleg.textContent = id ? "Bestaande speler gekozen." :
+        "Nieuwe speler: wij zetten een account klaar op deze naam.";
+    }
+    function normaal(s) { return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+    veld.addEventListener("input", function () {
+      idVeld.value = "";
+      var term = normaal(veld.value.trim());
+      lijst.textContent = "";
+      teamnaam.placeholder = ik + " & " + (veld.value.trim().split(" ")[0] || "…");
+      if (term.length < 2) { lijst.hidden = true; return; }
+      var hits = spelers.filter(function (s) {
+        return normaal(s.naam).indexOf(term) !== -1 || normaal(s.echt).indexOf(term) !== -1 || String(s.id) === term;
+      }).slice(0, 6);
+      hits.forEach(function (s) {
+        var li = document.createElement("li");
+        var knop = document.createElement("button");
+        knop.type = "button";
+        knop.textContent = s.naam + (s.naam !== s.echt ? " (" + s.echt + ")" : "") + " · #" + s.id;
+        knop.addEventListener("click", function () { zet(s.echt, s.id); });
+        li.appendChild(knop);
+        lijst.appendChild(li);
+      });
+      lijst.hidden = !hits.length;
+      uitleg.textContent = hits.length ? "Kies hieronder, of tik verder als het iemand nieuw is."
+        : "Nieuwe speler: wij zetten een account klaar op deze naam.";
+    });
+  })();
+</script>
+{% endif %}
+
+{# ------------------------------------------------------ wie doet er mee -- #}
+{# Wie er ingeschreven is, ziet enkel de organisatie. #}
+{% if is_organisator %}
+<h2 class="sectiekop">Ingeschreven teams</h2>
+<p class="stil klein-tekst">Enkel zichtbaar voor de organisatie. Teams weghalen kan via
+   <a href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}#teams">Beheren</a>.</p>
+{% set zeker = lijst|rejectattr('wachtlijst')|list %}
+{% if zeker %}
+<div class="kaart">
+  <ol class="inschrijf-lijst">
+    {% for x in zeker %}
+    <li><strong>{{ x.naam }}</strong>{% if x.naam != x.spelernamen %} <span class="stil">{{ x.spelernamen }}</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</div>
+{% else %}
+<div class="kaart leeg">Nog niemand ingeschreven.</div>
+{% endif %}
+{% if wachtend %}
+<h2 class="sectiekop">Wachtlijst</h2>
+<div class="kaart">
+  <ol class="inschrijf-lijst">
+    {% for x in wachtend %}
+    <li><strong>{{ x.naam }}</strong>{% if x.naam != x.spelernamen %} <span class="stil">{{ x.spelernamen }}</span>{% endif %}</li>
+    {% endfor %}
+  </ol>
+</div>
+{% endif %}
+{% endif %}
+
+{% if open %}
+<div class="kaart inschrijf-deel">
+  {% if qr %}<div class="inschrijf-qr">{{ qr }}</div>{% endif %}
+  <div>
+    <h3>Laat je ploegmaat ook inschrijven</h3>
+    <p class="stil klein-tekst">Eén van jullie twee volstaat. Stuur deze pagina door of laat
+       iemand de code scannen:</p>
+    <p class="inschrijf-adres">{{ adres }}</p>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('statisch', bestand='rook.js') }}"></script>
+<script src="{{ url_for('statisch', bestand='thuis.js') }}"></script>
+{% endblock %}

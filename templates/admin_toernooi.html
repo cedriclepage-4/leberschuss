@@ -23,6 +23,19 @@
   <a href="#genereren">Genereren</a>
 </nav>
 
+{% if t['status'] == 'opzet' %}
+<!-- ======================================================== inschrijven -->
+<div class="kaart inschrijf-deel">
+  <div>
+    <h3>Inschrijvingen</h3>
+    <p class="stil klein-tekst">Spelers schrijven hun team zelf in via deze pagina. Zet de link
+       op je affiche of in de groepschat; de inschrijvingen sluiten vanzelf bij het loten.</p>
+    <p class="inschrijf-adres"><a href="{{ url_for('toernooi_inschrijven', toernooi_id=t['id']) }}">{{ inschrijf_adres }}</a></p>
+    <p class="klein-tekst">{{ teams|length - wachtend }} team(s) ingeschreven{% if t['max_teams'] %} van de {{ t['max_teams'] }}{% endif %}{% if wachtend %}, {{ wachtend }} op de wachtlijst{% endif %}.</p>
+  </div>
+</div>
+{% endif %}
+
 <!-- ============================================================== teams -->
 <h2 class="sectiekop" id="teams">Deelnemende teams</h2>
 <div class="kaart">
@@ -32,13 +45,16 @@
     <tbody>
       {% for team in teams %}
       <tr>
-        <td class="naam">{{ team.naam }}</td>
-        <td class="stil wikkel">{{ team.spelers }}</td>
+        <td class="naam">{% if t['status'] == 'opzet' %}<span class="stil">{{ loop.index }}.</span> {% endif %}{{ team.naam }}{% if team.wachtlijst %} <span class="pil pil-wacht">wachtlijst {{ team.wachtlijst }}</span>{% endif %}
+          {% if team.door is defined %}<span class="inschrijf-meta">{% if team.door %}ingeschreven door {{ team.door }}{% else %}toegevoegd door de organisatie{% endif %}{% if team.op %} · {{ team.op[8:10] }}/{{ team.op[5:7] }} {{ team.op[11:16] }}{% endif %}</span>{% endif %}</td>
+        <td class="stil wikkel">{{ team.spelers }}
+          {% if team.zonder_account %}<span class="pil pil-wacht" title="Deze speler heeft zijn account nog niet opgeëist. Hij doet dat door zich te registreren met exact dezelfde naam.">{{ team.zonder_account|join(', ') }}: nog geen account</span>{% endif %}</td>
         <td class="kol-elo">{{ team.elo|elo }}</td>
         {% if potten_aantal > 1 %}<td class="verbergen-mobiel"><span class="pot-pil pot-{{ team.pot }}">{{ team.pot }}</span></td>{% endif %}
         <td class="wikkel">
           {% if t['status'] == 'opzet' %}
-          <form method="post" action="{{ url_for('toernooi_team_weg', toernooi_id=t['id'], team_id=team.id) }}">
+          <form method="post" action="{{ url_for('toernooi_team_weg', toernooi_id=t['id'], team_id=team.id) }}"
+                data-confirm="“{{ team.naam }}” uit het toernooi halen?{% if not team.wachtlijst and t['max_teams'] %} Het eerste team van de wachtlijst schuift dan op.{% endif %}">
             <button type="submit" class="knop gevaar klein">Weg</button>
           </form>
           {% elif t['status'] == 'bracket' %}
@@ -83,7 +99,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="stil">Nog geen teams toegevoegd.</p>
+  <p class="stil">Nog geen teams ingeschreven.</p>
   {% endif %}
 </div>
 
@@ -116,8 +132,10 @@
 <!-- =========================================================== locaties -->
 <h2 class="sectiekop" id="locaties">Locaties (tafels)</h2>
 <div class="kaart">
+  {% if t['status'] == 'opzet' %}
   <p class="stil klein-tekst">De kalender houdt rekening met deze tafels: per moment spelen er
-     nooit meer wedstrijden dan er tafels zijn. Zonder locaties speelt een hele ronde tegelijk.</p>
+     nooit meer wedstrijden dan er tafels zijn. Zonder locaties speelt een hele ronde tegelijk.
+     Na de loting liggen de tafels vast.</p>
   {% if locaties %}
   <div class="actie-rij ruimte-boven">
     {% for l in locaties %}
@@ -133,6 +151,18 @@
     <input type="text" name="naam" placeholder="Bv. Tafel 1, Tuintafel, Kelder…" required>
     <button type="submit" class="knop">Locatie toevoegen</button>
   </form>
+  {% else %}
+  <p class="stil klein-tekst">De loting is gebeurd, dus de tafels liggen vast: elke wedstrijd
+     heeft er al eentje. Wil je toch iets wijzigen, maak dan eerst de loting ongedaan
+     (kan zolang er nog geen uitslagen zijn).</p>
+  {% if locaties %}
+  <div class="actie-rij ruimte-boven">
+    {% for l in locaties %}<span class="locatie-pil locatie-vast">{{ l['name'] }}</span>{% endfor %}
+  </div>
+  {% else %}
+  <p class="stil klein-tekst">Dit toernooi werd zonder tafels geloot.</p>
+  {% endif %}
+  {% endif %}
 </div>
 
 <!-- ======================================================== openstaand -->
@@ -148,7 +178,9 @@
       <span class="vs">vs</span>
       <span class="team-naam">{{ namen[g['team2_id']] }}</span>
     </div>
-    <div class="wedstrijd-meta">{{ g['scheduled_at']|datum }} · <span class="pil">{{ g|fase }}</span></div>
+    <div class="wedstrijd-meta">
+      {%- if g['location_id'] and loc_namen.get(g['location_id']) %}<span class="locatie-label">{{ loc_namen[g['location_id']] }}</span> {% endif -%}
+      <span class="pil">{{ g|fase }}</span></div>
     {% set staat_op_spel = inzet.get(g['id']) %}
     {% if staat_op_spel and (staat_op_spel.uit_bij_verlies or staat_op_spel.door_bij_winst) %}
     <div class="inzet-regel">
@@ -226,7 +258,12 @@
         </select>
       </label>
       <label>Minuten per wedstrijd <input type="number" name="slot" min="5" max="120" value="{{ t['slot_minuten'] }}"></label>
+      <label>Maximum aantal teams
+        <input type="number" name="max_teams" min="4" max="200" value="{{ t['max_teams'] or '' }}" placeholder="geen maximum"></label>
     </div>
+    <p class="stil klein-tekst">Met een maximum komen de laatste inschrijvers op een wachtlijst, die
+       vanzelf opschuift als er iemand uitschrijft. Wie bij het loten nog op de wachtlijst
+       staat, valt af.</p>
     {% else %}
     <p class="stil klein-tekst">Het formaat ligt vast zodra het toernooi geloot is.</p>
     {% endif %}

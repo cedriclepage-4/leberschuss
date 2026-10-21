@@ -41,6 +41,11 @@ CREATE TABLE IF NOT EXISTS players (
     elo           REAL NOT NULL DEFAULT 1000,   -- permanente Aura (liga + toernooi)
     active        INTEGER NOT NULL DEFAULT 1,
     avatar        TEXT,
+    -- Werd dit account aangemaakt door een ploegmaat die zich voor een toernooi
+    -- inschreef? Dan mag de echte persoon het overnemen door zich te registreren
+    -- met precies die naam (zie app.registreren). Accounts van de organisatie
+    -- blijven achter het opeisvenster.
+    aangemaakt_door INTEGER REFERENCES players(id) ON DELETE SET NULL,
     created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -50,13 +55,23 @@ CREATE TABLE IF NOT EXISTS teams (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
-    player1_id  INTEGER NOT NULL REFERENCES players(id),
-    player2_id  INTEGER NOT NULL REFERENCES players(id),
-    status      TEXT NOT NULL DEFAULT 'in_afwachting'
-                CHECK (status IN ('in_afwachting', 'actief')),
+    player1_id  INTEGER NOT NULL REFERENCES players(id),   -- wie het team oprichtte
+    player2_id  INTEGER REFERENCES players(id),            -- leeg zolang onvolledig
+    status      TEXT NOT NULL DEFAULT 'onvolledig'
+                CHECK (status IN ('onvolledig', 'actief')),
     avatar      TEXT,
     elo         REAL NOT NULL DEFAULT 1000,     -- permanente Aura (liga + toernooi)
     created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- Een onvolledig team (één speler) kan één openstaande uitnodiging hebben.
+-- Aanvaardt de genodigde, dan wordt hij de tweede speler en is het team actief.
+-- Weigert hij, dan verdwijnt enkel de uitnodiging: het team blijft bestaan.
+CREATE TABLE IF NOT EXISTS team_invitations (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id    INTEGER NOT NULL UNIQUE REFERENCES teams(id) ON DELETE CASCADE,
+    player_id  INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- ---------------------------------------------------------------- liga --
@@ -133,6 +148,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
     ko_teams       INTEGER NOT NULL DEFAULT 8,     -- hoeveel teams naar de knockout
     potten         INTEGER NOT NULL DEFAULT 4,
     slot_minuten   INTEGER NOT NULL DEFAULT 20,
+    max_teams      INTEGER,                        -- leeg = geen maximum
     status         TEXT NOT NULL DEFAULT 'opzet'
                    CHECK (status IN ('opzet', 'bracket', 'knockout', 'afgelopen')),
     created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -155,6 +171,13 @@ CREATE TABLE IF NOT EXISTS tournament_teams (
     -- Kwam dit team niet opdagen? Dan tellen zijn wedstrijden niet mee en
     -- worden de resterende affiches opnieuw geloot (zie tournament.terugtrekken).
     teruggetrokken INTEGER NOT NULL DEFAULT 0,
+    -- Wie schreef dit team in, en wanneer? Leeg = toegevoegd door de organisatie.
+    -- De volgorde van inschrijven (id) bepaalt wie op de wachtlijst staat.
+    ingeschreven_door INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    ingeschreven_op   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    -- Schreef iemand een nieuw team in met een bestaande speler? Dan krijgt die
+    -- speler een melding ("dit klopt niet" maakt het ongedaan) tot hij ze bevestigt.
+    te_bevestigen     INTEGER REFERENCES players(id) ON DELETE SET NULL,
     UNIQUE (tournament_id, team_id)
 );
 
@@ -384,6 +407,112 @@ def _migreer_rollen(conn):
         _voeg_kolom_toe(conn, "players", "role", "TEXT NOT NULL DEFAULT 'speler'")
 
 
+def _migreer_speelrondes(conn):
+    """Eenmalig: speelrondes hernummeren naar "de zoveelste wedstrijd van het team".
+
+    Vroeger was een speelronde een tijdslot. Met minder tafels dan wedstrijden
+    speelde een team zo zijn eerste wedstrijd soms in "speelronde 2". Nu krijgt
+    elke wedstrijd het volgnummer dat ze voor de teams heeft (in de volgorde van
+    de kalender). Bij twee teams met een verschillend aantal gespeelde
+    wedstrijden telt het hoogste. Gebeurt één keer; daarna onthoudt de
+    instelling 'speelrondes_per_team' dat het gedaan is.
+    """
+    if not _kolommen(conn, "games") or not _kolommen(conn, "settings"):
+        return
+    if conn.execute("SELECT 1 FROM settings WHERE key = 'speelrondes_per_team'").fetchone():
+        return
+    for (tid,) in conn.execute("SELECT DISTINCT tournament_id FROM games WHERE "
+                               "tournament_id IS NOT NULL AND fase = 'bracket'").fetchall():
+        teller = {}
+        for gid, a, b in conn.execute(
+                "SELECT id, team1_id, team2_id FROM games WHERE tournament_id = ? AND "
+                "fase = 'bracket' ORDER BY scheduled_at, id", (tid,)).fetchall():
+            nummer = max(teller.get(a, 0), teller.get(b, 0)) + 1
+            teller[a] = teller[b] = nummer
+            conn.execute("UPDATE games SET ronde = ? WHERE id = ?", (nummer, gid))
+    conn.execute("INSERT INTO settings (key, value) VALUES ('speelrondes_per_team', '1')")
+    conn.commit()
+
+
+def _migreer_inschrijvingen(conn):
+    """Kolommen voor de inschrijfpagina van toernooien."""
+    if _kolommen(conn, "tournaments"):
+        _voeg_kolom_toe(conn, "tournaments", "max_teams", "INTEGER")
+    if _kolommen(conn, "tournament_teams"):
+        _voeg_kolom_toe(conn, "tournament_teams", "ingeschreven_door",
+                        "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+        # Een vaste standaardwaarde: SQLite laat bij ADD COLUMN geen functie toe.
+        _voeg_kolom_toe(conn, "tournament_teams", "ingeschreven_op",
+                        "TEXT NOT NULL DEFAULT ''")
+        _voeg_kolom_toe(conn, "tournament_teams", "te_bevestigen",
+                        "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+    if _kolommen(conn, "players"):
+        _voeg_kolom_toe(conn, "players", "aangemaakt_door",
+                        "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+
+
+def _migreer_onvolledige_teams(conn, pad):
+    """Teams met één speler mogelijk maken (status 'onvolledig').
+
+    Vroeger stond de genodigde meteen als tweede speler in het team, met status
+    'in_afwachting', en een weigering wiste het hele team. Nu is de tweede
+    speler leeg tot de uitnodiging aanvaard wordt, en staat die uitnodiging in
+    een eigen tabel. Een openstaande uitnodiging van vroeger wordt zo'n team
+    met één speler en dezelfde uitnodiging.
+
+    SQLite kan "NOT NULL" niet van een kolom halen: de tabel wordt herbouwd,
+    met dezelfde id's. Tijdens het herbouwen staan de verwijzingen tussen de
+    tabellen uit, anders zou het weggooien van de oude tabel via ON DELETE
+    CASCADE alle wedstrijden en inschrijvingen van die teams meenemen.
+    """
+    rij = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' "
+                       "AND name = 'teams'").fetchone()
+    if rij is None or "in_afwachting" not in rij[0]:
+        return                              # nieuwe database of al bijgewerkt
+    if os.path.exists(pad):
+        print(f"Teams bijwerken (onvolledige teams) — back-up: {os.path.basename(_backup(pad))}")
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("""
+            CREATE TABLE teams_nieuw (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                player1_id  INTEGER NOT NULL REFERENCES players(id),
+                player2_id  INTEGER REFERENCES players(id),
+                status      TEXT NOT NULL DEFAULT 'onvolledig'
+                            CHECK (status IN ('onvolledig', 'actief')),
+                avatar      TEXT,
+                elo         REAL NOT NULL DEFAULT 1000,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            )""")
+        conn.execute("""
+            INSERT INTO teams_nieuw (id, name, description, player1_id, player2_id,
+                                     status, avatar, elo, created_at)
+            SELECT id, name, description, player1_id,
+                   CASE WHEN status = 'in_afwachting' THEN NULL ELSE player2_id END,
+                   CASE WHEN status = 'in_afwachting' THEN 'onvolledig' ELSE status END,
+                   avatar, elo, created_at
+            FROM teams""")
+        conn.execute("""
+            INSERT OR IGNORE INTO team_invitations (team_id, player_id, created_at)
+            SELECT id, player2_id, created_at FROM teams WHERE status = 'in_afwachting'
+        """)
+        conn.execute("DROP TABLE teams")
+        conn.execute("ALTER TABLE teams_nieuw RENAME TO teams")
+        fouten = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if fouten:
+            raise RuntimeError(f"verwijzingen kloppen niet meer: {fouten[:5]}")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 def _migreer(conn, pad):
     """Werk een bestaande v4-database bij naar v5 (met back-up vooraf)."""
     games_kolommen = _kolommen(conn, "games")
@@ -427,6 +556,10 @@ _SPELER_VERWIJZINGEN = [
     ("game_reports", "player_id", None),
     ("rating_history", "entity_id", "entity_type = 'speler'"),
     ("season_ratings", "entity_id", "entity_type = 'speler'"),
+    ("team_invitations", "player_id", None),
+    ("tournament_teams", "ingeschreven_door", None),
+    ("tournament_teams", "te_bevestigen", None),
+    ("players", "aangemaakt_door", None),
 ]
 
 
@@ -497,9 +630,12 @@ def init_db(pad: str = DB_PATH) -> None:
     conn = verbind(pad)
     _migreer(conn, pad)
     _migreer_rollen(conn)
+    _migreer_inschrijvingen(conn)
     conn.executescript(SCHEMA)
+    _migreer_onvolledige_teams(conn, pad)
     _migreer_terugtrekken(conn)
     _migreer_league(conn)
+    _migreer_speelrondes(conn)
     _hernummer_spelers(conn, pad)
     for sleutel, waarde in STANDAARD_INSTELLINGEN.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",

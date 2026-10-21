@@ -22,7 +22,11 @@
     {% endif %}
   </div>
 
+  {% if m.context.soort == 'toernooi' %}
+  {% if m.context.locatie %}<div class="wedstrijd-meta">{{ m.context.locatie }}</div>{% endif %}
+  {% else %}
   <div class="wedstrijd-meta">{{ m.game['scheduled_at']|datum }}{% if m.context.locatie %} · {{ m.context.locatie }}{% endif %}</div>
+  {% endif %}
 
   <div class="meld-status">
     {% if m.eigen %}
@@ -44,7 +48,7 @@
   {% if m.wacht_op %}
   <p class="klein-tekst wacht-tekst">Deze wedstrijd komt later. Speel en meld eerst
      <strong>{{ namen[m.wacht_op['team1_id']] }} tegen {{ namen[m.wacht_op['team2_id']] }}</strong>
-     van {{ m.wacht_op['scheduled_at']|datum }}. De wedstrijden worden op volgorde
+     uit speelronde {{ m.wacht_op['ronde'] }}. De wedstrijden worden op volgorde
      gespeeld.</p>
   {% else %}
   <form method="post" action="{{ url_for('wedstrijd_melden', game_id=m.game['id']) }}" class="resultaat-form">

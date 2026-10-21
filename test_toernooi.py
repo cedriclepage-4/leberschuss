@@ -118,6 +118,32 @@ check(all(len({x["location_id"] for x in v}) == len(v) for v in bezet.values()),
 check(all(len({x["team1_id"] for x in v} | {x["team2_id"] for x in v}) == 2 * len(v)
           for v in bezet.values()), "geen team speelt twee wedstrijden tegelijk")
 
+# Speelronde = de zoveelste wedstrijd van het team, ook al zijn er maar 3 tafels
+# voor 6 wedstrijden per ronde: elk team speelt in tijdsvolgorde ronde 1, 2, ... 5.
+volgorde = {}
+for g in sorted(games, key=lambda g: (g["scheduled_at"], g["id"])):
+    for kant in (g["team1_id"], g["team2_id"]):
+        volgorde.setdefault(kant, []).append(g["ronde"])
+check(all(v == [1, 2, 3, 4, 5] for v in volgorde.values()),
+      "speelronde k is voor elk team zijn k-de wedstrijd, in de juiste volgorde")
+
+# Oneven aantal teams, weinig tafels: één team rust per speelronde, maar de
+# volgorde per team blijft kloppen en niemand speelt twee keer in één ronde.
+for n_oneven, tafels_oneven in ((13, 4), (9, 2)):
+    sl = tm._tijdsloten([(a, b, nr) for nr, r in enumerate(
+        tm.loot_rondes(list(range(n_oneven)), {i: 1 for i in range(n_oneven)}, 4,
+                       random.Random(n_oneven)), start=1) for a, b in r], tafels_oneven)
+    per_team, per_ronde, ok_ = {}, {}, True
+    for slot in sl:
+        ok_ &= len(slot) <= tafels_oneven
+        for a, b, nr in slot:
+            per_team.setdefault(a, []).append(nr); per_team.setdefault(b, []).append(nr)
+            per_ronde.setdefault(nr, []).extend([a, b])
+    ok_ &= all(v == sorted(v) and len(set(v)) == len(v) == 4 for v in per_team.values())
+    ok_ &= all(len(v) == len(set(v)) for v in per_ronde.values())
+    check(ok_, f"{n_oneven} teams op {tafels_oneven} tafels: rondes per team oplopend, "
+               f"nooit twee keer in één ronde ({len(sl)} tijdsloten)")
+
 potten = {r["team_id"]: r["pot"] for r in conn.execute(
     "SELECT team_id, pot FROM tournament_teams WHERE tournament_id = 1")}
 check(sorted(potten.values()) == sorted([1, 2, 3, 4] * 3), "vier potten van drie teams")
@@ -181,7 +207,7 @@ check(sum(r["gespeeld"] for r in geordend) == 60, "60 teamdeelnames in de bracke
 
 ko = conn.execute("SELECT * FROM games WHERE tournament_id = 1 AND fase = 'knockout' "
                   "ORDER BY ronde DESC, positie").fetchall()
-check(len(ko) == 3, f"knockout: 2 halve finales + finale (gekregen: {len(ko)})")
+check(len(ko) == 4, f"knockout: 2 halve finales + kleine finale + finale (gekregen: {len(ko)})")
 halve = [g for g in ko if g["ronde"] == 4]
 geplaatst = [r["team_id"] for r in geordend[:4]]
 check(sorted([halve[0]["team1_id"], halve[0]["team2_id"]]) ==
@@ -193,6 +219,14 @@ check(finale["status"] == "gespeeld" and finale["winner_team_id"], "de finale is
 check({finale["team1_id"], finale["team2_id"]} ==
       {halve[0]["winner_team_id"], halve[1]["winner_team_id"]},
       "de finalisten zijn de winnaars van de halve finales")
+kleine = [g for g in ko if g["ronde"] == 3][0]
+verliezers = {g["team1_id"] if g["winner_team_id"] == g["team2_id"] else g["team2_id"]
+              for g in halve}
+check({kleine["team1_id"], kleine["team2_id"]} == verliezers,
+      "de kleine finale gaat tussen de verliezers van de halve finales")
+check(kleine["status"] == "gespeeld", "de kleine finale is gespeeld")
+check(kleine["scheduled_at"] < finale["scheduled_at"],
+      "de kleine finale staat vóór de finale op de kalender")
 
 # ------------------------------------------------------------------ elo --
 print("\n== ELO-controle ==")
@@ -203,14 +237,15 @@ elos = [r[0] for r in conn.execute("SELECT elo FROM players")]
 # knockout, waar de verliezer maar de helft betaalt (zie KO_VERLIES in elo.py).
 saldi = {}
 for r in conn.execute("""
-    SELECT g.id, g.fase, SUM(rh.elo_na - rh.elo_voor) AS saldo
+    SELECT g.id, CASE WHEN g.fase = 'knockout' AND g.ronde = 3 THEN 'kleine finale'
+                      ELSE g.fase END AS fase, SUM(rh.elo_na - rh.elo_voor) AS saldo
     FROM rating_history rh JOIN games g ON g.id = rh.game_id
     WHERE rh.entity_type = 'speler' AND rh.scope = 'permanent'
     GROUP BY g.id
 """):
     saldi.setdefault(r["fase"], []).append(r["saldo"])
 
-for fase in ("liga", "bracket"):
+for fase in ("liga", "bracket", "kleine finale"):
     check(all(abs(s) < 1e-9 for s in saldi.get(fase, [])),
           f"{fase}: wat de winnaar wint, verliest de verliezer (nulsom)")
 check(saldi.get("knockout") and all(s > 0 for s in saldi["knockout"]),
@@ -287,6 +322,10 @@ volgende = conn.execute("SELECT * FROM games WHERE id = ?",
                         (halve_rij["volgende_game_id"],)).fetchone()
 check(volgende[kolom] is None,
       "de finale verliest de winnaar van een gewiste halve finale")
+kleine_nu = tm.kleine_finale(conn, 1)
+check(kleine_nu["team1_id" if halve_rij["positie"] == 1 else "team2_id"] is None
+      and kleine_nu["status"] == "gepland",
+      "en de kleine finale verliest de verliezer ervan")
 
 # En daarna moet alles gewoon opnieuw uitgespeeld kunnen worden.
 for _ in range(10):
@@ -450,9 +489,13 @@ for g in games2:
 check(all(len({x["team1_id"] for x in v} | {x["team2_id"] for x in v}) == 2 * len(v)
           for v in bezet2.values()), "geen team speelt twee wedstrijden tegelijk")
 check(all(len(v) <= 2 for v in bezet2.values()), "nooit meer wedstrijden dan tafels")
-rondes2 = {g["ronde"] for g in games2}
-check(len(rondes2) == 13, f"26 wedstrijden op 2 tafels = 13 speelrondes, het "
-                          f"theoretische minimum (gekregen: {len(rondes2)})")
+check(len(bezet2) == 13, f"26 wedstrijden op 2 tafels = 13 tijdsloten, het "
+                         f"theoretische minimum (gekregen: {len(bezet2)})")
+sloten2 = [[(g["team1_id"], g["team2_id"], g["ronde"]) for g in bezet2[k]] for k in sorted(bezet2)]
+check(tm._verschil(sloten2) <= 1,
+      "oneven aantal teams: niemand staat ooit twee wedstrijden achter op een ander")
+check(max(g["ronde"] for g in games2) == 5,
+      "4 wedstrijden per team bij 13 teams: 5 speelrondes (elk team rust er één)")
 check(all(len(v) == 2 for v in bezet2.values()),
       "beide tafels zijn in élke speelronde bezet (geen leegloop)")
 

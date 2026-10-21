@@ -11,21 +11,37 @@
     <p class="pil pil-actief">Jij bent de eerste: dit account wordt meteen de eigenaar
        en kan de organisatie regelen.</p>
     {% endif %}
+    {% if overname %}
+    <div class="overname-kaart">
+      <p><strong>{{ overname.maker }} heeft je al ingeschreven!</strong>
+         Er staat een account klaar op de naam <strong>{{ ingevuld.naam }}</strong>
+         {%- if overname.teams %}, in het team
+         {% for t in overname.teams %}“{{ t.naam }}”{% if t.toernooien %} (voor {{ t.toernooien|join(', ') }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}{% endif %}.</p>
+      <p class="klein-tekst">Ben jij dat? Vink het aan en tik je wachtwoord nog eens in: dan
+         wordt dat account van jou.</p>
+    </div>
+    {% endif %}
     <form method="post">
       <label>Je échte voor- en achternaam
-        <input type="text" name="naam" maxlength="40" autocomplete="name" autofocus required></label>
+        <input type="text" name="naam" maxlength="40" autocomplete="name" {{ 'autofocus' if not overname }} required
+               value="{{ ingevuld.naam or '' }}"></label>
       <p class="stil klein-tekst velduitleg">Dit is je accountnaam, waarmee je ook inlogt.
          Ze ligt daarna vast en kan je zelf niet meer wijzigen. Zo weet iedereen wie wie is.</p>
       <label>Bijnaam (optioneel)
-        <input type="text" name="bijnaam" maxlength="30" autocomplete="nickname"></label>
+        <input type="text" name="bijnaam" maxlength="30" autocomplete="nickname" value="{{ ingevuld.bijnaam or '' }}"></label>
       <p class="stil klein-tekst velduitleg">Zó verschijn je overal op de site. Deze mag je
          altijd veranderen; laat je hem leeg, dan tonen we je echte naam.</p>
       <label>Wachtwoord (min. 6 tekens)
-        <input type="password" name="wachtwoord" minlength="6" autocomplete="new-password" required></label>
-      <button type="submit" class="knop primair breed">Account maken</button>
+        <input type="password" name="wachtwoord" minlength="6" autocomplete="new-password" required
+               {{ 'autofocus' if overname }}></label>
+      {% if overname %}
+      <label class="schakel"><input type="checkbox" name="dat_ben_ik" value="ja" required>
+        <span>Ja, dat ben ik</span></label>
+      {% endif %}
+      <button type="submit" class="knop primair breed">{{ 'Account overnemen' if overname else 'Account maken' }}</button>
     </form>
     <p class="stil klein-tekst ruimte-boven">Al een account?
-       <a href="{{ url_for('inloggen') }}">Log hier in</a>.</p>
+       <a href="{{ url_for('inloggen', volgende=volgende) if volgende else url_for('inloggen') }}">Log hier in</a>.</p>
   </div>
 </div>
 

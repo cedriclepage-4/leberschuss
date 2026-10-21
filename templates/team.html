@@ -8,14 +8,21 @@
     {% else %}<span class="avatar-groot avatar-fallback">{{ naam[0]|upper }}</span>{% endif %}
     <div>
       <h1>{{ naam }}
-        {% if team['status'] != 'actief' %}<span class="pil">wacht op aanvaarding</span>{% endif %}
+        {% if team['status'] == 'onvolledig' %}<span class="pil">onvolledig</span>{% endif %}
       </h1>
+      {% if team['status'] == 'onvolledig' %}
+      <p>Team van
+        {% for lid in leden %}<a class="profielz-link" href="{{ url_for('speler_profiel', speler_id=lid['id']) }}">{{ lid['name'] }}</a>{% endfor %},
+        nog zonder teamgenoot. Opgericht {{ team['created_at']|datum }}.</p>
+      {% else %}
       <p>Team van
         {% for lid in leden %}<a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=lid['id']) }}">{{ lid['name'] }}</a>{{ " en " if not loop.last }}{% endfor %}.
         Samen sinds {{ team['created_at']|datum }}.</p>
+      {% endif %}
       {% if team['description'] %}<p class="team-beschrijving">“{{ team['description'] }}”</p>{% endif %}
     </div>
   </div>
+  {% if team['status'] == 'actief' %}
   <div class="held-cijfers">
     <div class="cijfer"><strong>{{ team['elo']|elo }}</strong><span>team-Aura</span></div>
     <div class="cijfer"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
@@ -23,7 +30,63 @@
     <div class="cijfer"><strong>{{ verlies }}</strong><span>verloren</span></div>
     {% if pct is not none %}<div class="cijfer"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
   </div>
+  {% endif %}
 </section>
+
+{% if team['status'] == 'onvolledig' %}
+{# ---- uitnodiging: versturen, intrekken of (als genodigde) beantwoorden ---- #}
+{% if uitnodiging and session.get('speler_id') == uitnodiging['player_id'] %}
+<div class="kaart aandacht-kaart" id="uitnodigen">
+  <h3>Je bent uitgenodigd</h3>
+  <p>Wil je samen met {{ leden[0]['name'] }} het team “{{ team['name'] }}” vormen?</p>
+  <div class="actie-rij">
+    <form method="post" action="{{ url_for('team_antwoord', team_id=team['id']) }}" class="inline-form">
+      <input type="hidden" name="actie" value="accepteren">
+      <button type="submit" class="knop primair">Aanvaarden</button>
+    </form>
+    <form method="post" action="{{ url_for('team_antwoord', team_id=team['id']) }}" class="inline-form"
+          data-confirm="Uitnodiging voor “{{ team['name'] }}” weigeren?">
+      <input type="hidden" name="actie" value="weigeren">
+      <button type="submit" class="knop gevaar">Weigeren</button>
+    </form>
+  </div>
+</div>
+{% elif is_oprichter %}
+<div class="kaart" id="uitnodigen">
+  <h3>Teamgenoot</h3>
+  {% if uitnodiging %}
+  <p>Uitnodiging verstuurd naar <strong>{{ uitnodiging['naam'] }}</strong>. Zodra die aanvaardt,
+     is het team volledig en kunnen jullie spelen.</p>
+  <form method="post" action="{{ url_for('team_uitnodiging_intrekken', team_id=team['id']) }}"
+        data-confirm="De uitnodiging aan {{ uitnodiging['naam'] }} intrekken?">
+    <button type="submit" class="knop klein">Uitnodiging intrekken</button>
+  </form>
+  {% elif kandidaten %}
+  <p class="stil klein-tekst">Je team is nog onvolledig. Nodig iemand uit; die moet eerst
+     aanvaarden voor jullie kunnen spelen.</p>
+  <form method="post" action="{{ url_for('team_uitnodigen', team_id=team['id']) }}">
+    <label>Zoek op naam of spelersnummer
+      <input type="search" id="partner-zoek" data-filter-doel="#partner-keuze"
+             placeholder="Bv. “jef” of “12”" autocomplete="off">
+    </label>
+    <select name="partner" id="partner-keuze" required
+            {% if kandidaten|length > 6 %}size="8"{% endif %} class="partner-keuze">
+      <option value="" disabled selected>Kies je teamgenoot…</option>
+      {% for pt in kandidaten %}
+      <option value="{{ pt['id'] }}" data-term="{{ pt['naam'] }} {{ pt['id'] }}">#{{ pt['id'] }} · {{ pt['naam'] }}</option>
+      {% endfor %}
+    </select>
+    <p class="stil klein-tekst" id="partner-teller"></p>
+    <button type="submit" class="knop primair">Uitnodiging versturen</button>
+  </form>
+  {% else %}
+  <p class="stil">Er zijn nog geen andere spelers om uit te nodigen.</p>
+  {% endif %}
+</div>
+{% elif uitnodiging %}
+<div class="kaart"><p class="stil">Er is een uitnodiging verstuurd; het team wacht op antwoord.</p></div>
+{% endif %}
+{% endif %}
 
 {% if is_lid %}
 <div class="kaart">

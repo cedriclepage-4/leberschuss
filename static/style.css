@@ -1380,3 +1380,573 @@ h3 { font-weight: 700; }
   .binnenkomst tbody tr { animation: none; }
   .logo3d-binnen { transform: rotateX(-6deg) rotateY(-18deg); }
 }
+
+/* Kleine finale: onder de finale, in dezelfde kolom. */
+.bracket-titel-klein { margin-top: 14px; }
+
+
+/* ================================================================
+   Beamerscherm van een toernooi (/toernooi/<id>/beamer).
+   Eén scherm zonder scrollen: kopbalk, stand of knockoutschema,
+   rechts de laatste uitslagen en een QR-code. Alles schaalt mee met
+   de hoogte van het scherm (vh), want een beamer is nu eens 720,
+   dan weer 1080 pixels hoog.
+   ================================================================ */
+body.bm {
+  margin: 0; height: 100vh; overflow: hidden; color: #fff;
+  display: flex; flex-direction: column;
+  background:
+    var(--baksteen),
+    radial-gradient(ellipse 45% 55% at 0% 0%, rgba(245, 158, 11, .16), transparent 70%),
+    linear-gradient(180deg, var(--navy) 0%, var(--navy-donker) 100%);
+  font-size: clamp(14px, 1.9vh, 26px);
+}
+body.bm.geen-muis, body.bm.geen-muis * { cursor: none !important; }
+.bm-rook { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.bm-kop, .bm-midden { position: relative; z-index: 1; }
+
+/* ---- kopbalk ---- */
+.bm-kop {
+  display: flex; align-items: center; gap: 2vh; padding: 1.6vh 3vh 1.4vh;
+  border-bottom: .4vh solid var(--amber);
+  background: linear-gradient(180deg, rgba(15, 23, 42, .75), rgba(15, 23, 42, .35));
+}
+.bm-logo img { width: 7vh; height: 7vh; display: block; filter: drop-shadow(0 .4vh 1vh rgba(0, 0, 0, .5)); }
+.bm-titel { display: flex; align-items: baseline; gap: 1.8vh; min-width: 0; flex: 1; }
+.bm-titel h1 {
+  margin: 0; font-family: var(--kop); font-weight: 800; font-size: 5.4vh; line-height: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .2px;
+}
+.bm-fase {
+  flex: 0 0 auto; font-weight: 700; font-size: 1.7vh; color: var(--navy-donker);
+  background: var(--amber); padding: .5vh 1.4vh; border-radius: 999px; transform: translateY(-.6vh);
+}
+.bm-bediening { display: flex; align-items: center; gap: 1.4vh; }
+.bm-wissel { display: flex; background: rgba(255, 255, 255, .08); border-radius: 999px; padding: .4vh; }
+.bm-wissel button, .bm-scherm-knop {
+  font: inherit; font-size: 1.6vh; font-weight: 700; color: #cbd5e1; cursor: pointer;
+  background: transparent; border: 0; border-radius: 999px; padding: .8vh 1.8vh;
+}
+.bm-wissel button[aria-selected="true"] { background: #fff; color: var(--navy-donker); }
+.bm-scherm-knop { border: 1px solid rgba(255, 255, 255, .3); }
+.bm-scherm-knop:hover, .bm-wissel button:hover { color: #fff; }
+.bm-wissel button[aria-selected="true"]:hover { color: var(--navy-donker); }
+body.volledig .bm-bediening .bm-wissel, body.volledig .bm-scherm-knop { opacity: 0; transition: opacity .4s; }
+body.volledig:not(.geen-muis) .bm-bediening .bm-wissel,
+body.volledig:not(.geen-muis) .bm-scherm-knop { opacity: 1; }
+
+.bm-live { display: flex; align-items: center; gap: .8vh; font-weight: 700; font-size: 1.6vh; color: #cbd5e1; }
+.bm-live svg { width: 3.2vh; height: 3.2vh; transform: rotate(-90deg); }
+.bm-ring-bg { fill: none; stroke: rgba(255, 255, 255, .15); stroke-width: 3.5; }
+.bm-ring { fill: none; stroke: var(--amber); stroke-width: 3.5; stroke-linecap: round;
+           stroke-dasharray: 94.25; stroke-dashoffset: 0; }
+body.offline .bm-ring { stroke: var(--rood); }
+body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5a5; }
+
+/* ---- midden: hoofdvak + zijkolom ---- */
+.bm-midden {
+  flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 46vh;
+  gap: 2.4vh; padding: 2vh 3vh 2.4vh;
+}
+.bm-hoofd { min-height: 0; position: relative; }
+.bm-hoofd > [hidden] { display: none !important; }
+.bm-leeg { color: #94a3b8; font-size: 2.4vh; text-align: center; margin-top: 20vh; }
+
+/* ---- stand ---- */
+.bm-stand { height: 100%; display: flex; flex-direction: column; --h: 60px; }
+.bm-rijen { position: relative; }
+.bm-rij {
+  display: grid; align-items: center; column-gap: 1.6vh;
+  grid-template-columns: 6vh minmax(0, 1fr) 5vh 5vh 5vh 8vh 17vh;
+  height: var(--h); padding: 0 1.6vh;
+}
+.bm-rij-kop {
+  height: auto; padding-bottom: .8vh; color: #94a3b8; font-size: 1.4vh;
+  font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+}
+.bm-rij-kop .bm-getal, .bm-rij-kop .bm-ptn-vak { text-align: center; }
+.bm-rijen .bm-rij {
+  position: absolute; left: 0; right: 0; top: 0;
+  border-radius: 1vh; background: rgba(255, 255, 255, .045);
+  border: 1px solid rgba(255, 255, 255, .06);
+  height: calc(var(--h) - .6vh);
+}
+.bm-rij.glijdt { transition: transform 1.3s cubic-bezier(.6, 0, .25, 1), background .4s; }
+.bm-rij.door { background: rgba(22, 163, 74, .12); box-shadow: inset .5vh 0 0 var(--groen); }
+.bm-rij.onbeslist { box-shadow: inset .5vh 0 0 var(--amber); }
+.bm-pos { font-family: var(--kop); font-weight: 800; font-size: calc(var(--h) * .5); text-align: center; color: #fff; }
+.bm-rij-kop .bm-pos { font-size: 1.4vh; font-family: var(--tekst); }
+.bm-team { display: flex; align-items: center; gap: 1.4vh; min-width: 0; }
+.bm-foto {
+  width: calc(var(--h) * .62); height: calc(var(--h) * .62); border-radius: 50%; object-fit: cover;
+  flex: 0 0 auto; border: .25vh solid rgba(255, 255, 255, .25);
+}
+.bm-letter {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--navy-donker); color: var(--amber); font-family: var(--kop);
+  font-weight: 800; font-size: calc(var(--h) * .32);
+}
+.bm-namen { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.bm-naam { font-size: calc(var(--h) * .36); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-spelers { font-size: calc(var(--h) * .22); color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-extra {
+  flex: 0 0 auto; font-size: calc(var(--h) * .2); font-weight: 700; padding: .3vh 1vh;
+  border-radius: 999px; background: rgba(245, 158, 11, .2); color: #fcd34d;
+}
+.bm-getal { text-align: center; font-size: calc(var(--h) * .34); font-variant-numeric: tabular-nums; color: #cbd5e1; }
+.bm-ptn-vak { text-align: center; }
+.bm-ptn {
+  display: inline-block; min-width: 2.2em; font-family: var(--kop); font-weight: 800;
+  font-size: calc(var(--h) * .42); color: var(--navy-donker); background: var(--amber);
+  border-radius: .5em; padding: 0 .35em; font-variant-numeric: tabular-nums;
+}
+.bm-vorm { display: flex; gap: .5vh; }
+.bm-bol {
+  width: calc(var(--h) * .36); height: calc(var(--h) * .36); border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: calc(var(--h) * .19); font-weight: 800;
+}
+.bm-bol-W { background: var(--groen); }
+.bm-bol-V { background: var(--rood); }
+.bm-bol.nieuw { animation: bm-bol-in .7s cubic-bezier(.3, 1.6, .5, 1) both; }
+@keyframes bm-bol-in { from { transform: scale(0); } }
+
+/* Uitslag en verplaatsing: losse labels die over de rij heen verschijnen. */
+.bm-uitslag, .bm-beweging {
+  position: absolute; top: 50%; opacity: 0; pointer-events: none;
+  font-family: var(--kop); font-weight: 800; border-radius: .6vh; white-space: nowrap;
+}
+.bm-team { position: relative; }
+.bm-uitslag { right: 0; transform: translate(0, -50%) scale(.6); font-size: calc(var(--h) * .4); padding: 0 1.2vh; }
+.bm-uitslag.is-winst { background: var(--groen); animation: bm-label 4.2s ease both; }
+.bm-uitslag.is-verlies { background: var(--rood); animation: bm-label 4.2s ease both; }
+@keyframes bm-label {
+  0% { opacity: 0; transform: translate(2vh, -50%) scale(.6); }
+  12%, 80% { opacity: 1; transform: translate(0, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(0, -50%) scale(1); }
+}
+.bm-beweging { left: -6.5vh; transform: translateY(-50%); font-size: calc(var(--h) * .3); padding: .2vh .8vh; }
+.bm-beweging.omhoog { color: #4ade80; animation: bm-pijl 5s ease both; }
+.bm-beweging.omlaag { color: #f87171; animation: bm-pijl 5s ease both; }
+@keyframes bm-pijl { 0% { opacity: 0; } 10%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.bm-stand { padding-left: 6.5vh; }
+
+.bm-rij.flits-winst { animation: bm-flits-winst 2.4s ease; }
+.bm-rij.flits-verlies { animation: bm-flits-verlies 2.4s ease; }
+@keyframes bm-flits-winst {
+  15% { background: rgba(22, 163, 74, .55); box-shadow: 0 0 4vh rgba(22, 163, 74, .55); }
+}
+@keyframes bm-flits-verlies {
+  15% { background: rgba(220, 38, 38, .5); box-shadow: 0 0 4vh rgba(220, 38, 38, .5); }
+}
+
+.bm-streep {
+  position: absolute; left: -1vh; right: 0; top: -.3vh; height: 0;
+  border-top: .35vh dashed var(--amber); z-index: 2; transition: transform 1.3s cubic-bezier(.6, 0, .25, 1);
+}
+.bm-streep span {
+  position: absolute; right: 0; top: -1.3vh; font-size: 1.3vh; font-weight: 700;
+  background: var(--amber); color: var(--navy-donker); padding: .2vh 1vh; border-radius: 999px;
+}
+
+/* ---- knockout ---- */
+.bm-bracket { height: 100%; position: relative; }
+.bm-kolommen { display: flex; gap: 5vh; height: 100%; position: relative; z-index: 1; }
+.bm-kolom { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.bm-kolom-kampioen { flex: .8 1 0; }
+.bm-kolom-titel {
+  font-family: var(--kop); font-weight: 700; font-size: 2.4vh; color: #fcd34d;
+  text-align: center; margin-bottom: 1vh;
+}
+.bm-kolom-vak { flex: 1; display: flex; flex-direction: column; justify-content: space-around; position: relative; }
+.bm-kolom-finale .bm-kolom-vak, .bm-kolom-kampioen .bm-kolom-vak { justify-content: center; }
+.bm-klein { position: absolute; left: 0; right: 0; bottom: 0; }
+.bm-klein .bm-kolom-titel { font-size: 1.9vh; color: #cbd5e1; }
+
+.bm-game {
+  background: rgba(15, 23, 42, .78); border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 1.2vh; overflow: hidden; box-shadow: 0 1vh 3vh rgba(0, 0, 0, .35);
+}
+.bm-finale { border: .3vh solid var(--amber); box-shadow: 0 0 5vh rgba(245, 158, 11, .25), 0 1vh 3vh rgba(0, 0, 0, .35); }
+.bm-kleine-finale { border-color: rgba(213, 138, 78, .7); }
+.bm-kant {
+  display: flex; align-items: center; gap: 1.1vh; padding: 1vh 1.4vh; min-height: 6.2vh;
+  border-bottom: 1px solid rgba(255, 255, 255, .08); transition: background .4s, opacity .6s;
+  --h: 7vh;
+}
+.bm-kant:last-child { border-bottom: 0; }
+.bm-foto.klein { width: 4vh; height: 4vh; }
+.bm-letter.klein { font-size: 2vh; }
+.bm-kant-namen { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.bm-kant-naam { font-size: 2.3vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kant-namen small { font-size: 1.4vh; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kant.leeg .bm-kant-naam { color: #64748b; font-weight: 500; font-style: italic; font-size: 1.8vh; }
+.bm-kant.winnaar { background: linear-gradient(90deg, rgba(245, 158, 11, .32), rgba(245, 158, 11, .06)); box-shadow: inset .5vh 0 0 var(--amber); }
+.bm-kant.verliezer { opacity: .4; }
+.bm-kant.verliezer .bm-kant-naam { text-decoration: line-through; text-decoration-color: var(--rood); text-decoration-thickness: .25vh; }
+.bm-game.net-gespeeld { animation: bm-net-gespeeld 1.6s ease; }
+@keyframes bm-net-gespeeld { 20% { transform: scale(1.06); box-shadow: 0 0 6vh rgba(245, 158, 11, .7); } }
+.bm-kant.aangekomen { animation: bm-aangekomen .9s ease; }
+@keyframes bm-aangekomen { 0% { background: rgba(245, 158, 11, .7); } 100% { background: transparent; } }
+
+.bm-lijnen { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.bm-lijn { fill: none; stroke: rgba(255, 255, 255, .16); stroke-width: 2; }
+.bm-lijn.actief { stroke: rgba(245, 158, 11, .75); stroke-width: 3; }
+
+.bm-kampioen {
+  text-align: center; padding: 3vh 1.6vh; border-radius: 1.6vh;
+  border: .3vh dashed rgba(255, 255, 255, .2); color: #64748b;
+}
+.bm-kampioen svg { width: 9vh; height: 9vh; fill: currentColor; display: block; margin: 0 auto 1vh; }
+.bm-kampioen svg .oor { fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; }
+.bm-kampioen strong { display: block; font-family: var(--kop); font-weight: 800; font-size: 3.4vh; line-height: 1.05; }
+.bm-kampioen small { display: block; margin-top: .6vh; font-size: 1.5vh; color: #cbd5e1; }
+.bm-kampioen.heeft {
+  border: 0; color: var(--amber);
+  background: radial-gradient(ellipse at 50% 30%, rgba(245, 158, 11, .35), rgba(15, 23, 42, .85) 70%);
+  box-shadow: 0 0 6vh rgba(245, 158, 11, .35);
+}
+.bm-kampioen.heeft strong { color: #fff; }
+
+.bm-vlieger {
+  position: fixed; z-index: 30; display: flex; align-items: center; padding: 0 1.6vh;
+  border-radius: 1vh; font-size: 2.4vh; pointer-events: none; color: var(--navy-donker);
+  background: var(--amber); box-shadow: 0 1.6vh 4vh rgba(0, 0, 0, .55);
+}
+.bm-vlieger.verliezer { background: #cbd5e1; }
+.bm-vlieger strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- zijkolom ---- */
+.bm-zij { display: flex; flex-direction: column; min-height: 0; gap: 1.6vh; }
+.bm-zij h2 { margin: 0; font-family: var(--kop); font-weight: 800; font-size: 3vh; }
+.bm-feed { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: hidden;
+           display: flex; flex-direction: column; gap: 1vh; }
+.bm-feed-item {
+  background: rgba(255, 255, 255, .055); border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 1.2vh; padding: 1.1vh 1.5vh; display: flex; flex-direction: column; gap: .3vh;
+}
+.bm-feed-item.nieuw { animation: bm-feed-in 1s cubic-bezier(.2, .9, .3, 1.1) both, bm-feed-gloed 4s ease 1s; }
+@keyframes bm-feed-in { from { opacity: 0; transform: translateX(6vh); } }
+@keyframes bm-feed-gloed { 0% { border-color: var(--amber); background: rgba(245, 158, 11, .2); } }
+.bm-feed-label { font-size: 1.3vh; color: #fcd34d; font-weight: 700; }
+.bm-feed-regel { display: flex; align-items: baseline; gap: .8vh; flex-wrap: wrap; font-size: 1.9vh; }
+.bm-feed-winnaar { font-weight: 700; }
+.bm-feed-tegen { color: #94a3b8; font-size: 1.5vh; }
+.bm-feed-verliezer { color: #cbd5e1; }
+.bm-feed-leeg { color: #94a3b8; }
+
+.bm-qr {
+  display: flex; align-items: center; gap: 1.6vh; padding: 1.4vh;
+  background: rgba(255, 255, 255, .06); border-radius: 1.4vh; border: 1px solid rgba(255, 255, 255, .08);
+}
+.bm-qr-code { width: 15vh; height: 15vh; background: #fff; border-radius: 1vh; padding: .6vh; flex: 0 0 auto; }
+.bm-qr-code svg { width: 100%; height: 100%; display: block; }
+.bm-qr-tekst { display: flex; flex-direction: column; gap: .5vh; min-width: 0; }
+.bm-qr-tekst strong { font-family: var(--kop); font-size: 2.6vh; line-height: 1.05; }
+.bm-qr-tekst span { font-size: 1.4vh; color: #94a3b8; word-break: break-all; }
+
+/* ---- grote melding ("Knockout") ---- */
+.bm-melding {
+  position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center;
+  font-family: var(--kop); font-weight: 800; font-size: 22vh; color: #fff; letter-spacing: 1vh;
+  background: rgba(15, 23, 42, .6); text-shadow: 0 1vh 6vh rgba(245, 158, 11, .6);
+  pointer-events: none;
+}
+.bm-melding.toon { animation: bm-melding 2.6s cubic-bezier(.2, .9, .2, 1) both; }
+@keyframes bm-melding {
+  0% { opacity: 0; transform: scale(1.6); letter-spacing: 6vh; }
+  25%, 75% { opacity: 1; transform: scale(1); letter-spacing: 1vh; }
+  100% { opacity: 0; transform: scale(.9); }
+}
+
+/* ---- feestscherm voor de kampioen ---- */
+.bm-feest {
+  position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 45%, rgba(245, 158, 11, .35), rgba(15, 23, 42, .96) 65%);
+}
+.bm-feest[hidden] { display: none; }
+.bm-confetti { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bm-feest-inhoud { position: relative; text-align: center; }
+.bm-feest-beker { width: 26vh; height: 26vh; fill: var(--amber); filter: drop-shadow(0 0 5vh rgba(245, 158, 11, .7)); }
+.bm-feest-beker .oor { fill: none; stroke: var(--amber); stroke-width: 4; stroke-linecap: round; }
+.bm-feest-label { margin: 1vh 0 0; color: #fcd34d; font-size: 3.4vh; font-weight: 700; }
+.bm-feest-naam { margin: 0; font-family: var(--kop); font-weight: 800; font-size: 15vh; line-height: 1; }
+.bm-feest-spelers { margin: 1.4vh 0 0; color: #cbd5e1; font-size: 3.2vh; }
+.bm-feest.toon .bm-feest-beker { animation: bm-beker 1.4s cubic-bezier(.2, 1.4, .4, 1) both; }
+.bm-feest.toon .bm-feest-label { animation: bm-op .8s .6s ease both; }
+.bm-feest.toon .bm-feest-naam { animation: bm-naam 1s .8s cubic-bezier(.2, 1.3, .4, 1) both; }
+.bm-feest.toon .bm-feest-spelers { animation: bm-op .8s 1.3s ease both; }
+.bm-feest.weg { animation: bm-weg .9s ease both; }
+@keyframes bm-beker { from { opacity: 0; transform: translateY(-20vh) rotate(-25deg) scale(.4); } }
+@keyframes bm-op { from { opacity: 0; transform: translateY(3vh); } }
+@keyframes bm-naam { from { opacity: 0; transform: scale(.3); } }
+@keyframes bm-weg { to { opacity: 0; } }
+
+/* Een smal scherm (bv. een gsm die de link opent): zijkolom eronder. */
+@media (max-aspect-ratio: 1/1) {
+  body.bm { height: auto; min-height: 100vh; overflow: auto; }
+  .bm-midden { grid-template-columns: 1fr; }
+  .bm-hoofd { min-height: 70vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bm-rij.glijdt, .bm-streep { transition: none; }
+}
+.bm-rij-kop .bm-getal, .bm-rij-kop .bm-ptn-vak, .bm-rij-kop .bm-vorm { font-size: 1.4vh; color: #94a3b8; }
+
+/* De tafel van een toernooiwedstrijd, in het organisatiepaneel. */
+.locatie-label {
+  display: inline-block; font-weight: 700; color: #14532d; background: #dcfce7;
+  border-radius: 999px; padding: 2px 10px; font-size: .85rem; margin-right: 4px;
+}
+
+
+/* ================================================================
+   Het grote scherm na het melden van een uitslag (viering.js).
+   Winst: groen vlak, springende beker, stralen en confetti.
+   Verlies: donkerblauw vlak, een vinkje dat zichzelf tekent.
+   ================================================================ */
+html.viering-open, html.viering-open body { overflow: hidden; }
+.viering {
+  position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center;
+  justify-content: center; text-align: center; color: #fff; cursor: pointer;
+  outline: none; -webkit-tap-highlight-color: transparent;
+}
+/* Het gekleurde vlak groeit als een cirkel vanuit het midden open. */
+.viering-vlak {
+  position: absolute; inset: 0; clip-path: circle(0% at 50% 45%);
+  transition: clip-path .7s cubic-bezier(.7, 0, .2, 1);
+}
+.viering-winst .viering-vlak {
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255, 255, 255, .22), transparent 55%),
+    linear-gradient(160deg, #22c55e, #15803d 70%);
+}
+.viering-verlies .viering-vlak {
+  background:
+    var(--baksteen),
+    radial-gradient(circle at 50% 40%, rgba(245, 158, 11, .14), transparent 55%),
+    linear-gradient(160deg, var(--navy), var(--navy-donker) 75%);
+}
+.viering.toon .viering-vlak { clip-path: circle(150% at 50% 45%); }
+.viering-confetti { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.viering-inhoud { position: relative; padding: 0 24px; max-width: 34rem; }
+
+/* ---- icoon ---- */
+.viering-icoon {
+  position: relative; width: min(46vw, 210px); aspect-ratio: 1; margin: 0 auto 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.viering-beker { width: 74%; height: 74%; fill: #fff; position: relative;
+                 filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .25)); transform: scale(0); }
+.viering-beker .oor { fill: none; stroke: #fff; stroke-width: 4; stroke-linecap: round; }
+.viering.toon .viering-beker { animation: viering-beker 1s .35s cubic-bezier(.2, 1.6, .4, 1) forwards; }
+@keyframes viering-beker {
+  0% { transform: scale(0) rotate(-30deg); }
+  60% { transform: scale(1.12) rotate(6deg); }
+  80% { transform: scale(.96) rotate(-3deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+/* Lichtstralen die achter de beker ronddraaien. */
+.viering-stralen {
+  position: absolute; inset: -40%; border-radius: 50%; opacity: 0;
+  background: repeating-conic-gradient(rgba(255, 255, 255, .22) 0deg 10deg, transparent 10deg 30deg);
+  -webkit-mask: radial-gradient(circle, #000 25%, transparent 68%);
+          mask: radial-gradient(circle, #000 25%, transparent 68%);
+}
+.viering-winst.toon .viering-stralen { animation: viering-stralen-in .6s .45s forwards, viering-draai 14s linear infinite; }
+@keyframes viering-stralen-in { to { opacity: 1; } }
+@keyframes viering-draai { to { transform: rotate(360deg); } }
+
+/* Het vinkje tekent zichzelf: eerst de cirkel, dan de haak. */
+.viering-vink { width: 82%; height: 82%; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.vink-cirkel { stroke: var(--amber); stroke-width: 5; stroke-dasharray: 277; stroke-dashoffset: 277;
+               transform: rotate(-90deg); transform-origin: 50% 50%; }
+.vink-lijn { stroke: #fff; stroke-width: 7; stroke-dasharray: 70; stroke-dashoffset: 70; }
+.viering.toon .vink-cirkel { animation: viering-teken .7s .4s cubic-bezier(.6, 0, .3, 1) forwards; }
+.viering.toon .vink-lijn { animation: viering-teken .45s 1s cubic-bezier(.5, 0, .3, 1) forwards; }
+.viering.toon .viering-vink { animation: viering-tik .5s 1.4s ease; }
+@keyframes viering-teken { to { stroke-dashoffset: 0; } }
+@keyframes viering-tik { 40% { transform: scale(1.08); } }
+
+/* ---- tekst ---- */
+.viering-titel {
+  margin: 0; font-family: var(--kop); font-weight: 800; line-height: .95;
+  font-size: clamp(3.4rem, 16vw, 6.5rem); letter-spacing: .5px;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, .2);
+}
+.viering-tegen { margin: 6px 0 0; font-size: 1.25rem; font-weight: 600; opacity: .9; }
+.viering-verder {
+  margin: 14px auto 0; display: inline-block; font-family: var(--kop); font-weight: 700;
+  font-size: 1.6rem; padding: 4px 18px; border-radius: 999px;
+  background: rgba(255, 255, 255, .18);
+}
+.viering-verlies .viering-verder { background: rgba(245, 158, 11, .2); color: #fcd34d; }
+.viering-status { margin: 18px 0 0; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; }
+.viering-pil {
+  font-weight: 700; font-size: .9rem; padding: 5px 14px; border-radius: 999px;
+  background: #fff; color: #15803d;
+}
+.viering-verlies .viering-pil { color: var(--navy-donker); background: var(--amber); }
+.viering-aura { font-family: var(--kop); font-weight: 800; font-size: 1.9rem; }
+.viering-wacht { font-size: .95rem; opacity: .85; }
+.viering-troost { margin: 18px 0 0; font-size: 1.05rem; color: #cbd5e1; }
+.viering-sluit { margin: 30px 0 0; font-size: .85rem; opacity: .6; }
+
+/* De tekst schuift na het icoon binnen, regel per regel. */
+.viering-inhoud > p { opacity: 0; transform: translateY(18px); }
+.viering.toon .viering-inhoud > p { animation: viering-op .55s cubic-bezier(.2, .8, .2, 1) forwards; }
+.viering.toon .viering-titel { animation-delay: .55s !important; }
+.viering.toon .viering-tegen { animation-delay: .7s !important; }
+.viering.toon .viering-verder { animation-delay: .85s !important; }
+.viering.toon .viering-status { animation-delay: 1s !important; }
+.viering.toon .viering-troost { animation-delay: 1.4s !important; }
+.viering.toon .viering-sluit { animation-delay: 1.8s !important; }
+@keyframes viering-op { to { opacity: 1; transform: none; } }
+.viering-verder { opacity: 0; }
+
+/* Weggaan: alles vervaagt en krimpt een beetje. */
+.viering.weg { animation: viering-weg .45s ease forwards; }
+@keyframes viering-weg { to { opacity: 0; transform: scale(1.04); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .viering-vlak { transition: opacity .3s; clip-path: none; opacity: 0; }
+  .viering.toon .viering-vlak { opacity: 1; }
+  .viering-beker { transform: none; }
+  .vink-cirkel, .vink-lijn { stroke-dashoffset: 0; }
+  .viering.toon .viering-beker, .viering.toon .vink-cirkel, .viering.toon .vink-lijn,
+  .viering.toon .viering-vink, .viering-winst.toon .viering-stralen { animation: none; }
+  .viering-inhoud > p { opacity: 1; transform: none; }
+  .viering.toon .viering-inhoud > p { animation: none; }
+}
+.locatie-vast { padding: 3px 12px; }
+
+/* Beamer: het venster waardoor de camera naar de stand kijkt. De linkermarge
+   hoort erbij, anders vallen de ▲/▼-labels er net buiten. */
+.bm-venster {
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+  margin-left: -6.5vh; padding-left: 6.5vh;
+}
+.bm-venster .bm-rijen { will-change: transform; }
+.bm-venster.meer-onder {
+  -webkit-mask-image: linear-gradient(180deg, #000 82%, transparent);
+          mask-image: linear-gradient(180deg, #000 82%, transparent);
+}
+.bm-venster.meer-boven {
+  -webkit-mask-image: linear-gradient(0deg, #000 82%, transparent);
+          mask-image: linear-gradient(0deg, #000 82%, transparent);
+}
+.bm-venster.meer-boven.meer-onder {
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 84%, transparent);
+          mask-image: linear-gradient(180deg, transparent, #000 14%, #000 84%, transparent);
+}
+
+/* Onvolledige teams op het spelersprofiel. */
+.onvolledig-lijst { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.onvolledig-lijst li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* Registreren: een ploegmaat maakte al een account op jouw naam. */
+.overname-kaart {
+  text-align: left; background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px;
+  padding: 12px 14px; margin: 14px 0 4px;
+}
+.overname-kaart p { margin: 0 0 6px; }
+.overname-kaart p:last-child { margin-bottom: 0; }
+
+/* Inschrijven: groen vlak met een wit vinkje dat zichzelf tekent. */
+.viering-inschrijving .vink-cirkel { stroke: #fff; }
+.viering-inschrijving .viering-titel { font-size: clamp(3rem, 13vw, 5.6rem); }
+
+/* ================================================================
+   Inschrijfpagina van een toernooi (inschrijven.html).
+   ================================================================ */
+.inschrijf-boven { margin: 0 0 4px !important; color: var(--amber-donker) !important; font-weight: 700; }
+.cijfer strong small { font-size: .55em; color: var(--stil); font-weight: 700; }
+.inschrijf-kaart { padding: 24px; border-top: 4px solid var(--amber); }
+.inschrijf-titel {
+  font-family: var(--kop); font-weight: 800; font-size: 1.8rem; margin: 0 0 10px;
+  color: var(--navy-donker);
+}
+.inschrijf-ok { border-top-color: var(--groen); background: #f7fdf9; }
+.inschrijf-wacht { border-top-color: var(--amber); background: #fffbf0; }
+.inschrijf-volzet { background: #fffbf0; border-left: 3px solid var(--amber); padding: .6rem .8rem; border-radius: 6px; font-size: .95rem; margin: 0 0 1rem; }
+.inschrijf-knoppen { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 14px; }
+.knop.groot { min-height: 52px; font-size: 1.08rem; padding: 12px 24px; }
+.inschrijf-keuzes { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.inschrijf-keuze {
+  display: flex; align-items: center; gap: 12px; margin: 0; cursor: pointer;
+  border: 2px solid var(--lijn); border-radius: 14px; padding: 12px 14px; background: #fff;
+  color: var(--inkt); transition: border-color .12s, background .12s;
+}
+.inschrijf-keuze:hover { border-color: var(--amber); }
+.inschrijf-keuze:has(input:checked) { border-color: var(--amber-donker); background: #fffbeb; }
+.inschrijf-keuze input { width: 20px; height: 20px; margin: 0; accent-color: var(--amber-donker); flex: 0 0 auto; }
+.inschrijf-keuze .avatar-mini { width: 34px; height: 34px; line-height: 34px; font-size: .95rem; }
+.inschrijf-keuze-tekst { display: flex; flex-direction: column; min-width: 0; }
+.inschrijf-keuze-tekst strong { font-size: 1.05rem; color: var(--navy-donker); }
+.inschrijf-keuze-tekst span { font-size: .9rem; color: var(--stil); }
+.inschrijf-keuze.keuze-uit { cursor: not-allowed; opacity: .6; }
+.inschrijf-nieuw { margin: 0 0 12px; padding: 4px 2px 0; position: relative; }
+.inschrijf-nieuw[hidden] { display: none; }
+.suggesties {
+  list-style: none; margin: -4px 0 10px; padding: 6px; border: 1px solid var(--lijn);
+  border-radius: 12px; background: #fff; box-shadow: var(--schaduw);
+}
+.suggesties button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 1rem; color: var(--inkt);
+}
+.suggesties button:hover, .suggesties button:focus { background: #fffbeb; color: var(--amber-donker); }
+.inschrijf-lijst { margin: 0; padding-left: 26px; }
+.inschrijf-lijst li { margin: 8px 0; }
+.inschrijf-lijst strong { color: var(--navy-donker); margin-right: 6px; }
+.inschrijf-deel { display: flex; align-items: center; gap: 18px; margin-top: 30px; }
+.inschrijf-deel h3 { margin: 0 0 4px; }
+.inschrijf-qr { width: 120px; flex: 0 0 auto; background: #fff; border-radius: 10px; }
+.inschrijf-qr svg { width: 100%; height: auto; display: block; }
+.inschrijf-adres { margin: 6px 0 0; font-weight: 700; color: var(--amber-donker); word-break: break-all; }
+@media (max-width: 560px) {
+  .inschrijf-kaart { padding: 18px 16px; }
+  .inschrijf-knoppen .knop { width: 100%; }
+  .inschrijf-deel { flex-direction: column; align-items: flex-start; }
+}
+/* Organisatie: wie schreef in, en wanneer */
+.inschrijf-meta { display: block; font-size: .78rem; font-weight: 400; color: var(--stil, #64748b); margin-top: .1rem; }
+.pil.pil-wacht { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+/* Melding voor wie door een ploegmaat werd ingeschreven */
+.ploeg-melding { border-top: 4px solid var(--amber); background: #fffbf0; margin-bottom: 1.25rem; }
+.ploeg-melding-label { margin: 0 0 .2rem; font-family: var(--kop); font-weight: 700; font-size: 1.35rem; color: var(--navy-donker); }
+.ploeg-melding-tekst { margin: 0 0 .9rem; }
+.ploeg-melding-knoppen { display: flex; flex-wrap: wrap; gap: .6rem; }
+.ploeg-melding-knoppen form { margin: 0; }
+.ploeg-melding-wrap { padding-top: 1rem; position: relative; z-index: 2; }
+.ploeg-melding-wrap .ploeg-melding { margin-bottom: 0; }
+
+/* iPhone als app (zwart-doorschijnende statusbalk): de kop schuift onder de
+   klok en de batterij uit, zodat niets erachter verdwijnt. Ook links en rechts
+   voor de inkeping in liggende stand. */
+.topbar {
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Inschrijfpagina: de kop in de stijl van de thuispagina */
+.inschrijf-held { padding-bottom: 46px; }
+.inschrijf-held .thuis-tekst .inschrijf-boven {
+  color: var(--amber) !important; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; font-size: .85rem; margin: 0 0 8px !important;
+}
+.inschrijf-held .thuis-tekst h1 { overflow-wrap: anywhere; }
+.inschrijf-held .inschrijf-wanneer { color: #fff; font-size: 1.15rem; font-weight: 600; margin: 0 0 6px; }
+.inschrijf-held .inschrijf-omschrijving { font-style: italic; }
+.inschrijf-held .held-cijfers { margin-top: 22px; }
+.inschrijf-held .cijfer strong small { color: #94a3b8; }
+.inschrijf-pagina main > .inschrijf-kaart:first-of-type,
+.inschrijf-pagina main > .flashes + .inschrijf-kaart { margin-top: 28px; }
+.thuis-held.wacht .thuis-tekst > :nth-child(4) { transition-delay: .24s; }
+.thuis-held.wacht .thuis-tekst > :nth-child(5) { transition-delay: .32s; }
+@media (max-width: 640px) {
+  .inschrijf-held { padding-bottom: 30px; }
+  .inschrijf-held .logo3d { width: 140px; }
+}
