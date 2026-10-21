@@ -1035,19 +1035,21 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
 body { font-family: var(--tekst); font-size: 16.5px; }
 
 /* Koppen en cijfers: smal en vet, zoals op een scorebord. */
-h1, h2, h3, .sectiekop, .naam, .team-naam, .elo-badge, .cijfer strong,
-.record-waarde, .winnaar-naam, .affiche-naam, .scherm-titel, .scherm-teller strong,
-.tegel h3, .toernooi-kop h3, .sectie-knop, .nu-tekst strong, .lopend-tekst strong {
+/* Enkel waar de tekst groot is: smal en vet leest slecht in kleine letters. */
+h1, h2, .sectiekop, .cijfer strong, .record-waarde, .winnaar-naam,
+.scherm-titel, .scherm-teller strong, .lopend-tekst strong, .logo strong,
+.toernooi-cijfers strong {
   font-family: var(--kop);
 }
-h1, h2, h3 { letter-spacing: .2px; }
-.naam, .team-naam { font-weight: 700; font-size: 1.08em; letter-spacing: .2px; }
+h1, h2 { letter-spacing: .2px; }
+h3 { font-weight: 700; }
+.naam, .team-naam { font-weight: 600; }
 
 /* ---- kopbalk ---- */
 .topbar { background: var(--baksteen), linear-gradient(135deg, var(--navy-donker), var(--navy)); }
 .logo strong { font-family: var(--kop); font-size: 1.55rem; font-weight: 800; letter-spacing: .4px; line-height: 1.05; }
 .logo small { font-size: .78rem; }
-.sectie-knop { font-size: 1.08rem; font-weight: 700; letter-spacing: .4px; padding: 6px 20px; }
+.sectie-knop { font-size: .98rem; font-weight: 700; padding: 6px 18px; }
 
 /* ---- paginakop ---- */
 .held { padding: 40px 0 22px; }
@@ -1075,7 +1077,7 @@ h1, h2, h3 { letter-spacing: .2px; }
   background: var(--amber); transform: rotate(45deg); border-radius: 2px;
 }
 .sectiekop .stil { font-weight: 600; }
-.kaart h3 { font-size: 1.35rem; font-weight: 700; }
+.kaart h3 { font-size: 1.2rem; font-weight: 700; }
 
 /* ---- kaarten ---- */
 .kaart { border: 1px solid var(--lijn-warm); box-shadow: var(--schaduw); }
@@ -1083,8 +1085,8 @@ h1, h2, h3 { letter-spacing: .2px; }
 /* ---- klassement: medailles in plaats van emoji ---- */
 .rang-nr {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 28px; height: 28px; font-family: var(--kop); font-weight: 700;
-  font-size: 1.05rem; color: var(--stil); font-variant-numeric: tabular-nums;
+  min-width: 28px; height: 28px; font-weight: 700;
+  font-size: .95rem; color: var(--stil); font-variant-numeric: tabular-nums;
 }
 .rang-nr.r1, .rang-nr.r2, .rang-nr.r3 {
   border-radius: 50%; color: #fff; font-weight: 800;
@@ -1097,7 +1099,7 @@ h1, h2, h3 { letter-spacing: .2px; }
 .tabel tbody tr:has(.rang-nr.r1) { background: #fffaeb; }
 .tabel tbody tr:has(.rang-nr.r1):hover { background: #fff5d6; }
 
-.elo-badge { font-size: 1.05rem; font-weight: 700; letter-spacing: .5px; padding: 2px 11px; }
+.elo-badge { font-size: .92rem; font-weight: 700; padding: 3px 11px; }
 .tabel th { color: #8a8170; border-bottom-color: var(--lijn-warm); }
 .tabel td { border-bottom-color: #f1ece2; }
 
@@ -1122,7 +1124,7 @@ h1, h2, h3 { letter-spacing: .2px; }
 
 /* ---- lopend toernooi / speeldag ---- */
 .lopend-kaart { border-left-width: 5px; padding: 22px 24px; }
-.lopend-label { display: inline-flex; align-items: center; gap: 7px; font-size: .78rem; }
+.lopend-label { display: inline-flex; align-items: center; gap: 7px; font-size: .8rem; letter-spacing: .5px; }
 .lopend-tekst strong { font-size: 1.6rem; font-weight: 800; line-height: 1.1; }
 .live-bol {
   width: 9px; height: 9px; border-radius: 50%; background: currentColor;
@@ -1153,7 +1155,7 @@ h1, h2, h3 { letter-spacing: .2px; }
 .winnaar-naam .profiel-link { color: #fff; border-bottom-color: rgba(255, 255, 255, .35); }
 .winnaar-naam .profiel-link:hover { color: var(--amber); }
 
-.toernooi-winnaar { font-family: var(--kop); font-size: 1.15rem; }
+.toernooi-winnaar { font-size: 1.05rem; }
 .toernooi-cijfers strong { font-family: var(--kop); font-size: 1.25rem; }
 
 /* ---- tabs & knoppen ---- */
@@ -1181,4 +1183,200 @@ h1, h2, h3 { letter-spacing: .2px; }
   .beker-svg { width: 54px; height: 54px; }
   .rang-nr.r1, .rang-nr.r2, .rang-nr.r3 { min-width: 24px; height: 24px; font-size: .95rem; }
   .logo strong { font-size: 1.3rem; }
+}
+
+
+/* ================================================================
+   Thuispagina — de grote kop: 3D-logo, rook en podium.
+   Enkel op de thuispagina (body.thuis). Beweging valt weg bij
+   "minder beweging" op het toestel.
+   ================================================================ */
+.thuis .topbar { border-bottom: 0; }
+
+.thuis-held {
+  position: relative; overflow: hidden; isolation: isolate; color: #fff;
+  background:
+    var(--baksteen),
+    radial-gradient(ellipse 60% 70% at 78% 40%, rgba(245, 158, 11, .20), transparent 70%),
+    radial-gradient(ellipse 50% 60% at 10% 100%, rgba(59, 130, 246, .10), transparent 70%),
+    linear-gradient(180deg, var(--navy) 0%, var(--navy-donker) 100%);
+  border-bottom: 4px solid var(--amber);
+  padding-top: 44px;
+}
+.rook { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+
+.thuis-raster {
+  display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 40px; align-items: center;
+}
+.thuis-tekst h1 {
+  font-family: var(--kop); font-weight: 800; color: #fff; margin: 0 0 14px;
+  font-size: clamp(2.8rem, 6.4vw, 4.8rem); line-height: .95; letter-spacing: .3px;
+  text-shadow: 0 4px 30px rgba(0, 0, 0, .35);
+}
+.thuis-tekst p { color: #cbd5e1; margin: 0; max-width: 34rem; font-size: 1.06rem; }
+.thuis-held .cijfer { border-left-color: rgba(255, 255, 255, .14); }
+.thuis-held .cijfer strong { color: #fff; }
+.thuis-held .cijfer span { color: #94a3b8; }
+
+/* ---- het logo als 3D-voorwerp ---- */
+.logo3d { position: relative; width: 300px; aspect-ratio: 1; perspective: 900px; justify-self: center; }
+.logo3d-gloed {
+  position: absolute; inset: -18%; border-radius: 50%; z-index: -1;
+  background: radial-gradient(circle, rgba(245, 158, 11, .38), rgba(245, 158, 11, 0) 62%);
+  animation: gloed 5s ease-in-out infinite;
+}
+@keyframes gloed { 50% { opacity: .55; transform: scale(.92); } }
+.logo3d-binnen {
+  position: relative; width: 100%; height: 100%; transform-style: preserve-3d;
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+}
+.laag { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.laag-schaduw { transform: translateZ(-38px); opacity: .9; }
+.laag-dikte { transform: translateZ(var(--z)); }
+.laag-dikte polygon { fill: #2b2b2b; }
+.laag-dikte:last-of-type polygon { fill: #1a1a1a; }
+.laag-ruit { transform: translateZ(0); }
+.laag-vis {
+  transform: translateZ(40px);
+  filter: drop-shadow(0 10px 8px rgba(0, 0, 0, .45));
+  animation: zwem 3.2s ease-in-out infinite;
+}
+@keyframes zwem {
+  0%, 100% { transform: translateZ(40px) translate(0, 0); }
+  50% { transform: translateZ(40px) translate(-1.5%, -2.5%); }
+}
+.vis-staart {
+  transform-box: view-box; transform-origin: 62px 50px;
+  animation: staart .9s ease-in-out infinite alternate;
+}
+@keyframes staart { from { transform: rotate(-10deg); } to { transform: rotate(10deg); } }
+
+/* ---- podium ---- */
+.podium {
+  list-style: none; margin: 34px 0 0; padding: 0;
+  display: flex; justify-content: center; align-items: flex-end; gap: 14px;
+  perspective: 900px; perspective-origin: 50% -40%; transform-style: preserve-3d;
+}
+.podium-plek { width: 200px; display: flex; flex-direction: column; align-items: center; transform-style: preserve-3d; }
+.podium-speler {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: #fff; text-decoration: none; text-align: center; padding: 0 6px 26px; max-width: 100%;
+}
+.podium-foto {
+  width: 68px; height: 68px; border-radius: 50%; object-fit: cover; flex: 0 0 auto;
+  border: 3px solid var(--metaal); box-shadow: 0 0 0 4px rgba(15, 23, 42, .6), 0 10px 24px rgba(0, 0, 0, .45);
+  transition: transform .2s;
+}
+.podium-letter {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--navy-donker); color: var(--amber); font-family: var(--kop);
+  font-weight: 800; font-size: 1.9rem;
+}
+.podium-speler:hover .podium-foto { transform: translateY(-4px) scale(1.05); }
+.podium-naam {
+  font-weight: 700; font-size: 1.08rem; margin-top: 6px; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.podium-speler:hover .podium-naam { color: var(--amber); }
+.podium-aura { color: #cbd5e1; font-size: .85rem; text-shadow: 0 1px 6px rgba(15, 23, 42, .8); }
+.podium-aura strong {
+  font-family: var(--kop); font-size: 1.45rem; color: var(--amber); margin-right: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Elk blok is een echte doos: een voorkant en een bovenkant. */
+.podium-blok { position: relative; width: 100%; height: var(--h); transform-style: preserve-3d; }
+.blok-voor, .blok-boven { position: absolute; left: 0; width: 100%; }
+.blok-voor {
+  top: 0; bottom: 0; transform: translateZ(32px); overflow: hidden;
+  background: linear-gradient(180deg, var(--metaal-licht), var(--metaal) 35%, var(--metaal-donker));
+  border-radius: 4px 4px 0 0;
+  display: flex; align-items: flex-start; justify-content: center;
+}
+.blok-voor span {
+  font-family: var(--kop); font-weight: 800; font-size: 4.2rem; line-height: 1.15;
+  color: rgba(255, 255, 255, .92); text-shadow: 0 2px 0 rgba(0, 0, 0, .18), 0 6px 18px rgba(0, 0, 0, .2);
+}
+.blok-boven {
+  top: 0; height: 64px; transform-origin: top center;
+  transform: translateZ(-32px) rotateX(90deg);
+  background: linear-gradient(0deg, var(--metaal-licht), var(--metaal));
+}
+.plek-1 { --h: 150px; --metaal: var(--goud); --metaal-licht: #ffe08a; --metaal-donker: #c98500; }
+.plek-2 { --h: 108px; --metaal: var(--zilver); --metaal-licht: #f1f4f8; --metaal-donker: #8e9aab; }
+.plek-3 { --h: 78px;  --metaal: var(--brons); --metaal-licht: #f3c29a; --metaal-donker: #9b5422; }
+.plek-1 .podium-foto { width: 84px; height: 84px; }
+.plek-1 .podium-naam { font-size: 1.2rem; }
+
+/* Een lichtstreep die af en toe over het gouden blok glijdt. */
+.plek-1 .blok-voor::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .55), transparent);
+  transform: skewX(-18deg); animation: glans 4.5s ease-in-out 2.2s infinite;
+}
+@keyframes glans { 0% { left: -60%; } 30%, 100% { left: 130%; } }
+
+/* ---- opbouw bij het laden ---- */
+.thuis-held.wacht:not(.klaar) .podium-blok { transform: translateY(105%); }
+.thuis-held.wacht:not(.klaar) .podium-speler { opacity: 0; transform: translateY(16px); }
+.thuis-held.wacht:not(.klaar) .logo3d { opacity: 0; transform: scale(.7) rotate(-20deg); }
+.thuis-held.wacht:not(.klaar) .thuis-tekst > * { opacity: 0; transform: translateY(18px); }
+.thuis-held.wacht .podium-blok { transition: transform .9s cubic-bezier(.2, .9, .25, 1.15); }
+.thuis-held.wacht .podium-speler { transition: opacity .5s, transform .6s cubic-bezier(.2, .8, .3, 1.2); }
+.thuis-held.wacht .logo3d { transition: opacity .8s, transform 1.2s cubic-bezier(.2, .9, .3, 1.15); }
+.thuis-held.wacht .thuis-tekst > * { transition: opacity .6s, transform .7s cubic-bezier(.2, .8, .2, 1); }
+.thuis-held.wacht .thuis-tekst > :nth-child(2) { transition-delay: .08s; }
+.thuis-held.wacht .thuis-tekst > :nth-child(3) { transition-delay: .16s; }
+.plek-3 .podium-blok { transition-delay: .25s !important; }
+.plek-2 .podium-blok { transition-delay: .4s !important; }
+.plek-1 .podium-blok { transition-delay: .55s !important; }
+.plek-3 .podium-speler { transition-delay: .75s !important; }
+.plek-2 .podium-speler { transition-delay: .9s !important; }
+.plek-1 .podium-speler { transition-delay: 1.05s !important; }
+
+/* Rijen van het klassement schuiven een voor een binnen. */
+.binnenkomst tbody tr { animation: rij-in .55s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes rij-in { from { opacity: 0; transform: translateX(-14px); } }
+.binnenkomst tbody tr:nth-child(1) { animation-delay: .05s; }
+.binnenkomst tbody tr:nth-child(2) { animation-delay: .09s; }
+.binnenkomst tbody tr:nth-child(3) { animation-delay: .13s; }
+.binnenkomst tbody tr:nth-child(4) { animation-delay: .17s; }
+.binnenkomst tbody tr:nth-child(5) { animation-delay: .21s; }
+.binnenkomst tbody tr:nth-child(6) { animation-delay: .25s; }
+.binnenkomst tbody tr:nth-child(7) { animation-delay: .29s; }
+.binnenkomst tbody tr:nth-child(8) { animation-delay: .33s; }
+.binnenkomst tbody tr:nth-child(9) { animation-delay: .37s; }
+.binnenkomst tbody tr:nth-child(n+10) { animation-delay: .41s; }
+
+.thuis main > .lopend-kaart:first-of-type,
+.thuis main > .flashes + .lopend-kaart { margin-top: 28px; }
+.thuis main > .tabs:first-child { margin-top: 28px; }
+
+@media (max-width: 860px) {
+  .thuis-raster { grid-template-columns: minmax(0, 1fr) 220px; gap: 20px; }
+  .logo3d { width: 210px; }
+}
+@media (max-width: 640px) {
+  .thuis-held { padding-top: 22px; }
+  .thuis-raster { grid-template-columns: 1fr; gap: 6px; }
+  .logo3d { width: 170px; order: -1; }
+  .thuis-tekst h1 { font-size: 2.7rem; }
+  .thuis-tekst p { font-size: .98rem; }
+  .podium { gap: 8px; margin-top: 26px; }
+  .podium-plek { width: 32%; }
+  .podium-foto { width: 50px; height: 50px; }
+  .plek-1 .podium-foto { width: 62px; height: 62px; }
+  .podium-naam, .plek-1 .podium-naam { font-size: .92rem; }
+  .podium-aura { font-size: .75rem; }
+  .podium-aura strong { font-size: 1.15rem; }
+  .plek-1 { --h: 112px; } .plek-2 { --h: 80px; } .plek-3 { --h: 60px; }
+  .blok-voor span { font-size: 3rem; }
+  .blok-boven { height: 40px; transform: translateZ(-20px) rotateX(90deg); }
+  .blok-voor { transform: translateZ(20px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo3d-gloed, .laag-vis, .vis-staart, .plek-1 .blok-voor::after,
+  .binnenkomst tbody tr { animation: none; }
+  .logo3d-binnen { transform: rotateX(-6deg) rotateY(-18deg); }
 }

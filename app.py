@@ -97,7 +97,7 @@ MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
 
 _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png",
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
-                      "icon-maskable-512.png", "apple-touch-icon.png",
+                      "icon-maskable-512.png", "apple-touch-icon.png", "thuis.js",
                       # lettertypes (Barlow), zelf gehost zodat ze ook offline werken
                       "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2",
                       "barlow-latin-600-normal.woff2", "barlow-latin-700-normal.woff2",

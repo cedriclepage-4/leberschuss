@@ -15,7 +15,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Leberschuss">
 </head>
-<body>
+<body class="{% block body_klasse %}{% endblock %}">
   <header class="topbar">
     <div class="wrap topbar-inner">
       <a class="logo" href="{{ url_for('index') }}">
@@ -81,6 +81,9 @@
       </div>
     </div>
   </header>
+
+  {# Ruimte voor een kop over de volle breedte (enkel de thuispagina). #}
+  {% block boven %}{% endblock %}
 
   <main class="wrap">
     {% if terug %}
