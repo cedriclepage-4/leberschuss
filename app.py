@@ -4308,7 +4308,7 @@ def toernooi_inschrijven(toernooi_id):
     return render_template("inschrijven.html", t=t, lijst=lijst, mijn=mijn,
                            uitnodiging=uitnodiging, via_naam=via_naam,
                            mijn_teams=mijn_teams, spelers=spelers, bevestigd=bevestigd,
-                           open=t["status"] == "opzet", terug=terug,
+                           open=t["status"] == "opzet", hierheen=terug, huidig_toernooi=t,
                            ik_naam=weergave(huidige_speler()) if ik else "",
                            adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id))
 
@@ -4658,7 +4658,8 @@ def _beamer_gegevens(db, toernooi_id):
         else:
             label = f"Speelronde {g['ronde']}" if g["ronde"] else "Bracketfase"
         laatste.append({"id": g["id"], "label": label, "team1": team(g["team1_id"]),
-                        "team2": team(g["team2_id"]), "winnaar": g["winner_team_id"]})
+                        "team2": team(g["team2_id"]), "winnaar": g["winner_team_id"],
+                        "fase": g["fase"]})
 
     # Een vingerafdruk van alles wat op het scherm kan veranderen: is die gelijk,
     # dan hoeft de pagina niets te doen.

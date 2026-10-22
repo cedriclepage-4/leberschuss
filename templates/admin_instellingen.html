@@ -12,9 +12,10 @@
 
 <h2 class="sectiekop" id="league">Wat zien de spelers?</h2>
 <div class="kaart">
-  <p class="stil klein-tekst">De site bestaat uit twee delen. Je kan het
-     leaguegedeelte (klassement, wedstrijden, statistieken en seizoenen)
-     volledig verbergen en enkel met toernooien werken. Jij als organisator
+  <p class="stil klein-tekst">Je kan het leaguegedeelte (de seizoenen, met hun
+     speeldagen en klassementen) verbergen en enkel met toernooien werken. De
+     thuispagina met het globale klassement en de statistieken blijft altijd
+     zichtbaar: dat is en blijft de startpagina. Jij als organisator
      blijft alles zien, ook wanneer het uit staat, zodat je in alle rust kan
      klaarzetten. Aanzetten kan later met datzelfde vinkje: er gaat niets
      verloren.</p>
@@ -25,9 +26,9 @@
     </label>
     <p class="stil klein-tekst">
       {%- if league_zichtbaar %}Nu: spelers zien <strong>League én Toernooi</strong>.
-      {%- else %}Nu: spelers zien <strong>enkel Toernooi</strong>. De startpagina is de
-      toernooipagina; het klassement, de wedstrijden, de statistieken en de seizoenen
-      zijn voor hen onbereikbaar.{% endif %}</p>
+      {%- else %}Nu: spelers zien <strong>Home en Toernooi</strong>. Enkel de knop League en
+      de seizoenen zijn voor hen weg; de thuispagina met het globale klassement en de
+      statistieken blijft gewoon de startpagina.{% endif %}</p>
     <button type="submit" class="knop primair">Opslaan</button>
   </form>
 </div>

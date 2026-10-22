@@ -276,7 +276,9 @@
     gespeeld.forEach(function (r) { gespeeldId[r.id] = r; });
     var oudeFeed = {};
     (oud.laatste || []).forEach(function (w) { oudeFeed[w.id] = true; });
-    var duels = (nieuw.laatste || []).filter(function (w) { return !oudeFeed[w.id]; }).reverse()
+    var duels = (nieuw.laatste || []).filter(function (w) {
+        return !oudeFeed[w.id] && w.fase !== "knockout";   // knockout: dat toont het schema
+      }).reverse()
       .map(function (w) {
         return [w.team1, w.team2].filter(function (t) { return t && gespeeldId[t.id]; })
           .map(function (t) { return gespeeldId[t.id]; });
@@ -511,6 +513,35 @@
   }
 
   /* Een naamkaartje vliegt van de ene plek naar de andere. */
+  /* -------------------------------------------- vloeiende vluchten -- */
+  /* Een kaartje vliegt langs één vloeiende boog (een Bézier-curve) van a naar
+     b. Elke beeldje wordt de plaats opnieuw berekend, met een zachte aanloop
+     en landing: nergens een knik of schok. opties: duur, hoogte (hoe hoog de
+     boog gaat), schaal/draai/zicht (functies van de tijd 0..1). */
+  function zachtInUit(x) { return .5 - .5 * Math.cos(Math.PI * x); }
+  function glad(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
+  function boogVlucht(kaartje, dx, dy, o) {
+    var h = o.hoogte, eindBoven = o.eindBoven == null ? h * .35 : o.eindBoven;
+    var p1 = [dx * .28, -h], p2 = [dx * .75, dy - eindBoven], p3 = [dx, dy];
+    function boog(u, as) {
+      var v = 1 - u;
+      return 3 * v * v * u * p1[as] + 3 * v * u * u * p2[as] + u * u * u * p3[as];
+    }
+    kaartje.style.willChange = "transform, opacity";
+    return new Promise(function (klaar) {
+      var begin = null;
+      requestAnimationFrame(function stap(nu) {
+        if (begin === null) begin = nu;
+        var t = Math.min(1, (nu - begin) / o.duur), u = zachtInUit(t);
+        kaartje.style.transform = "translate3d(" + boog(u, 0) + "px, " + boog(u, 1) + "px, 0) scale(" +
+          (o.schaal ? o.schaal(t) : 1) + ") rotate(" + (o.draai ? o.draai(t) : 0) + "deg)";
+        if (o.zicht) kaartje.style.opacity = o.zicht(t);
+        if (t < 1) requestAnimationFrame(stap);
+        else klaar();
+      });
+    });
+  }
+
   function vlieg(bron, doel, team, soort) {
     return new Promise(function (klaar) {
       if (!bron || !doel || rustig) { vulKant(doel, team); klaar(); return; }
@@ -521,24 +552,21 @@
       kaartje.style.width = a.width + "px"; kaartje.style.height = a.height + "px";
       document.body.appendChild(kaartje);
       var dx = b.left - a.left, dy = b.top - a.top;
-      var anim = kaartje.animate([
-        { transform: "translate(0, 0) scale(1)", opacity: 1 },
-        { transform: "translate(" + dx * .5 + "px, " + (dy * .5 - 50) + "px) scale(1.12)", opacity: 1, offset: .5 },
-        { transform: "translate(" + dx + "px, " + dy + "px) scale(1)", opacity: 1 }
-      ], { duration: 1500, easing: "cubic-bezier(.45, 0, .3, 1)" });
-      anim.onfinish = function () {
+      /* een lage boog: even optillen, verplaatsen en zacht neerzetten */
+      boogVlucht(kaartje, dx, dy, {
+        duur: 1600,
+        hoogte: Math.max(30, window.innerHeight * .06) + Math.abs(dy) * .15,
+        eindBoven: Math.max(12, window.innerHeight * .02),
+        schaal: function (t) { return 1 + .1 * Math.sin(Math.PI * t); }
+      }).then(function () {
         kaartje.remove();
         vulKant(doel, team);
         opnieuw(doel, "aangekomen");
         klaar();
-      };
+      });
     });
   }
 
-  /* --------------------------------------------- kampioen: de sprong -- */
-  /* Het kaartje van de winnaar van de finale springt in een hoge boog naar
-     de beker, duikt erin en verdwijnt. Daar: een schokgolf, vonken, de beker
-     veert op met de naam erin, en de zwaarste lichtslag van de avond. */
   function sprongInBeker(bron, beker, team) {
     return new Promise(function (klaar) {
       function vulBeker() {
@@ -560,31 +588,15 @@
       var dx = (b.left + b.width / 2) - (a.left + a.width / 2);
       var dy = (b.top + b.height * .42) - (a.top + a.height / 2);
       var hoogte = Math.max(110, window.innerHeight * .26);
-      /* Eén vloeiende boog (een Bézier-curve): omhoog uit de finale, over de
-         top, en van bovenaf de beker in. Elke beeldje opnieuw berekend, zodat
-         er nergens een knik of schok in zit. */
-      var p1 = [dx * .25, -hoogte * 1.25], p2 = [dx * .8, dy - hoogte * 1.35], p3 = [dx, dy];
-      function boog(u, as) {
-        var v = 1 - u;
-        return 3 * v * v * u * p1[as] + 3 * v * u * u * p2[as] + u * u * u * p3[as];
-      }
-      function zachtInUit(x) { return .5 - .5 * Math.cos(Math.PI * x); }
-      function glad(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
-      var DUUR = 2400, begin = null;
-      kaartje.style.willChange = "transform, opacity";
+      /* een hoge boog: omhoog uit de finale, over de top, van bovenaf de beker in;
+         groeit traag tot boven op de boog en krimpt dan zacht de beker in */
       var anim = { onfinish: null };
-      requestAnimationFrame(function stap(nu) {
-        if (begin === null) begin = nu;
-        var t = Math.min(1, (nu - begin) / DUUR), u = zachtInUit(t);
-        /* groeit traag tot boven op de boog, krimpt dan zacht de beker in */
-        var schaal = (1 + .16 * Math.sin(Math.PI * glad(t / .7))) * (1 - .8 * glad((t - .55) / .45));
-        var draai = 7 * Math.sin(Math.PI * t) * glad(t / .5);
-        kaartje.style.transform = "translate3d(" + boog(u, 0) + "px, " + boog(u, 1) + "px, 0) scale(" +
-                                  schaal + ") rotate(" + draai + "deg)";
-        kaartje.style.opacity = 1 - glad((t - .82) / .18);
-        if (t < 1) requestAnimationFrame(stap);
-        else if (anim.onfinish) anim.onfinish();
-      });
+      boogVlucht(kaartje, dx, dy, {
+        duur: 2400, hoogte: hoogte * 1.25, eindBoven: hoogte * 1.35,
+        schaal: function (t) { return (1 + .16 * Math.sin(Math.PI * glad(t / .7))) * (1 - .8 * glad((t - .55) / .45)); },
+        draai: function (t) { return 7 * Math.sin(Math.PI * t) * glad(t / .5); },
+        zicht: function (t) { return 1 - glad((t - .82) / .18); }
+      }).then(function () { if (anim.onfinish) anim.onfinish(); });
       anim.onfinish = function () {
         kaartje.remove();
         vulBeker();
@@ -656,6 +668,29 @@
       if (over) requestAnimationFrame(frame);
       else v.doek.remove();
     });
+  }
+
+  /* De knockout zoals hij was vóór er gespeeld werd: geen uitslagen, en de
+     plaatsen die een vorige wedstrijd invult nog leeg (een vrijgeloot team
+     blijft gewoon staan). Zo kan het schema alle uitslagen nog tonen als ze
+     binnenkwamen terwijl het scherm nog de stand liet zien. */
+  function koBegin(d) {
+    var s = JSON.parse(JSON.stringify(d));
+    var lijst = alleGames(s), perId = {};
+    lijst.forEach(function (g) { perId[g.id] = g; });
+    lijst.forEach(function (g) {
+      if (g.volgende && perId[g.volgende]) perId[g.volgende]["team" + g.slot] = null;
+      if (g.ronde === 4 && s.knockout.kleine_finale) s.knockout.kleine_finale["team" + g.positie] = null;
+    });
+    lijst.forEach(function (g) { g.gespeeld = false; g.winnaar = null; });
+    s.knockout.kampioen = null;
+    s.laatste = (s.laatste || []).filter(function (w) { return w.fase !== "knockout"; });
+    return s;
+  }
+  function zonderKnockoutUitslagen(d) {
+    var s = Object.assign({}, d);
+    s.laatste = (d.laatste || []).filter(function (w) { return w.fase !== "knockout"; });
+    return s;
   }
 
   function alleGames(d) {
@@ -843,20 +878,36 @@
     try {
       var oud = data;
       faseLabel.textContent = nieuw.status_label;
-      werkFeedBij(nieuw, true);
+      /* Gaat het van de stand naar de knockout (misschien met al gespeelde
+         knockoutwedstrijden erbij)? Dan eerst enkel de bracketfase afwerken,
+         daarna het schema vanaf het begin, één wedstrijd na de andere. */
+      var naarKnockout = !handmatig && weergave === "stand" && nieuw.fase === "knockout";
+      werkFeedBij(naarKnockout ? zonderKnockoutUitslagen(nieuw) : nieuw, true);
       /* Een animatie mag het scherm nooit laten vastlopen: duurt het langer
          dan een minuut, dan bouwen we gewoon opnieuw op met de nieuwe stand. */
-      var bijgewerkt = await Promise.race([
-        (weergave === "stand" ? werkStandBij(oud, nieuw) : werkBracketBij(oud, nieuw))
-          .then(function () { return true; }),
-        new Promise(function (ok) { setTimeout(function () { ok(false); }, 60000); })
-      ]);
+      function hoogstensEenMinuut(belofte) {
+        return Promise.race([
+          belofte.then(function () { return true; }),
+          new Promise(function (ok) { setTimeout(function () { ok(false); }, 60000); })
+        ]);
+      }
+      var bijgewerkt = await hoogstensEenMinuut(
+        weergave === "stand" ? werkStandBij(oud, nieuw) : werkBracketBij(oud, nieuw));
       data = nieuw;
       if (!bijgewerkt) toon(weergave);
       /* De bracketfase is net voorbij: na de laatste stand naar het schema. */
-      if (!handmatig && nieuw.fase !== weergave) {
+      if (naarKnockout) {
         await wacht(2500);
-        if (nieuw.fase === "knockout") await grooteMelding("Knockout");
+        await grooteMelding("Knockout");
+        var begin = koBegin(nieuw);
+        data = begin;
+        toon("knockout");
+        await wacht(1200);
+        werkFeedBij(nieuw, true);
+        if (!(await hoogstensEenMinuut(werkBracketBij(begin, nieuw)))) { data = nieuw; toon("knockout"); }
+        data = nieuw;
+      } else if (!handmatig && nieuw.fase !== weergave) {
+        await wacht(2500);
         toon(nieuw.fase);
       }
     } catch (e) {
