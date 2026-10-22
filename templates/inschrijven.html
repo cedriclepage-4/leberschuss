@@ -47,6 +47,7 @@
 {% elif not session.get('speler_id') %}
 {# ------------------------------------------------------- niet ingelogd -- #}
 <div class="kaart inschrijf-kaart">
+{% if via_naam %}<p class="via-banner"><strong>{{ via_naam }}</strong> nodigt je uit voor dit toernooi.</p>{% endif %}
   <h2 class="inschrijf-titel">Schrijf je team in</h2>
   <p>Daarvoor heb je een spelersaccount nodig. Dat is zo gemaakt, en daarna kom je
      meteen hier terug.</p>
@@ -67,16 +68,129 @@
      {% if mijn.wachtlijst %}Je staat op plaats {{ mijn.wachtlijst }} van de wachtlijst. Schrijft
      er een team uit, dan schuif je vanzelf op.{% else %}Tot {{ t['date']|dag }}!{% endif %}</p>
   <form method="post" action="{{ url_for('toernooi_uitschrijven', toernooi_id=t['id']) }}"
-        data-confirm="“{{ mijn.naam }}” uitschrijven voor {{ t['name'] }}?{% if not mijn.wachtlijst and t['max_teams'] %} Je plaats gaat dan naar de wachtlijst.{% endif %}">
+        data-confirm="“{{ mijn.naam }}” uitschrijven voor {{ t['name'] }}?{% if not mijn.wachtlijst and t['max_teams'] %} Je plaats gaat dan naar de wachtlijst.{% endif %}{% if uitnodiging and uitnodiging.coupon.link_gebruikt %} Jullie coupon voor 2 gratis pintjes vervalt dan voorgoed, ook als je je later opnieuw inschrijft.{% endif %}">
     <input type="hidden" name="team" value="{{ mijn.id }}">
     <button type="submit" class="knop gevaar klein">Uitschrijven</button>
   </form>
 </div>
 
+{% if uitnodiging %}
+{# ------------------------------------------- een ander team uitnodigen -- #}
+{% set c = uitnodiging.coupon %}
+<div class="kaart uitnodig-kaart" id="uitnodigen">
+  <div class="uitnodig-kop">
+    <svg class="uitnodig-pint" viewBox="0 0 64 64" aria-hidden="true">
+      <path class="pint-glas" d="M16 14h28l-3 42H19z"/>
+      <path class="pint-bier" d="M18.2 24h23.6l-2.4 30H20.6z"/>
+      <path class="pint-oor" d="M44 22h5a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6h-6"/>
+      <path class="pint-schuim" d="M14 16c0-5 4-8 8-7 2-4 9-5 12-1 4-3 11-1 11 5 3 1 4 5 1 7H15c-2-1-2-3-1-4z"/>
+    </svg>
+    <div>
+      <p class="uitnodig-label">Nodig een ander team uit</p>
+      <h2 class="uitnodig-titel">Jullie eerste 2 pintjes gratis</h2>
+    </div>
+  </div>
+  {% if c.link_gebruikt %}
+  {# Eén uitnodiging per team: is ze gebruikt, dan valt er niets meer te delen. #}
+  {% if c.vrienden %}
+  <p class="uitnodig-status ok">Gelukt: er schreef zich een team in via
+     {{ 'jouw link' if c.uitnodiger == ik_naam else 'de link van ' ~ c.uitnodiger }}. Blijft het ingeschreven tot de loting,
+     dan krijgen jullie een coupon voor jullie eerste 2 pintjes. Die verschijnt na de loting op
+     jullie profiel.</p>
+  {% else %}
+  <p class="uitnodig-status">Er schreef zich een team in via
+     {{ 'jouw link' if c.uitnodiger == ik_naam else 'de link van ' ~ c.uitnodiger }}, maar het staat nog op de wachtlijst.
+     Schuift het op, dan hebben jullie je coupon.</p>
+  {% endif %}
+  <p class="stil klein-tekst">Elk team kan één ander team uitnodigen. Schrijft dat team zich uit,
+     dan kunnen jullie opnieuw iemand uitnodigen. Schrijven jullie je zelf uit, dan vervalt
+     de coupon voorgoed.</p>
+  {% else %}
+  <p>Stuur je link naar vrienden. Schrijft hun team zich ermee in en blijven ze ingeschreven
+     tot de loting, dan krijgen jullie een coupon voor de eerste 2 pintjes van jullie team.
+     Hij verschijnt op jullie profiel en je toont hem aan de bar.</p>
+  <p class="stil klein-tekst">Eén uitnodiging per team: zodra er een team binnenkomt via jouw link
+     of die van je ploegmaat, is ze gebruikt.</p>
+  {# Eigen, eenvoudige icoontjes in de kleur van elke app (geen officiële logo's). #}
+  <div class="deel-knoppen">
+    <a class="deel-knop deel-whatsapp" href="https://wa.me/?text={{ uitnodiging.tekst|urlencode }}" target="_blank" rel="noopener">
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 1 3.6 6.7L4 20l1.3-3.5A8 8 0 0 1 4 12z"/><path d="M9 10h6M9 13.5h4"/></svg>WhatsApp</a>
+    <a class="deel-knop deel-messenger" data-messenger href="fb-messenger://share/?link={{ uitnodiging.link_code }}">
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5C3 6.4 6.6 3.5 11 3.5s8 2.9 8 7-3.6 7-8 7c-.9 0-1.8-.1-2.6-.4L4.5 19l.9-3.4C4 14.3 3 12.5 3 10.5z"/><path d="M8 10.5h.01M11 10.5h.01M14 10.5h.01"/></svg>Messenger</a>
+    <a class="deel-knop deel-sms" href="sms:?&body={{ uitnodiging.tekst|urlencode }}">
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="13" rx="2.5"/><path d="M3.5 6.5 12 12.5l8.5-6"/></svg>Sms</a>
+    <a class="deel-knop deel-snapchat" href="https://www.snapchat.com/share?link={{ uitnodiging.link_code }}" target="_blank" rel="noopener">
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 3 10.5l7 2.5 2.5 7z"/><path d="M21 3 10 13"/></svg>Snapchat</a>
+    <button type="button" class="deel-knop deel-meer" data-deel hidden>
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.4"/><circle cx="17" cy="6" r="2.4"/><circle cx="17" cy="18" r="2.4"/><path d="M8.2 10.9 14.8 7.1M8.2 13.1l6.6 3.8"/></svg>Meer…</button>
+    <button type="button" class="deel-knop deel-kopie" data-kopieer>
+      <svg class="deel-icoon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span data-kopie-tekst>Link kopiëren</span></button>
+  </div>
+  <p class="deel-melding" data-melding hidden></p>
+  <p class="uitnodig-link"><span data-link>{{ uitnodiging.link }}</span></p>
+<script>
+  /* Delen. WhatsApp, sms, Snapchat en Messenger (op een gsm) krijgen de link
+     meteen mee. Messenger op de computer kan dat niet: daar kopiëren we de link
+     en openen we Messenger, zodat je hem enkel nog moet plakken. Op een gsm is
+     er ook "Meer…": het deelmenu van de gsm zelf (Instagram, Signal, ...). */
+  (function () {
+    var link = {{ uitnodiging.link|tojson }}, tekst = {{ uitnodiging.tekst|tojson }};
+    var gsm = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+    var melding = document.querySelector("[data-melding]");
+
+    function kopieer(klaar) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(link).then(klaar, function () {});
+      } else {
+        var r = document.createRange(); r.selectNodeContents(document.querySelector("[data-link]"));
+        var sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        try { document.execCommand("copy"); klaar(); } catch (e) {}
+      }
+    }
+    function meld(t) {
+      melding.textContent = t; melding.hidden = false;
+      clearTimeout(meld.klok); meld.klok = setTimeout(function () { melding.hidden = true; }, 6000);
+    }
+    /* Eerst kopiëren, dan de app openen (synchroon in de klik, anders blokkeert
+       de browser het nieuwe venster). */
+    function kopieerEnOpen(knop, app) {
+      knop.addEventListener("click", function () {
+        kopieer(function () {});
+        meld("Je link is gekopieerd. Kies in " + app + " een gesprek en plak hem in je bericht.");
+      });
+    }
+    var messenger = document.querySelector("[data-messenger]");
+    if (!gsm) {
+      messenger.href = "https://www.messenger.com/";
+      messenger.target = "_blank"; messenger.rel = "noopener";
+      kopieerEnOpen(messenger, "Messenger");
+    }
+
+    var meer = document.querySelector("[data-deel]");
+    if (navigator.share && gsm) {
+      meer.hidden = false;
+      meer.addEventListener("click", function () {
+        navigator.share({ title: {{ t['name']|tojson }}, text: tekst.replace(link, "").trim(), url: link }).catch(function () {});
+      });
+    }
+    var kopieKnop = document.querySelector("[data-kopieer]"), kopieTekst = document.querySelector("[data-kopie-tekst]");
+    kopieKnop.addEventListener("click", function () {
+      kopieer(function () {
+        kopieTekst.textContent = "Gekopieerd!";
+        setTimeout(function () { kopieTekst.textContent = "Link kopiëren"; }, 2000);
+      });
+    });
+  })();
+</script>
+  {% endif %}
+</div>
+{% endif %}
+
 {% else %}
 {# --------------------------------------------------------- inschrijven -- #}
 <div class="kaart inschrijf-kaart">
   <h2 class="inschrijf-titel">Met wie speel je?</h2>
+{% if via_naam %}<p class="via-banner"><strong>{{ via_naam }}</strong> nodigt je uit voor dit toernooi.</p>{% endif %}
   {% if volzet %}<p class="inschrijf-volzet">Het toernooi is volzet. Schrijf je toch in: je komt
      dan op de wachtlijst en schuift vanzelf op als er een team afhaakt.</p>{% endif %}
   <form method="post" action="{{ url_for('toernooi_inschrijven_post', toernooi_id=t['id']) }}" id="inschrijf-form">
@@ -207,18 +321,6 @@
   </ol>
 </div>
 {% endif %}
-{% endif %}
-
-{% if open %}
-<div class="kaart inschrijf-deel">
-  {% if qr %}<div class="inschrijf-qr">{{ qr }}</div>{% endif %}
-  <div>
-    <h3>Laat je ploegmaat ook inschrijven</h3>
-    <p class="stil klein-tekst">Eén van jullie twee volstaat. Stuur deze pagina door of laat
-       iemand de code scannen:</p>
-    <p class="inschrijf-adres">{{ adres }}</p>
-  </div>
-</div>
 {% endif %}
 
 {% endblock %}

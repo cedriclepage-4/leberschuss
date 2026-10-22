@@ -21,9 +21,40 @@
          wordt dat account van jou.</p>
     </div>
     {% endif %}
+    {% if gelijkend %}
+    {# Je naam lijkt sterk op een account dat een ploegmaat al voor je klaarzette. #}
+    <div class="overname-kaart">
+      <p><strong>Ben jij {{ 'een van deze spelers' if gelijkend|length > 1 else 'dit' }}?</strong>
+         Een ploegmaat zette al een account klaar met een naam die erg op de jouwe lijkt.</p>
+    </div>
+    {% endif %}
     <form method="post">
+      {% if gelijkend %}
+      <div class="gelijkend-keuzes">
+        {% for k in gelijkend %}
+        <label class="inschrijf-keuze">
+          <input type="radio" name="gelijkend" value="{{ k.id }}" required {{ 'checked' if loop.first and gelijkend|length == 1 }}>
+          <span class="avatar-mini avatar-fallback">{{ k.naam[0]|upper }}</span>
+          <span class="inschrijf-keuze-tekst">
+            <strong>Ja, ik ben {{ k.naam }}</strong>
+            <span>klaargezet door {{ k.maker }}{% for t in k.teams %}, in “{{ t.naam }}”{% if t.toernooien %} voor {{ t.toernooien|join(', ') }}{% endif %}{% endfor %}</span>
+          </span>
+        </label>
+        {% endfor %}
+        <label class="inschrijf-keuze">
+          <input type="radio" name="gelijkend" value="nee" required>
+          <span class="avatar-mini avatar-fallback">+</span>
+          <span class="inschrijf-keuze-tekst">
+            <strong>Nee, ik ben iemand anders</strong>
+            <span>Maak een nieuw account voor {{ ingevuld.naam }}</span>
+          </span>
+        </label>
+      </div>
+      <p class="stil klein-tekst velduitleg">Kies je een bestaand account, dan krijgt het jouw
+         naam zoals je hem hieronder intikte, en blijf je in dat team en dat toernooi.</p>
+      {% endif %}
       <label>Je échte voor- en achternaam
-        <input type="text" name="naam" maxlength="40" autocomplete="name" {{ 'autofocus' if not overname }} required
+        <input type="text" name="naam" maxlength="40" autocomplete="name" {{ 'autofocus' if not overname and not gelijkend }} required
                value="{{ ingevuld.naam or '' }}"></label>
       <p class="stil klein-tekst velduitleg">Dit is je accountnaam, waarmee je ook inlogt.
          Ze ligt daarna vast en kan je zelf niet meer wijzigen. Zo weet iedereen wie wie is.</p>
@@ -33,12 +64,13 @@
          altijd veranderen; laat je hem leeg, dan tonen we je echte naam.</p>
       <label>Wachtwoord (min. 6 tekens)
         <input type="password" name="wachtwoord" minlength="6" autocomplete="new-password" required
-               {{ 'autofocus' if overname }}></label>
+               {{ 'autofocus' if overname or gelijkend }}></label>
+      {% if gelijkend %}<p class="stil klein-tekst velduitleg">Tik je wachtwoord nog eens in.</p>{% endif %}
       {% if overname %}
       <label class="schakel"><input type="checkbox" name="dat_ben_ik" value="ja" required>
         <span>Ja, dat ben ik</span></label>
       {% endif %}
-      <button type="submit" class="knop primair breed">{{ 'Account overnemen' if overname else 'Account maken' }}</button>
+      <button type="submit" class="knop primair breed">{{ 'Account overnemen' if overname else ('Verder' if gelijkend else 'Account maken') }}</button>
     </form>
     <p class="stil klein-tekst ruimte-boven">Al een account?
        <a href="{{ url_for('inloggen', volgende=volgende) if volgende else url_for('inloggen') }}">Log hier in</a>.</p>

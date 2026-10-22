@@ -24,6 +24,63 @@
   </div>
 </section>
 
+{% if coupons %}
+{# ------------------------------------------------------------ coupons -- #}
+<h2 class="sectiekop" id="coupons">Coupons</h2>
+<div class="coupon-lijst">
+  {% for c in coupons %}
+  {% if c.staat == 'geldig' %}
+  <div class="kaart coupon-kaart" data-coupon="{{ url_for('coupon_staat_json', toernooi_id=c.toernooi_id, team_id=c.team_id, sleutel=c.sleutel) }}">
+    <div class="coupon-tekst">
+      <p class="coupon-label">{{ c.toernooi['name'] }}</p>
+      <p class="coupon-titel">2 gratis pintjes</p>
+      <p class="coupon-uitleg">Voor de eerste 2 pintjes van “{{ c.team }}”, één voor elk van jullie. Toon deze code
+         aan de bar: de organisatie scant hem en dan is hij ingelost, ook voor je ploegmaat.</p>
+    </div>
+    <div class="coupon-qr">{{ c.qr }}</div>
+    <div class="coupon-ingelost" hidden>
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><path d="M30 52 L44 66 L71 37"/></svg>
+      <p class="coupon-titel">Ingelost. Santé!</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="kaart coupon-kaart coupon-wacht">
+    <div class="coupon-tekst">
+      <p class="coupon-label">{{ c.toernooi['name'] }} · na de loting</p>
+      <p class="coupon-titel">2 gratis pintjes, bijna</p>
+      <p class="coupon-uitleg">Er schreef zich een team in via de link van {{ c.uitnodiger or 'jullie team' }}.
+         Blijft het ingeschreven tot de loting, dan verschijnt hier jullie coupon.</p>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+<script>
+  /* Staat de coupon open aan de bar? Dan kijken we om de paar seconden of hij
+     al gescand is, en tonen we meteen dat hij ingelost is. */
+  (function () {
+    document.querySelectorAll("[data-coupon]").forEach(function (kaart) {
+      var bron = kaart.getAttribute("data-coupon"), klok = null;
+      function kijk() {
+        if (document.hidden) return;
+        fetch(bron, { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d || d.staat === "geldig") return;
+            clearInterval(klok);
+            kaart.classList.add("is-ingelost");
+            kaart.querySelector(".coupon-ingelost").hidden = false;
+            if (navigator.vibrate) { try { navigator.vibrate([40, 60, 120]); } catch (e) {} }
+            setTimeout(function () { kaart.classList.add("weg"); }, 4000);
+            setTimeout(function () { kaart.remove(); }, 4600);
+          }).catch(function () {});
+      }
+      klok = setInterval(kijk, 3000);
+      document.addEventListener("visibilitychange", kijk);
+    });
+  })();
+</script>
+{% endif %}
+
 {% with toon_team = true %}{% include "_palmares.html" %}{% endwith %}
 
 {% if inschrijvingen and (is_eigen or is_organisator) %}

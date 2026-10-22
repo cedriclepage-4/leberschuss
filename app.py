@@ -12,14 +12,17 @@ melden zelf hun uitslagen; organisatoren beheren seizoenen, speeldagen en
 wedstrijden.
 """
 
+import difflib
 import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
 import sqlite3
 import time
-from urllib.parse import urlparse
+import unicodedata
+from urllib.parse import quote, urlparse
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -103,7 +106,7 @@ MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
 _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png",
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
                       "icon-maskable-512.png", "apple-touch-icon.png", "thuis.js",
-                      "rook.js", "beamer.js", "viering.js",
+                      "rook.js", "beamer.js", "viering.js", "jsQR.js",
                       # lettertypes (Barlow), zelf gehost zodat ze ook offline werken
                       "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2",
                       "barlow-latin-600-normal.woff2", "barlow-latin-700-normal.woff2",
@@ -1876,6 +1879,7 @@ def speler_profiel(speler_id):
                            rang=rang_voor(speler["elo"], rangen), teams=teams,
                            uitnodigingen=uitnodigingen, onvolledig=onvolledig,
                            inschrijvingen=inschrijvingen,
+                           coupons=mijn_coupons(db, speler_id) if is_eigen else [],
                            eigen_stats=eigen_stats, historiek=historiek,
                            namen=namen, punten=punten, is_eigen=is_eigen,
                            meldingen=meldingen, actieve_types=actieve_types,
@@ -1981,6 +1985,41 @@ def registreren():
             return render_template("registreren.html", eerste=eerste, volgende=volgende,
                                    overname=_overname_info(db, bestaand),
                                    ingevuld={"naam": bestaand["name"], "bijnaam": bijnaam})
+        # Lijkt je naam sterk op een account dat een ploegmaat voor je klaarzette
+        # (met een tikfout, bv.)? Dan vragen we eerst of jij dat bent.
+        keuze = request.form.get("gelijkend") or ""
+        if (bestaand is None and keuze != "nee" and 3 <= len(naam) <= 40
+                and len(bijnaam) <= 30 and len(ww) >= 6):
+            kandidaten = gelijkende_klaargezette_accounts(db, naam)
+            gekozen = next((k for k in kandidaten if str(k["id"]) == keuze), None)
+            if gekozen is not None:
+                # Je eigen naam (zoals jij hem tikt) wint van die van je ploegmaat.
+                db.execute("UPDATE players SET name = ?, password_hash = ?, nickname = ?, "
+                           "aangemaakt_door = NULL WHERE id = ?",
+                           (naam, generate_password_hash(ww), bijnaam, gekozen["id"]))
+                # Stond de verkeerd getikte naam in een automatische teamnaam
+                # ("Nele & Kobe Testman")? Dan verbeteren we die ook.
+                for team in db.execute("SELECT id, name FROM teams WHERE player1_id = ? OR player2_id = ?",
+                                       (gekozen["id"], gekozen["id"])).fetchall():
+                    if gekozen["name"] in team["name"] and gekozen["name"] != naam:
+                        nieuw = team["name"].replace(gekozen["name"], naam)[:40]
+                        if not db.execute("SELECT 1 FROM teams WHERE name = ? COLLATE NOCASE AND id != ?",
+                                          (nieuw, team["id"])).fetchone():
+                            db.execute("UPDATE teams SET name = ? WHERE id = ?", (nieuw, team["id"]))
+                _log_claim(db, gekozen, "claim")
+                db.commit()
+                session["speler_id"] = gekozen["id"]
+                session.permanent = True        # ingelogd blijven op dit toestel
+                g.pop("ik", None)
+                flash(f"Welkom bij Leberschuss Tonzent, {bijnaam or naam}! Het account dat "
+                      f"klaarstond (spelersnummer #{gekozen['id']}) is nu van jou.", "ok")
+                return redirect(volgende or url_for("speler_profiel", speler_id=gekozen["id"]))
+            if kandidaten:
+                return render_template(
+                    "registreren.html", eerste=eerste, volgende=volgende, overname=None,
+                    gelijkend=[dict(id=k["id"], naam=k["name"], **_overname_info(db, k))
+                               for k in kandidaten],
+                    ingevuld={"naam": naam, "bijnaam": bijnaam})
         if len(naam) < 3 or len(naam) > 40:
             flash("Vul je echte voor- en achternaam in (3 tot 40 tekens).", "fout")
         elif len(bijnaam) > 30:
@@ -2016,6 +2055,53 @@ def registreren():
                           "in. Anders: zet er iets bij, bv. je tweede voornaam.", "fout")
     return render_template("registreren.html", eerste=eerste, volgende=volgende,
                            overname=None, ingevuld={})
+
+
+def _naam_normaal(naam):
+    """Kleine letters, zonder accenten, leestekens of dubbele spaties."""
+    zonder = "".join(c for c in unicodedata.normalize("NFD", naam or "")
+                     if unicodedata.category(c) != "Mn")
+    return " ".join("".join(c if c.isalnum() else " " for c in zonder.lower()).split())
+
+
+def _gelijkenis(a, b):
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def naam_lijkt_op(a, b):
+    """Is dit (waarschijnlijk) dezelfde naam, op een tikfout na?
+
+    Vangt: hoofdletters en accenten (Celine/Céline), een letter te veel of te
+    weinig (Testman/Testmans), aan elkaar of los (Vanmeensel/Van Meensel),
+    voor- en achternaam omgewisseld, en een kleine fout in één van beide
+    terwijl de andere klopt."""
+    a, b = _naam_normaal(a), _naam_normaal(b)
+    if not a or not b:
+        return False
+    if a == b or a.replace(" ", "") == b.replace(" ", ""):
+        return True
+    ta, tb = a.split(), b.split()
+    if sorted(ta) == sorted(tb):
+        return True
+    if _gelijkenis(a, b) >= 0.9:
+        return True
+    if len(ta) >= 2 and len(tb) >= 2:
+        if ta[0] == tb[0] and _gelijkenis(" ".join(ta[1:]), " ".join(tb[1:])) >= 0.75:
+            return True
+        if ta[-1] == tb[-1] and _gelijkenis(ta[0], tb[0]) >= 0.75:
+            return True
+    return False
+
+
+def gelijkende_klaargezette_accounts(db, naam, max_aantal=3):
+    """Accounts die een ploegmaat bij het inschrijven klaarzette (nog zonder
+    wachtwoord) en waarvan de naam sterk op deze naam lijkt."""
+    norm = _naam_normaal(naam)
+    kandidaten = [r for r in db.execute(
+        "SELECT * FROM players WHERE password_hash IS NULL AND aangemaakt_door IS NOT NULL "
+        "AND active = 1") if naam_lijkt_op(naam, r["name"])]
+    kandidaten.sort(key=lambda r: -_gelijkenis(norm, _naam_normaal(r["name"])))
+    return kandidaten[:max_aantal]
 
 
 def _overname_info(db, speler):
@@ -3963,7 +4049,13 @@ def toernooi_detail(toernooi_id):
     actieve_types = db.execute("SELECT * FROM stat_types WHERE active = 1 "
                                "ORDER BY name").fetchall()
 
+    mijn_coupon = None
+    if session.get("speler_id") and t["status"] != "opzet":
+        eigen = team_in_toernooi(db, toernooi_id, session["speler_id"])
+        c = coupon_staat(db, toernooi_id, eigen["team_id"]) if eigen else None
+        mijn_coupon = c if c and c["staat"] == "geldig" else None
     return render_template("toernooi.html", t=t, huidig_toernooi=t, teams=teams,
+                           mijn_coupon=mijn_coupon,
                            groepen=groepen,
                            mijn_wedstrijden=mijn_wedstrijden,
                            mijn_gespeeld=mijn_gespeeld,
@@ -4016,11 +4108,173 @@ def _inschrijf_boodschap(db, tid, team_id):
     return None
 
 
+
+# ------------------------------------------------- uitnodigen en coupons --
+#
+# Wie ingeschreven is, krijgt een eigen uitnodigingslink voor dat toernooi.
+# Schrijft een ander team zich via die link in en blijft het ingeschreven tot
+# de loting, dan krijgt zijn team een coupon: de eerste 2 pintjes gratis.
+# Eén coupon per team per toernooi: zodra er via de link van een van de twee
+# spelers een team binnenkomt, kan het team niemand meer uitnodigen. De coupon is een QR-code op zijn profiel; een organisator scant hem
+# aan de bar (zie /admin/scan) en daarmee is hij ingelost en verdwenen.
+#
+# Of iemand een coupon heeft, wordt telkens berekend uit de inschrijvingen: zo
+# klopt het vanzelf als een vriend zich uitschrijft. Enkel het inlossen wordt
+# bewaard (coupon_inlossingen).
+
+COUPON_PINTJES = 2
+
+
+def _handtekening(*delen):
+    """Een HMAC met de geheime sleutel: niet te raden, wel na te rekenen."""
+    return hmac.new(app.secret_key.encode(), ":".join(map(str, delen)).encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def uitnodigcode(toernooi_id, speler_id):
+    return f"{speler_id}-{_handtekening('uitnodiging', toernooi_id, speler_id)[:6]}"
+
+
+def uitnodiger_van_code(toernooi_id, code):
+    """De speler achter een uitnodigingscode, of None als ze niet klopt."""
+    try:
+        speler_id = int((code or "").split("-")[0])
+    except ValueError:
+        return None
+    return speler_id if hmac.compare_digest(code, uitnodigcode(toernooi_id, speler_id)) else None
+
+
+def coupon_sleutel(toernooi_id, team_id):
+    return _handtekening("coupon-team", toernooi_id, team_id)[:20]
+
+
+def team_in_toernooi(db, toernooi_id, speler_id):
+    """Met welk team speelt deze speler in dit toernooi? (één per toernooi)"""
+    return db.execute("""
+        SELECT tt.team_id, tt.teruggetrokken, t.name, t.player1_id, t.player2_id
+        FROM tournament_teams tt JOIN teams t ON t.id = tt.team_id
+        WHERE tt.tournament_id = ? AND (t.player1_id = ? OR t.player2_id = ?)
+    """, (toernooi_id, speler_id, speler_id)).fetchone()
+
+
+def coupon_staat(db, toernooi_id, team_id):
+    """Hoe staat het met de coupon van dit team voor dit toernooi?
+
+    Eén coupon per team: het maakt niet uit welke van de twee spelers zijn
+    link deelde, en meer vrienden leveren niet meer pintjes op.
+
+    staat: 'geen'      niemand schreef zich (nog) in via een link van dit team
+           'wacht'     vóór de loting: er is een vriend ingeschreven
+           'geldig'    na de loting, vriend en eigen team doen mee: in te lossen
+           'ingelost'  al ingelost aan de bar
+           'vervallen' na de loting, maar de vriend of het team zelf doet niet mee
+    link_gebruikt: er schreef zich al een team in via een link van dit team
+                   (ook op de wachtlijst): dan valt er niemand meer uit te nodigen.
+    """
+    t = toernooi_motor.toernooi(db, toernooi_id)
+    uit = {"staat": "geen", "vrienden": 0, "vrienden_wacht": 0, "link_gebruikt": False,
+           "team": None, "team_id": team_id, "spelers": "", "uitnodiger": None,
+           "toernooi": t, "sleutel": coupon_sleutel(toernooi_id, team_id)}
+    eigen = db.execute("""
+        SELECT tt.teruggetrokken, t.name, t.player1_id, t.player2_id
+        FROM tournament_teams tt JOIN teams t ON t.id = tt.team_id
+        WHERE tt.tournament_id = ? AND tt.team_id = ?""", (toernooi_id, team_id)).fetchone()
+    if not t or not eigen:
+        return uit
+    namen = weergavenamen(db)
+    uit["team"] = eigen["name"]
+    uit["spelers"] = " & ".join(namen.get(p, "?") for p in (eigen["player1_id"], eigen["player2_id"]) if p)
+    spelers = (eigen["player1_id"], eigen["player2_id"] or -1)
+    wacht = set(toernooi_motor.wachtlijst(db, toernooi_id))
+    vrienden = db.execute("""
+        SELECT team_id, teruggetrokken, uitgenodigd_door FROM tournament_teams
+        WHERE tournament_id = ? AND team_id != ? AND uitgenodigd_door IN (?, ?)
+        ORDER BY id""", (toernooi_id, team_id, *spelers)).fetchall()
+    zeker = [r for r in vrienden if r["team_id"] not in wacht and not r["teruggetrokken"]]
+    uit["vrienden"] = len(zeker)
+    uit["vrienden_wacht"] = sum(1 for r in vrienden if r["team_id"] in wacht)
+    uit["link_gebruikt"] = bool(vrienden)
+    if vrienden:
+        uit["uitnodiger"] = namen.get(vrienden[0]["uitgenodigd_door"])
+    ingelost = db.execute(f"""
+        SELECT ci.ingelost_op, {WEERGAVE.replace('p.', 'd.')} AS door
+        FROM coupon_inlossingen ci LEFT JOIN players d ON d.id = ci.ingelost_door
+        WHERE ci.tournament_id = ? AND ci.team_id = ?""", (toernooi_id, team_id)).fetchone()
+    if ingelost:
+        uit.update(staat="ingelost", ingelost_op=ingelost["ingelost_op"], ingelost_door=ingelost["door"])
+    elif not vrienden:
+        pass
+    elif t["status"] == "opzet":
+        # Een vriend op de wachtlijst telt nog niet: die doet misschien niet mee.
+        uit["staat"] = "wacht" if zeker else "geen"
+    elif zeker and not eigen["teruggetrokken"]:
+        uit["staat"] = "geldig"
+    else:
+        uit["staat"] = "vervallen"
+    return uit
+
+
+def mijn_coupons(db, speler_id):
+    """De coupons van de teams van deze speler (wachtend of geldig)."""
+    uit = []
+    for r in db.execute("""
+        SELECT tt.tournament_id, tt.team_id FROM tournament_teams tt
+        JOIN teams t ON t.id = tt.team_id
+        WHERE (t.player1_id = ? OR t.player2_id = ?)
+          AND EXISTS (SELECT 1 FROM tournament_teams v WHERE v.tournament_id = tt.tournament_id
+                      AND v.uitgenodigd_door IN (t.player1_id, t.player2_id))
+    """, (speler_id, speler_id)):
+        c = coupon_staat(db, r["tournament_id"], r["team_id"])
+        if c["staat"] in ("wacht", "geldig"):
+            c["toernooi_id"] = r["tournament_id"]
+            c["url"] = externe_url("coupon_inlossen", toernooi_id=r["tournament_id"],
+                                   team_id=r["team_id"], sleutel=c["sleutel"])
+            c["qr"] = qr_svg(c["url"]) if c["staat"] == "geldig" else None
+            uit.append(c)
+    uit.sort(key=lambda c: (c["staat"] != "geldig", c["toernooi"]["date"]))
+    return uit
+
+
+def uitnodigingen_vervallen(db, team_id, toernooi_id=None):
+    """Een team verlaat een toernooi (vóór de loting): wat het met uitnodigen
+    verdiende, vervalt voorgoed. Anders kan het zich uitschrijven, opnieuw
+    inschrijven via de link van het team dat het zelf uitnodigde, en hebben ze
+    allebei een coupon. De uitgenodigde teams blijven gewoon ingeschreven.
+    Zonder toernooi: in alle toernooien waarvoor nog niet geloot is."""
+    team = db.execute("SELECT player1_id, player2_id FROM teams WHERE id = ?", (team_id,)).fetchone()
+    if not team:
+        return
+    spelers = (team["player1_id"], team["player2_id"] or -1)
+    if toernooi_id is not None:
+        db.execute("UPDATE tournament_teams SET uitgenodigd_door = NULL "
+                   "WHERE tournament_id = ? AND uitgenodigd_door IN (?, ?)", (toernooi_id, *spelers))
+    else:
+        db.execute("""UPDATE tournament_teams SET uitgenodigd_door = NULL
+                      WHERE uitgenodigd_door IN (?, ?) AND tournament_id IN
+                      (SELECT tt.tournament_id FROM tournament_teams tt JOIN tournaments tn
+                       ON tn.id = tt.tournament_id AND tn.status = 'opzet' WHERE tt.team_id = ?)""",
+                   (*spelers, team_id))
+
+
+def _deel_tekst(t, url):
+    return (f"Doe je mee aan {t['name']} op {filter_dag(t['date'])}? "
+            f"Schrijf je team hier in: {url}")
+
+
 @app.route("/toernooi/<int:toernooi_id>/inschrijven", methods=["GET"])
 def toernooi_inschrijven(toernooi_id):
     db = get_db()
     t = _toernooi_of_404(db, toernooi_id)
     ik = session.get("speler_id")
+    # Binnengekomen via iemands uitnodigingslink? Dat onthouden we, ook als je
+    # eerst nog een account moet maken.
+    via = uitnodiger_van_code(toernooi_id, request.args.get("via"))
+    if via and via != ik:
+        uitnodigingen = dict(session.get("via") or {})
+        uitnodigingen[str(toernooi_id)] = via
+        session["via"] = uitnodigingen
+    via = (session.get("via") or {}).get(str(toernooi_id))
+    via_naam = weergavenamen(db).get(via) if via and via != ik else None
     lijst = _inschrijvingen(db, toernooi_id)
     bezet = {p: x for x in lijst for p in x["spelers"] if p}
     mijn = next((x for x in lijst if ik in x["spelers"]), None) if ik else None
@@ -4042,12 +4296,21 @@ def toernooi_inschrijven(toernooi_id):
                             "WHERE p.active = 1 AND p.id != ? ORDER BY naam", (ik,))]
     bevestigd = sum(1 for x in lijst if not x["wachtlijst"])
     terug = url_for("toernooi_inschrijven", toernooi_id=toernooi_id)
+    # Al ingeschreven: je eigen uitnodigingslink en hoe het met je coupon staat.
+    uitnodiging = None
+    if mijn and t["status"] == "opzet":
+        link = externe_url("toernooi_inschrijven", toernooi_id=toernooi_id,
+                           via=uitnodigcode(toernooi_id, ik))
+        uitnodiging = {"link": link, "tekst": _deel_tekst(t, link),
+                       # volledig gecodeerd, ook de schuine strepen (vraagt Snapchat)
+                       "link_code": quote(link, safe=""),
+                       "coupon": coupon_staat(db, toernooi_id, mijn["id"])}
     return render_template("inschrijven.html", t=t, lijst=lijst, mijn=mijn,
+                           uitnodiging=uitnodiging, via_naam=via_naam,
                            mijn_teams=mijn_teams, spelers=spelers, bevestigd=bevestigd,
                            open=t["status"] == "opzet", terug=terug,
                            ik_naam=weergave(huidige_speler()) if ik else "",
-                           adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id),
-                           qr=qr_svg(externe_url("toernooi_inschrijven", toernooi_id=toernooi_id)))
+                           adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id))
 
 
 def mijn_teams_van(db, speler_id):
@@ -4150,17 +4413,28 @@ def toernooi_inschrijven_post(toernooi_id):
         db.rollback()
         flash("Je ploegmaat is al ingeschreven met een ander team.", "fout")
         return redirect(terug)
+    # Via iemands uitnodigingslink binnengekomen? Dan krijgt die het krediet,
+    # tenzij hij zelf in dit team zit (jezelf uitnodigen telt niet).
+    via = (session.get("via") or {}).get(str(toernooi_id))
+    if via in (team["player1_id"], team["player2_id"]):
+        via = None
     db.execute("INSERT INTO tournament_teams (tournament_id, team_id, ingeschreven_door, "
-               "ingeschreven_op, te_bevestigen) VALUES (?, ?, ?, datetime('now', 'localtime'), ?)",
-               (toernooi_id, team["id"], ik, te_bevestigen))
+               "ingeschreven_op, te_bevestigen, uitgenodigd_door) "
+               "VALUES (?, ?, ?, datetime('now', 'localtime'), ?, ?)",
+               (toernooi_id, team["id"], ik, te_bevestigen, via))
     db.commit()
     partner_naam = weergavenamen(db).get(partner_id, "je ploegmaat")
     wacht = _inschrijf_boodschap(db, toernooi_id, team["id"])
     session["viering"] = {"soort": "inschrijving", "toernooi": t["name"], "team": team["name"],
                           "partner": partner_naam, "wachtlijst": wacht}
+    if via:
+        uitnodigingen = dict(session.get("via") or {})
+        uitnodigingen.pop(str(toernooi_id), None)
+        session["via"] = uitnodigingen
     flash(f"“{team['name']}” is ingeschreven voor {t['name']}"
           + (f", {wacht}." if wacht else ". Tot dan!"), "ok")
-    return redirect(terug)
+    # Meteen bij de uitnodigingskaart uitkomen: nu is het moment om te delen.
+    return redirect(terug + "#uitnodigen")
 
 
 @app.route("/toernooi/<int:toernooi_id>/uitschrijven", methods=["POST"])
@@ -4182,6 +4456,7 @@ def toernooi_uitschrijven(toernooi_id):
         flash("Er is al geloot: uitschrijven kan nu enkel nog via de organisatie.", "fout")
         return redirect(terug)
     voor = toernooi_motor.wachtlijst(db, toernooi_id)
+    uitnodigingen_vervallen(db, team_id, toernooi_id)
     db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
                (toernooi_id, team_id))
     db.commit()
@@ -4192,6 +4467,52 @@ def toernooi_uitschrijven(toernooi_id):
         naam = db.execute("SELECT name FROM teams WHERE id = ?", (opgeschoven[0],)).fetchone()["name"]
         flash(f"“{naam}” schuift daardoor op van de wachtlijst.", "ok")
     return redirect(terug)
+
+
+
+# ---------------------------------------------------------------- coupons --
+
+@app.route("/coupon/<int:toernooi_id>/<int:team_id>/<sleutel>")
+def coupon_inlossen(toernooi_id, team_id, sleutel):
+    """Hier komt de QR-code van een coupon uit. Een organisator die hem opent
+    (met de scanner in de app of met de camera van zijn gsm), lost hem meteen
+    in. Iemand anders krijgt enkel uitleg."""
+    db = get_db()
+    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, team_id)):
+        abort(404)
+    c = coupon_staat(db, toernooi_id, team_id)
+    if not c["team"]:
+        abort(404)
+    if not is_organisator():
+        return render_template("coupon.html", soort="info", c=c)
+    if c["staat"] == "geldig":
+        try:
+            db.execute("INSERT INTO coupon_inlossingen (tournament_id, team_id, ingelost_door) "
+                       "VALUES (?, ?, ?)", (toernooi_id, team_id, session["speler_id"]))
+            db.commit()
+            return render_template("coupon.html", soort="ok", c=c, pintjes=COUPON_PINTJES)
+        except sqlite3.IntegrityError:          # net tegelijk twee keer gescand
+            db.rollback()
+            c = coupon_staat(db, toernooi_id, team_id)
+    return render_template("coupon.html", soort="fout", c=c)
+
+
+@app.route("/coupon/<int:toernooi_id>/<int:team_id>/<sleutel>/staat.json")
+def coupon_staat_json(toernooi_id, team_id, sleutel):
+    """Voor het profiel: zo verdwijnt de coupon zodra hij aan de bar gescand is."""
+    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, team_id)):
+        abort(404)
+    antwoord = app.response_class(
+        json.dumps({"staat": coupon_staat(get_db(), toernooi_id, team_id)["staat"]}),
+        mimetype="application/json")
+    antwoord.headers["Cache-Control"] = "no-store"
+    return antwoord
+
+
+@app.route("/admin/scan")
+@login_vereist
+def coupon_scanner():
+    return render_template("scan.html")
 
 
 # ------------------------------------------------- melding voor de ploegmaat --
@@ -4242,6 +4563,7 @@ def inschrijving_klopt_niet(toernooi_id, team_id):
     team = db.execute("SELECT * FROM teams WHERE id = ?", (team_id,)).fetchone()
     t = toernooi_motor.toernooi(db, toernooi_id)
     voor = toernooi_motor.wachtlijst(db, toernooi_id)
+    uitnodigingen_vervallen(db, team_id)
     db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
                (toernooi_id, team_id))
     andere = team["player2_id"] if team["player1_id"] == ik else team["player1_id"]
@@ -4438,8 +4760,10 @@ def toernooi_beheer(toernooi_id):
         # Vóór de loting: in volgorde van inschrijving, met wie en wanneer.
         info = {r["team_id"]: r for r in db.execute(f"""
             SELECT tt.team_id, tt.id AS volgorde, tt.ingeschreven_op,
-                   {WEERGAVE.replace('p.', 'd.')} AS door
+                   {WEERGAVE.replace('p.', 'd.')} AS door,
+                   {WEERGAVE.replace('p.', 'u.')} AS via
             FROM tournament_teams tt LEFT JOIN players d ON d.id = tt.ingeschreven_door
+            LEFT JOIN players u ON u.id = tt.uitgenodigd_door
             WHERE tt.tournament_id = ?""", (toernooi_id,))}
         zonder_account = {r["id"] for r in db.execute(
             "SELECT id FROM players WHERE password_hash IS NULL")}
@@ -4447,6 +4771,7 @@ def toernooi_beheer(toernooi_id):
         for team in teams:
             r = info.get(team["id"])
             team["door"] = r["door"] if r else None
+            team["via"] = r["via"] if r else None
             team["op"] = r["ingeschreven_op"] if r else ""
             team["zonder_account"] = [namen_w.get(pid, "?") for pid in
                                       (team["player1_id"], team["player2_id"]) if pid in zonder_account]
@@ -4495,7 +4820,12 @@ def toernooi_beheer(toernooi_id):
     """, (toernooi_id,)):
         meldingen_per_game[r["game_id"]].append(r)
 
-    return render_template("admin_toernooi.html", t=t, teams=teams,
+    coupons = []
+    for team in teams:
+        c = coupon_staat(db, toernooi_id, team["id"])
+        if c["staat"] != "geen":
+            coupons.append(c)
+    return render_template("admin_toernooi.html", t=t, teams=teams, coupons=coupons,
                            beschikbaar=beschikbaar,
                            locaties=toernooi_motor.locaties(db, toernooi_id),
                            loc_namen={l["id"]: l["name"] for l in
@@ -4613,6 +4943,7 @@ def toernooi_team_weg(toernooi_id, team_id):
     else:
         wacht_voor = set(toernooi_motor.wachtlijst(db, toernooi_id))
         naam = db.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()
+        uitnodigingen_vervallen(db, team_id, toernooi_id)
         db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
                    (toernooi_id, team_id))
         db.commit()

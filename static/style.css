@@ -1614,6 +1614,32 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
   background: var(--amber); box-shadow: 0 1.6vh 4vh rgba(0, 0, 0, .55);
 }
 .bm-vlieger.verliezer { background: #cbd5e1; }
+/* de kampioen springt in de beker */
+.bm-vlieger.kampioen {
+  background: linear-gradient(135deg, #fde68a, #f59e0b); justify-content: center;
+  box-shadow: 0 0 4vh rgba(245, 158, 11, .7), 0 1.6vh 4vh rgba(0, 0, 0, .55);
+}
+/* Bij de ontploffing enkel transform en opacity animeren: dat doet de
+   grafische kaart zonder het scherm opnieuw te moeten tekenen. */
+.bm-kampioen { position: relative; }
+.bm-kampioen::after {
+  content: ""; position: absolute; inset: -35%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(253, 230, 138, .55), rgba(245, 158, 11, .18) 40%, transparent 68%);
+  opacity: 0; will-change: opacity;
+}
+.bm-kampioen.plof { animation: bm-plof .9s cubic-bezier(.2, 1.6, .4, 1); }
+.bm-kampioen.plof::after { animation: bm-gloei 1.4s ease-out; }
+@keyframes bm-plof { 0% { transform: scale(.82); } 35% { transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes bm-gloei { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+.bm-schokgolf {
+  position: fixed; z-index: 31; width: 70vh; height: 70vh; margin: -35vh 0 0 -35vh;
+  border-radius: 50%; pointer-events: none; will-change: transform, opacity;
+  background: radial-gradient(circle, transparent 52%, rgba(255, 255, 255, .55) 58%,
+              rgba(253, 230, 138, .9) 61%, rgba(245, 158, 11, .35) 66%, transparent 72%);
+  animation: bm-schokgolf 1.1s cubic-bezier(.1, .6, .3, 1) forwards;
+}
+@keyframes bm-schokgolf { 0% { transform: scale(.04); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+.bm-vonken { position: fixed; z-index: 32; pointer-events: none; }
 .bm-vlieger strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- zijkolom ---- */
@@ -1950,3 +1976,117 @@ html.viering-open, html.viering-open body { overflow: hidden; }
   .inschrijf-held { padding-bottom: 30px; }
   .inschrijf-held .logo3d { width: 140px; }
 }
+
+/* ================================================================
+   Uitnodigen en coupons ("jullie eerste 2 pintjes gratis")
+   ================================================================ */
+.via-banner {
+  margin: 0 0 14px; padding: 10px 14px; border-radius: 10px;
+  background: #eef6ff; border-left: 3px solid #3b82f6; font-size: .95rem;
+}
+
+.uitnodig-kaart {
+  margin-top: 18px; padding: 24px; position: relative; overflow: hidden;
+  border-top: 4px solid var(--amber);
+  background: linear-gradient(135deg, #fffaf0 0%, #fff 55%);
+}
+.uitnodig-kop { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+.uitnodig-pint { width: 58px; height: 58px; flex: none; transform: rotate(-8deg); }
+.pint-glas { fill: #fff7e6; stroke: #0f172a; stroke-width: 2.4; stroke-linejoin: round; }
+.pint-bier { fill: var(--amber); }
+.pint-oor { fill: none; stroke: #0f172a; stroke-width: 2.4; }
+.pint-schuim { fill: #fff; stroke: #0f172a; stroke-width: 2.2; stroke-linejoin: round; }
+.uitnodig-label { margin: 0; color: var(--amber-donker); font-weight: 700; font-size: .8rem;
+  text-transform: uppercase; letter-spacing: .6px; }
+.uitnodig-titel { margin: 2px 0 0; font-family: var(--kop); font-weight: 800; font-size: 1.9rem; line-height: 1; }
+.uitnodig-status { margin: 0 0 14px; padding: 8px 12px; border-radius: 8px; background: #fef3c7; font-size: .93rem; }
+.uitnodig-status.ok { background: #dcfce7; }
+.deel-knoppen { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 10px; }
+.deel-knop {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 46px;
+  padding: 0 18px; border-radius: 999px; border: 0; cursor: pointer;
+  font: inherit; font-weight: 700; font-size: .98rem; text-decoration: none; color: #fff;
+  transition: transform .12s, filter .12s; gap: 8px;
+}
+.deel-icoon { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.deel-melding { margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: #e0f2fe;
+  color: #075985; font-size: .9rem; font-weight: 600; }
+.deel-knop:hover { filter: brightness(1.06); }
+.deel-knop:active { transform: scale(.97); }
+.deel-whatsapp { background: #1fa855; }
+.deel-messenger { background: #0a7cff; }
+.deel-snapchat { background: #fffc00; color: #111; }
+.deel-sms { background: #475569; }
+.deel-meer { background: var(--navy); }
+.deel-kopie { background: #fff; color: var(--inkt); border: 1px solid var(--lijn); }
+.uitnodig-link { margin: 0; font-size: .8rem; color: var(--stil); overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .uitnodig-kaart { padding: 20px 18px; }
+  .deel-knop { flex: 1 1 calc(50% - 8px); }
+  .uitnodig-titel { font-size: 1.65rem; }
+}
+
+.viering-pintjes {
+  display: inline-block; margin: 14px auto 0; padding: 8px 16px; border-radius: 999px;
+  background: rgba(255, 255, 255, .18); color: #fff; font-weight: 700; font-size: .95rem;
+}
+
+/* coupon op het profiel */
+.coupon-lijst { display: grid; gap: 14px; }
+.coupon-kaart {
+  position: relative; display: grid; grid-template-columns: 1fr 220px; gap: 20px; align-items: center;
+  padding: 22px; border: 2px dashed var(--amber); background: #fffaf0;
+  transition: opacity .5s, transform .5s;
+}
+.coupon-kaart.weg { opacity: 0; transform: scale(.96); }
+.coupon-label { margin: 0; color: var(--amber-donker); font-weight: 700; font-size: .8rem;
+  text-transform: uppercase; letter-spacing: .6px; }
+.coupon-titel { margin: 4px 0 8px; font-family: var(--kop); font-weight: 800; font-size: 2rem; line-height: 1; }
+.coupon-uitleg { margin: 0; font-size: .95rem; }
+.coupon-qr { background: #fff; border-radius: 12px; padding: 8px; }
+.coupon-qr svg { display: block; width: 100%; height: auto; }
+.coupon-wacht { grid-template-columns: 1fr; border-style: dashed; border-color: var(--lijn); background: #fff; }
+.coupon-ingelost {
+  position: absolute; inset: 0; border-radius: inherit; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: var(--groen); color: #fff;
+  animation: coupon-in .35s ease-out;
+}
+.coupon-ingelost[hidden] { display: none; }
+.coupon-ingelost svg { width: 84px; height: 84px; fill: none; stroke: #fff; stroke-width: 7;
+  stroke-linecap: round; stroke-linejoin: round; }
+.coupon-ingelost .coupon-titel { color: #fff; margin-top: 10px; }
+@keyframes coupon-in { from { opacity: 0; transform: scale(.94); } }
+@media (max-width: 640px) {
+  .coupon-kaart { grid-template-columns: 1fr; }
+  .coupon-qr { max-width: 280px; width: 100%; justify-self: center; }
+}
+
+/* na het scannen */
+.coupon-scherm {
+  margin-top: 22px; padding: 44px 24px 40px; border-radius: var(--radius); text-align: center; color: #fff;
+  animation: coupon-in .35s ease-out;
+}
+.coupon-ok { background: linear-gradient(160deg, #22c55e, #15803d); }
+.coupon-fout { background: linear-gradient(160deg, #ef4444, #b91c1c); }
+.coupon-icoon { width: 110px; height: 110px; fill: none; stroke: #fff; stroke-width: 7;
+  stroke-linecap: round; stroke-linejoin: round; }
+.coupon-scherm-titel { margin: 12px 0 0; font-family: var(--kop); font-weight: 800; font-size: 3.4rem; line-height: 1; }
+.coupon-scherm-groot { margin: 10px 0 0; font-family: var(--kop); font-weight: 800; font-size: 2.2rem; }
+.coupon-scherm-wie { margin: 8px 0 0; font-size: 1.15rem; font-weight: 600; }
+.coupon-scherm-klein { margin: 14px auto 0; max-width: 30rem; opacity: .9; }
+.coupon-verder { margin: 18px 0 0; text-align: center; }
+
+/* scanner */
+.scan-kaart { padding: 18px; }
+.scan-beeld { position: relative; border-radius: 12px; overflow: hidden; background: #000;
+  aspect-ratio: 1; max-width: 460px; margin: 0 auto 12px; }
+.scan-beeld video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-kader { position: absolute; inset: 18%; border: 3px solid var(--amber); border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, .35); }
+.scan-status { text-align: center; font-weight: 600; margin: 0 0 12px; }
+.scan-kaart .knop-rij { justify-content: center; }
+
+.pil.pil-via { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+.coupon-tip { border-left: 4px solid var(--amber); }
+.gelijkend-keuzes { display: grid; gap: 10px; margin: 0 0 8px; }

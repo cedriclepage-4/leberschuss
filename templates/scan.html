@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block titel %}Coupon scannen{% endblock %}
+{% block inhoud %}
+{# -----------------------------------------------------------------------
+   Scanner voor de coupons aan de bar. De camera zoekt zelf naar een QR-code
+   (jsQR); vindt hij een coupon, dan gaan we meteen naar de inlospagina.
+   Geen camera (geen https, of geen toestemming)? Dan kan je een foto nemen.
+   ----------------------------------------------------------------------- #}
+<section class="held">
+  <h1>Coupon scannen</h1>
+  <p>Richt de camera op de QR-code op het profiel van de speler.</p>
+</section>
+
+<div class="kaart scan-kaart">
+  <div class="scan-beeld" data-beeld hidden>
+    <video playsinline muted></video>
+    <div class="scan-kader" aria-hidden="true"></div>
+  </div>
+  <p class="scan-status" data-status>Camera starten…</p>
+  <div class="knop-rij">
+    <button type="button" class="knop primair" data-start hidden>Camera starten</button>
+    <label class="knop">Foto nemen
+      <input type="file" accept="image/*" capture="environment" data-foto hidden>
+    </label>
+  </div>
+</div>
+<canvas data-doek hidden></canvas>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('statisch', bestand='jsQR.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  var video = document.querySelector("video"), beeld = document.querySelector("[data-beeld]");
+  var status = document.querySelector("[data-status]"), startKnop = document.querySelector("[data-start]");
+  var doek = document.querySelector("[data-doek]"), ctx = doek.getContext("2d", { willReadFrequently: true });
+  var stroom = null, klaar = false;
+
+  function zeg(t) { status.textContent = t; }
+
+  /* Een gevonden code: is het een coupon van deze site? Dan erheen. We nemen
+     enkel het pad, zodat we in de app (en op dit domein) blijven. */
+  function gevonden(tekst) {
+    var pad = null;
+    try { pad = new URL(tekst, location.href).pathname; } catch (e) {}
+    if (pad && /^\/coupon\/\d+\/\d+\/[0-9a-f]+$/.test(pad)) {
+      klaar = true;
+      zeg("Coupon gevonden…");
+      if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
+      if (stroom) stroom.getTracks().forEach(function (t) { t.stop(); });
+      location.href = pad;
+      return true;
+    }
+    zeg("Dat is geen coupon van Leberschuss. Probeer opnieuw.");
+    return false;
+  }
+
+  function lees(bron, b, h) {
+    var max = 900, schaal = Math.min(1, max / Math.max(b, h));
+    doek.width = Math.round(b * schaal); doek.height = Math.round(h * schaal);
+    ctx.drawImage(bron, 0, 0, doek.width, doek.height);
+    var data = ctx.getImageData(0, 0, doek.width, doek.height);
+    return jsQR(data.data, data.width, data.height, { inversionAttempts: "dontInvert" });
+  }
+
+  var vorige = "";
+  function kijk() {
+    if (klaar || !stroom) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      var code = lees(video, video.videoWidth, video.videoHeight);
+      if (code && code.data && code.data !== vorige) {
+        vorige = code.data;
+        if (gevonden(code.data)) return;
+      }
+    }
+    requestAnimationFrame(kijk);
+  }
+
+  function start() {
+    startKnop.hidden = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      zeg("De camera is hier niet beschikbaar. Neem een foto van de code.");
+      return;
+    }
+    zeg("Camera starten…");
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
+      .then(function (s) {
+        stroom = s; video.srcObject = s; beeld.hidden = false;
+        return video.play();
+      })
+      .then(function () { zeg("Zoeken naar een QR-code…"); requestAnimationFrame(kijk); })
+      .catch(function () {
+        zeg("Geen toegang tot de camera. Sta ze toe, of neem een foto van de code.");
+        startKnop.hidden = false;
+      });
+  }
+  startKnop.addEventListener("click", start);
+
+  document.querySelector("[data-foto]").addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    zeg("Foto lezen…");
+    var img = new Image();
+    img.onload = function () {
+      var code = lees(img, img.naturalWidth, img.naturalHeight);
+      URL.revokeObjectURL(img.src);
+      if (code && code.data) gevonden(code.data);
+      else zeg("Geen QR-code gevonden op de foto. Probeer opnieuw, wat dichterbij.");
+    };
+    img.src = URL.createObjectURL(f);
+    e.target.value = "";
+  });
+
+  start();
+})();
+</script>
+{% endblock %}

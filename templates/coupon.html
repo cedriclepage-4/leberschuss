@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titel %}Coupon{% endblock %}
+{% block inhoud %}
+{# -----------------------------------------------------------------------
+   Wat je ziet na het scannen van een coupon (zie app.coupon_inlossen).
+   ok:   een organisator scande een geldige coupon: meteen ingelost.
+   fout: een organisator scande, maar de coupon is niet (meer) geldig.
+   info: iemand anders opende de code: enkel uitleg.
+   ----------------------------------------------------------------------- #}
+
+{% if soort == 'ok' %}
+<div class="coupon-scherm coupon-ok" role="alert">
+  <svg class="coupon-icoon" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><path d="M30 52 L44 66 L71 37"/></svg>
+  <p class="coupon-scherm-titel">Geldig!</p>
+  <p class="coupon-scherm-groot">{{ pintjes }} gratis pintjes</p>
+  <p class="coupon-scherm-wie">voor “{{ c.team }}” · {{ c.spelers }}</p>
+  <p class="coupon-scherm-klein">{{ c.toernooi['name'] }}. De coupon is ingelost en verdwijnt van de profielen.</p>
+</div>
+<script>if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40, 60, 120]); } catch (e) {} }</script>
+
+{% elif soort == 'fout' %}
+<div class="coupon-scherm coupon-fout" role="alert">
+  <svg class="coupon-icoon" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><path d="M34 34 L66 66 M66 34 L34 66"/></svg>
+  <p class="coupon-scherm-titel">{{ 'Al ingelost' if c.staat == 'ingelost' else 'Niet geldig' }}</p>
+  <p class="coupon-scherm-wie">“{{ c.team }}” · {{ c.spelers }}</p>
+  <p class="coupon-scherm-klein">
+    {% if c.staat == 'ingelost' %}Deze coupon werd al ingelost
+      {%- if c.ingelost_op %} op {{ c.ingelost_op[8:10] }}/{{ c.ingelost_op[5:7] }} om {{ c.ingelost_op[11:16] }}{% endif %}
+      {%- if c.ingelost_door %} door {{ c.ingelost_door }}{% endif %}. Geen gratis pintjes meer.
+    {% elif c.staat == 'wacht' %}Er is nog niet geloot. De coupon wordt pas geldig als het toernooi begint.
+    {% elif c.staat == 'vervallen' %}Het uitgenodigde team of het eigen team doet niet (meer) mee aan {{ c.toernooi['name'] }}.
+    {% else %}Voor dit team staat er geen coupon klaar.{% endif %}
+  </p>
+</div>
+<script>if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200]); } catch (e) {} }</script>
+
+{% else %}
+<div class="kaart inschrijf-kaart">
+  <h2 class="inschrijf-titel">Coupon van “{{ c.team }}”</h2>
+  <p>Goed voor de eerste 2 pintjes van {{ c.spelers }}
+     op {{ c.toernooi['name'] if c.toernooi else 'het toernooi' }}. Enkel de organisatie kan hem
+     inlossen, aan de bar.</p>
+  {% if not session.get('speler_id') %}
+  <p class="stil klein-tekst">Ben je van de organisatie? <a href="{{ url_for('inloggen', volgende=request.path) }}">Log in</a>
+     en scan opnieuw.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if is_organisator %}
+<p class="coupon-verder"><a class="knop primair groot" href="{{ url_for('coupon_scanner') }}">Volgende coupon scannen</a></p>
+{% endif %}
+{% endblock %}

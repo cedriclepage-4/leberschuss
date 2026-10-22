@@ -178,6 +178,9 @@ CREATE TABLE IF NOT EXISTS tournament_teams (
     -- Schreef iemand een nieuw team in met een bestaande speler? Dan krijgt die
     -- speler een melding ("dit klopt niet" maakt het ongedaan) tot hij ze bevestigt.
     te_bevestigen     INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    -- Via wiens uitnodigingslink schreef dit team zich in? Blijft het team
+    -- ingeschreven tot de loting, dan krijgt die speler een coupon.
+    uitgenodigd_door  INTEGER REFERENCES players(id) ON DELETE SET NULL,
     UNIQUE (tournament_id, team_id)
 );
 
@@ -268,6 +271,18 @@ CREATE TABLE IF NOT EXISTS settings (
 -- hier bijgehouden, zodat een vergissing zichtbaar is en teruggedraaid kan
 -- worden. De naam wordt mee bewaard: ook na het verwijderen van een speler
 -- blijft leesbaar wat er gebeurd is.
+-- Ingeloste coupons ("eerste 2 pintjes gratis"): één per team per toernooi.
+-- Of een team een coupon heeft, wordt telkens berekend uit de inschrijvingen;
+-- hier staat enkel welke al aan de bar ingelost werden, wanneer en door wie.
+CREATE TABLE IF NOT EXISTS coupon_inlossingen (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    team_id       INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    ingelost_op   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    ingelost_door INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    UNIQUE (tournament_id, team_id)
+);
+
 CREATE TABLE IF NOT EXISTS claim_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     player_id  INTEGER,
@@ -446,9 +461,29 @@ def _migreer_inschrijvingen(conn):
                         "TEXT NOT NULL DEFAULT ''")
         _voeg_kolom_toe(conn, "tournament_teams", "te_bevestigen",
                         "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+        _voeg_kolom_toe(conn, "tournament_teams", "uitgenodigd_door",
+                        "INTEGER REFERENCES players(id) ON DELETE SET NULL")
     if _kolommen(conn, "players"):
         _voeg_kolom_toe(conn, "players", "aangemaakt_door",
                         "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+
+
+def _migreer_coupons_per_team(conn):
+    """De eerste versie van de coupons hing aan een speler; nu aan een team.
+    Een al ingeloste coupon gaat naar het team waarmee die speler meedeed."""
+    kolommen = _kolommen(conn, "coupon_inlossingen")
+    if not kolommen or "team_id" in kolommen:
+        return
+    conn.execute("ALTER TABLE coupon_inlossingen RENAME TO coupon_inlossingen_oud")
+    conn.executescript(SCHEMA)
+    conn.execute("""
+        INSERT OR IGNORE INTO coupon_inlossingen (tournament_id, team_id, ingelost_op, ingelost_door)
+        SELECT o.tournament_id, tt.team_id, o.ingelost_op, o.ingelost_door
+        FROM coupon_inlossingen_oud o
+        JOIN tournament_teams tt ON tt.tournament_id = o.tournament_id
+        JOIN teams t ON t.id = tt.team_id AND o.player_id IN (t.player1_id, t.player2_id)""")
+    conn.execute("DROP TABLE coupon_inlossingen_oud")
+    conn.commit()
 
 
 def _migreer_onvolledige_teams(conn, pad):
@@ -559,6 +594,8 @@ _SPELER_VERWIJZINGEN = [
     ("team_invitations", "player_id", None),
     ("tournament_teams", "ingeschreven_door", None),
     ("tournament_teams", "te_bevestigen", None),
+    ("tournament_teams", "uitgenodigd_door", None),
+    ("coupon_inlossingen", "ingelost_door", None),
     ("players", "aangemaakt_door", None),
 ]
 
@@ -632,6 +669,7 @@ def init_db(pad: str = DB_PATH) -> None:
     _migreer_rollen(conn)
     _migreer_inschrijvingen(conn)
     conn.executescript(SCHEMA)
+    _migreer_coupons_per_team(conn)
     _migreer_onvolledige_teams(conn, pad)
     _migreer_terugtrekken(conn)
     _migreer_league(conn)

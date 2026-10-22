@@ -758,10 +758,10 @@ def terugtrek_opties(db, tid, team_id):
     """
     t = toernooi(db, tid)
     if not t or t["status"] != "bracket":
-        return [], False
+        return []
     blijvers = [d["id"] for d in deelnemers(db, tid) if d["id"] != team_id]
     if len(blijvers) < 4:
-        return [], False
+        return []
     bracket = [g for g in db.execute(
         "SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket' "
         "ORDER BY scheduled_at, id", (tid,))

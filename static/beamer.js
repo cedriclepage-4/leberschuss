@@ -254,25 +254,64 @@
     return b.stand.every(function (r) { return ids[r.id]; });
   }
 
+  var standRonde = 0;          // zodat een late opruimbeurt een nieuwe reeks niet wist
   async function werkStandBij(oud, nieuw) {
+    standRonde++;
     if (!rijen || !Object.keys(rijen).length || !zelfdeTeams(oud, nieuw)) {
       bouwStand(nieuw);
       return;
     }
-    var vorig = {};
+    var vorig = {}, nieuwRij = {}, nieuwePlek = {};
     oud.stand.forEach(function (r) { vorig[r.id] = r; });
+    nieuw.stand.forEach(function (r, i) { nieuwRij[r.id] = r; nieuwePlek[r.id] = i; });
     var gespeeld = nieuw.stand.filter(function (r) { return vorig[r.id].gespeeld !== r.gespeeld; });
-    var oudePlaats = {};
-    oud.stand.forEach(function (r, i) { oudePlaats[r.id] = i; });
 
     /* Even geen automatisch schuiven: de camera volgt nu de uitslagen. */
     camera.pauze = true;
     camera.generatie++;
 
-    /* 1. Wie net speelde, licht op met zijn uitslag. Past niet alles in
-          beeld, dan gaat de camera groepje per groepje langs. */
+    /* De wachtrij: één wedstrijd tegelijk, in de volgorde waarin ze gespeeld
+       werden. Winnaar en verliezer van hetzelfde duel horen samen. */
+    var gespeeldId = {};
+    gespeeld.forEach(function (r) { gespeeldId[r.id] = r; });
+    var oudeFeed = {};
+    (oud.laatste || []).forEach(function (w) { oudeFeed[w.id] = true; });
+    var duels = (nieuw.laatste || []).filter(function (w) { return !oudeFeed[w.id]; }).reverse()
+      .map(function (w) {
+        return [w.team1, w.team2].filter(function (t) { return t && gespeeldId[t.id]; })
+          .map(function (t) { return gespeeldId[t.id]; });
+      }).filter(function (d) { return d.length; });
+    var getoond = {};
+    duels.forEach(function (d) { d.forEach(function (r) { getoond[r.id] = true; }); });
+    gespeeld.forEach(function (r) { if (!getoond[r.id]) duels.push([r]); });
+
+    /* Geen uitslagen, wel een andere stand (bv. een beslissing bij gelijke
+       stand)? Dan gewoon iedereen naar zijn nieuwe plaats. */
+    if (!duels.length) {
+      nieuw.stand.forEach(function (r) { vulRij(rijen[r.id], r); });
+      plaatsRijen(nieuw, true);
+      camera.pauze = false;
+      planAutoScroll(7000);
+      return;
+    }
+
+    /* Elke uitslag is een scène van ± 5 seconden. Zijn er veel tegelijk
+       binnengekomen, dan gaat het tempo wat omhoog. */
+    var scene = duels.length <= 6 ? 5000 : Math.max(2600, Math.round(30000 / duels.length));
+    var huidig = {};                     // de tussenstand: per team de cijfers tot nu toe
+    oud.stand.forEach(function (r) { huidig[r.id] = r; });
+    var volgorde = oud.stand.map(function (r) { return r.id; });
+
+    function ruimOp() {
+      Object.keys(rijen).forEach(function (id) {
+        var rij = rijen[id];
+        rij.classList.remove("flits-winst", "flits-verlies");
+        rij.querySelector(".bm-uitslag").className = "bm-uitslag";
+        rij.querySelector(".bm-beweging").className = "bm-beweging";
+      });
+    }
     function toonUitslag(r) {
-      var o = vorig[r.id], rij = rijen[r.id];
+      var o = huidig[r.id], rij = rijen[r.id];
       var won = r.winst > o.winst;
       var label = rij.querySelector(".bm-uitslag");
       label.textContent = won ? "Winst +" + (r.punten - o.punten) : "Verlies";
@@ -286,63 +325,64 @@
       var laatste = rij.querySelector(".bm-vorm .bm-bol:last-child");
       if (laatste) laatste.classList.add("nieuw");
     }
-    var perPlaats = {};
-    gespeeld.forEach(function (r) { perPlaats[oudePlaats[r.id]] = r; });
-    var groepen = groepeer(Object.keys(perPlaats).map(Number));
-    for (var g = 0; g < groepen.length; g++) {
-      await kijkNaar(groepen[g][0], groepen[g][groepen[g].length - 1]);
-      groepen[g].forEach(function (p) { toonUitslag(perPlaats[p]); });
-      await wacht(groepen.length > 1 ? 2000 : 1700);
-    }
 
-    /* 2. Iedereen naar zijn nieuwe plaats. */
-    var bewogen = [];
-    nieuw.stand.forEach(function (r, i) {
-      var o = vorig[r.id], rij = rijen[r.id];
-      var verschil = o.positie - r.positie;
-      var pijl = rij.querySelector(".bm-beweging");
-      pijl.className = "bm-beweging";
-      if (verschil) {
-        pijl.textContent = (verschil > 0 ? "▲ " : "▼ ") + Math.abs(verschil);
-        pijl.dataset.richting = verschil > 0 ? "omhoog" : "omlaag";
-        bewogen.push(i);
-      }
-      vulRij(rij, r);
-    });
-    function toonPijlen(posities) {
-      posities.forEach(function (p) {
-        var pijl = rijen[nieuw.stand[p].id].querySelector(".bm-beweging");
-        if (pijl.dataset.richting) pijl.className = "bm-beweging " + pijl.dataset.richting;
+    for (var k = 0; k < duels.length; k++) {
+      var start = performance.now();
+      var duel = duels[k], slot = k === duels.length - 1;
+      ruimOp();
+
+      /* 1. De camera naar het duel, de uitslag licht op, lichtslag op de winnaar. */
+      var plek = {};
+      volgorde.forEach(function (id, i) { plek[id] = i; });
+      var winnaar = duel.filter(function (r) { return r.winst > huidig[r.id].winst; })[0] || duel[0];
+      var plaatsen = duel.map(function (r) { return plek[r.id]; });
+      var van = Math.min.apply(null, plaatsen), tot = Math.max.apply(null, plaatsen);
+      if (tot - van >= zichtbareRijen()) van = tot = plek[winnaar.id];
+      await kijkNaar(van, tot);
+      duel.forEach(toonUitslag);
+      lichtslag(rijen[winnaar.id], GOUD, 1);
+      duel.forEach(function (r) { huidig[r.id] = r; });
+      await wacht(1900);
+
+      /* 2. Deze teams naar hun nieuwe plaats. Na de laatste uitslag is dat
+            precies de officiële stand; daarvoor een tussenstand op punten. */
+      var nieuweVolgorde = slot ? nieuw.stand.map(function (r) { return r.id; })
+        : volgorde.slice().sort(function (a, b) {
+            return huidig[b].punten - huidig[a].punten || nieuwePlek[a] - nieuwePlek[b];
+          });
+      var tussen = {
+        status: nieuw.status, cut: nieuw.cut,
+        stand: nieuweVolgorde.map(function (id, i) {
+          if (slot) return nieuwRij[id];
+          var r = Object.assign({}, huidig[id]);
+          r.positie = i + 1; r.doorstoot = i < nieuw.cut;
+          r.gedeeld = false; r.onbeslist = false;
+          return r;
+        })
+      };
+      tussen.stand.forEach(function (r, i) {
+        var rij = rijen[r.id], pijl = rij.querySelector(".bm-beweging");
+        var verschil = plek[r.id] - i;
+        rij.querySelector(".bm-pos").textContent = r.positie;
+        rij.classList.toggle("door", !!r.doorstoot);
+        if (slot) vulRij(rij, r);
+        pijl.className = "bm-beweging";
+        if (verschil) {
+          pijl.textContent = (verschil > 0 ? "▲ " : "▼ ") + Math.abs(verschil);
+          pijl.className = "bm-beweging " + (verschil > 0 ? "omhoog" : "omlaag");
+        }
       });
-    }
-    plaatsRijen(nieuw, true);
-    if (camera.max <= 0) toonPijlen(bewogen);
-    await wacht(1500);
+      plaatsRijen(tussen, true);
+      volgorde = nieuweVolgorde;
+      await wacht(1200);
 
-    /* 3. Langs de nieuwe plaatsen van wie speelde, zodat je ziet waar ze
-          terechtkwamen. */
-    if (camera.max > 0) {
-      var nieuwePlaats = {};
-      nieuw.stand.forEach(function (r, i) { nieuwePlaats[r.id] = i; });
-      var doelen = gespeeld.map(function (r) { return nieuwePlaats[r.id]; });
-      var groepen2 = groepeer(doelen.concat(bewogen.filter(function (p) {
-        return doelen.some(function (d) { return Math.abs(d - p) < zichtbareRijen(); });
-      })));
-      for (var h = 0; h < groepen2.length; h++) {
-        await kijkNaar(groepen2[h][0], groepen2[h][groepen2[h].length - 1]);
-        toonPijlen(groepen2[h].filter(function (p) { return bewogen.indexOf(p) !== -1; }));
-        await wacht(2200);
-      }
+      /* 3. De camera volgt de winnaar naar zijn nieuwe plaats. */
+      await kijkNaar(nieuweVolgorde.indexOf(winnaar.id), nieuweVolgorde.indexOf(winnaar.id), 900);
+      await wacht(Math.max(400, scene - (performance.now() - start)));
     }
 
-    setTimeout(function () {
-      Object.keys(rijen).forEach(function (id) {
-        var rij = rijen[id];
-        rij.classList.remove("flits-winst", "flits-verlies");
-        rij.querySelector(".bm-uitslag").className = "bm-uitslag";
-        rij.querySelector(".bm-beweging").className = "bm-beweging";
-      });
-    }, rustig ? 0 : 5000);
+    var deze = ++standRonde;
+    setTimeout(function () { if (deze === standRonde) ruimOp(); }, rustig ? 0 : 3000);
     camera.pauze = false;
     planAutoScroll(7000);
   }
@@ -485,13 +525,136 @@
         { transform: "translate(0, 0) scale(1)", opacity: 1 },
         { transform: "translate(" + dx * .5 + "px, " + (dy * .5 - 50) + "px) scale(1.12)", opacity: 1, offset: .5 },
         { transform: "translate(" + dx + "px, " + dy + "px) scale(1)", opacity: 1 }
-      ], { duration: 1100, easing: "cubic-bezier(.5, 0, .3, 1)" });
+      ], { duration: 1500, easing: "cubic-bezier(.45, 0, .3, 1)" });
       anim.onfinish = function () {
         kaartje.remove();
         vulKant(doel, team);
         opnieuw(doel, "aangekomen");
         klaar();
       };
+    });
+  }
+
+  /* --------------------------------------------- kampioen: de sprong -- */
+  /* Het kaartje van de winnaar van de finale springt in een hoge boog naar
+     de beker, duikt erin en verdwijnt. Daar: een schokgolf, vonken, de beker
+     veert op met de naam erin, en de zwaarste lichtslag van de avond. */
+  function sprongInBeker(bron, beker, team) {
+    return new Promise(function (klaar) {
+      function vulBeker() {
+        beker.classList.add("heeft");
+        beker.querySelector("strong").textContent = team.naam;
+        var klein = beker.querySelector("small") || beker.appendChild(el("small"));
+        klein.textContent = team.spelers || "";
+      }
+      if (!bron || rustig) { vulBeker(); klaar(); return; }
+      var a = bron.getBoundingClientRect(), b = beker.getBoundingClientRect();
+      /* Het doek voor de vonken nu al klaarzetten (tijdens de sprong), zodat
+         er op het moment van de ontploffing niets meer aangemaakt moet worden. */
+      var vonkDoek = maakVonkDoek(b.left + b.width / 2, b.top + b.height * .42);
+      var kaartje = el("div", "bm-vlieger kampioen");
+      kaartje.appendChild(el("strong", null, team.naam));
+      kaartje.style.left = a.left + "px"; kaartje.style.top = a.top + "px";
+      kaartje.style.width = a.width + "px"; kaartje.style.height = a.height + "px";
+      document.body.appendChild(kaartje);
+      var dx = (b.left + b.width / 2) - (a.left + a.width / 2);
+      var dy = (b.top + b.height * .42) - (a.top + a.height / 2);
+      var hoogte = Math.max(110, window.innerHeight * .26);
+      /* Eén vloeiende boog (een Bézier-curve): omhoog uit de finale, over de
+         top, en van bovenaf de beker in. Elke beeldje opnieuw berekend, zodat
+         er nergens een knik of schok in zit. */
+      var p1 = [dx * .25, -hoogte * 1.25], p2 = [dx * .8, dy - hoogte * 1.35], p3 = [dx, dy];
+      function boog(u, as) {
+        var v = 1 - u;
+        return 3 * v * v * u * p1[as] + 3 * v * u * u * p2[as] + u * u * u * p3[as];
+      }
+      function zachtInUit(x) { return .5 - .5 * Math.cos(Math.PI * x); }
+      function glad(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); }
+      var DUUR = 2400, begin = null;
+      kaartje.style.willChange = "transform, opacity";
+      var anim = { onfinish: null };
+      requestAnimationFrame(function stap(nu) {
+        if (begin === null) begin = nu;
+        var t = Math.min(1, (nu - begin) / DUUR), u = zachtInUit(t);
+        /* groeit traag tot boven op de boog, krimpt dan zacht de beker in */
+        var schaal = (1 + .16 * Math.sin(Math.PI * glad(t / .7))) * (1 - .8 * glad((t - .55) / .45));
+        var draai = 7 * Math.sin(Math.PI * t) * glad(t / .5);
+        kaartje.style.transform = "translate3d(" + boog(u, 0) + "px, " + boog(u, 1) + "px, 0) scale(" +
+                                  schaal + ") rotate(" + draai + "deg)";
+        kaartje.style.opacity = 1 - glad((t - .82) / .18);
+        if (t < 1) requestAnimationFrame(stap);
+        else if (anim.onfinish) anim.onfinish();
+      });
+      anim.onfinish = function () {
+        kaartje.remove();
+        vulBeker();
+        opnieuw(beker, "plof");
+        ontploffing(b.left + b.width / 2, b.top + b.height * .42, vonkDoek);
+        lichtslag(beker, GOUD, 1.7);
+        setTimeout(klaar, 1500);           // even laten nagloeien, dan het feestscherm
+      };
+    });
+  }
+
+  /* Een klein doek rond het punt van de ontploffing (niet het hele scherm):
+     minder om elke keer te wissen en te tekenen. Onzichtbaar tot de knal. */
+  function maakVonkDoek(x, y) {
+    var H = window.innerHeight;
+    var B = Math.round(H * 1.0), Ho = Math.round(H * 1.25);
+    var doek = el("canvas", "bm-vonken");
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    doek.width = Math.round(B * dpr); doek.height = Math.round(Ho * dpr);
+    doek.style.width = B + "px"; doek.style.height = Ho + "px";
+    doek.style.left = Math.round(x - B / 2) + "px"; doek.style.top = Math.round(y - Ho * .4) + "px";
+    doek.style.visibility = "hidden";
+    document.body.appendChild(doek);
+    var ctx = doek.getContext && doek.getContext("2d");
+    if (ctx) ctx.scale(dpr, dpr);
+    return { doek: doek, ctx: ctx, B: B, H: Ho, cx: B / 2, cy: Ho * .4 };
+  }
+
+  /* Een schokgolf en een bos vonken op dit punt van het scherm. */
+  function ontploffing(x, y, v) {
+    var ring = el("div", "bm-schokgolf");
+    ring.style.left = x + "px"; ring.style.top = y + "px";
+    document.body.appendChild(ring);
+    setTimeout(function () { ring.remove(); }, 1200);
+
+    v = v || maakVonkDoek(x, y);
+    if (!v.ctx) { v.doek.remove(); return; }
+    v.doek.style.visibility = "visible";
+    var ctx = v.ctx, schaal = window.innerHeight / 900;
+    var kleuren = ["#fde68a", "#fbbf24", "#f59e0b", "#ffffff", "#fff7d6"];
+    /* per kleur een groepje: zo hoeft het doek maar 5 keer van kleur te wisselen */
+    var groepen = kleuren.map(function () { return []; });
+    for (var i = 0; i < 120; i++) {
+      var hoek = Math.random() * Math.PI * 2, snel = (2 + Math.random() * 8) * schaal;
+      groepen[i % kleuren.length].push({ x: v.cx, y: v.cy, vx: Math.cos(hoek) * snel,
+        vy: Math.sin(hoek) * snel - 2.5 * schaal, r: (1.5 + Math.random() * 3.2) * schaal,
+        leeft: 0, duur: 50 + Math.random() * 40 });
+    }
+    var vorige = null;
+    requestAnimationFrame(function frame(nu) {
+      /* tempo los van de beeldsnelheid: ook bij een trager scherm even snel */
+      var stap = vorige === null ? 1 : Math.min(3, (nu - vorige) / 16.7);
+      vorige = nu;
+      ctx.clearRect(0, 0, v.B, v.H);
+      var over = 0;
+      groepen.forEach(function (groep, k) {
+        ctx.fillStyle = kleuren[k];
+        groep.forEach(function (s) {
+          if (s.leeft >= s.duur) return;
+          s.vy += .18 * schaal * stap; s.vx *= Math.pow(.975, stap); s.vy *= Math.pow(.975, stap);
+          s.x += s.vx * stap; s.y += s.vy * stap; s.leeft += stap;
+          var rest = Math.max(0, 1 - s.leeft / s.duur);
+          if (!rest) return;
+          over++;
+          ctx.globalAlpha = rest;
+          ctx.fillRect(s.x - s.r, s.y - s.r, s.r * 2 * (.4 + .6 * rest), s.r * 2 * (.4 + .6 * rest));
+        });
+      });
+      if (over) requestAnimationFrame(frame);
+      else v.doek.remove();
     });
   }
 
@@ -521,7 +684,7 @@
     });
 
     for (var i = 0; i < nieuweUitslagen.length; i++) {
-      var g = nieuweUitslagen[i];
+      var g = nieuweUitslagen[i], begin = performance.now();
       var kaart = kaarten[g.id];
       if (!kaart) continue;
       /* Teams die intussen pas binnenkwamen, eerst invullen. */
@@ -529,15 +692,28 @@
       vulKant(kaart.querySelector('[data-slot="2"]'), g.team2);
       zetUitslag(kaart, g);
       opnieuw(kaart, "net-gespeeld");
-      await wacht(900);
       var winnaar = g.winnaar === (g.team1 && g.team1.id) ? g.team1 : g.team2;
       var verliezer = winnaar === g.team1 ? g.team2 : g.team1;
       var bronW = kaart.querySelector('.bm-kant[data-team="' + winnaar.id + '"]');
+      /* Lichtslag op de winnaar; bij de finale wat feller. Pas als de bundels
+         bij de winnaar zijn, vertrekt hij naar de volgende ronde, en het licht
+         reist met hem mee. */
+      lichtslag(bronW || kaart, GOUD, g.ronde === 2 ? 1.35 : 1);
+      await wacht(2200);
+      if (g.volgende && kaarten[g.volgende]) {
+        lichtVolg(kaarten[g.volgende].querySelector('[data-slot="' + g.slot + '"]'), 2600);
+      }
       var bronV = verliezer && kaart.querySelector('.bm-kant[data-team="' + verliezer.id + '"]');
       var reizen = [];
       if (g.volgende && kaarten[g.volgende]) {
         reizen.push(vlieg(bronW, kaarten[g.volgende].querySelector('[data-slot="' + g.slot + '"]'),
                           winnaar, "winnaar"));
+      }
+      /* De finale: de winnaar springt in de beker. */
+      var beker = paneelKo.querySelector(".bm-kampioen");
+      if (g.ronde === 2 && beker && nieuw.knockout.kampioen) {
+        lichtVolg(beker, 3800);
+        reizen.push(sprongInBeker(bronW, beker, winnaar));
       }
       if (g.ronde === 4 && nieuw.knockout.kleine_finale && verliezer) {
         var kf = kaarten[nieuw.knockout.kleine_finale.id];
@@ -545,7 +721,9 @@
                                   verliezer, "verliezer"));
       }
       await Promise.all(reizen);
-      await wacht(500);
+      /* Ook hier een scène per wedstrijd: ± 5,5 seconden (wat korter als er
+         heel veel tegelijk binnenkwamen). */
+      await wacht(Math.max(500, (nieuweUitslagen.length <= 6 ? 5500 : 4200) - (performance.now() - begin)));
     }
     data = nieuw;              // zodat de lijnen de nieuwe toestand volgen
     bouwBracket(nieuw);
@@ -560,6 +738,7 @@
       feestBlok.querySelector("[data-feest-spelers]").textContent = team.spelers || "";
       feestBlok.hidden = false;
       opnieuw(feestBlok, "toon");
+      lichtslag(feestBlok.querySelector("[data-feest-naam]"), GOUD, 1.25);
       var stop = confetti(feestBlok.querySelector(".bm-confetti"));
       setTimeout(function () {
         feestBlok.classList.add("weg");
@@ -816,6 +995,26 @@
 
   /* ---------------------------------------------------------- rook -- */
   var rook = (!rustig && window.Rook) ? window.Rook(document.querySelector(".bm-rook"), { sterkte: .75 }) : null;
+  var GOUD = [1, .74, .28];
+  /* Eén lichtslag in de zaal, gericht op dit element (zie rook.js). */
+  function plekVan(element) {
+    var doek = document.querySelector(".bm-rook").getBoundingClientRect();
+    var r = element.getBoundingClientRect();
+    return [(r.left + r.width / 2 - doek.left) / doek.width,
+            1 - (r.top + r.height / 2 - doek.top) / doek.height];
+  }
+  function lichtVolg(element, ms) {
+    if (!rook || !element) return;
+    var p = plekVan(element);
+    rook.volg(p[0], p[1], ms);
+  }
+  function lichtslag(element, kleur, kracht) {
+    if (!rook || !element) return;
+    var doek = document.querySelector(".bm-rook").getBoundingClientRect();
+    var r = element.getBoundingClientRect();
+    rook.lichtbeat((r.left + r.width / 2 - doek.left) / doek.width,
+                   1 - (r.top + r.height / 2 - doek.top) / doek.height, kleur, kracht);
+  }
   if (rook) {
     rook.maat(.08, .93);                 // het licht komt van het logo linksboven
     (function lus(t) {

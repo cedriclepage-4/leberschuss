@@ -25,6 +25,7 @@
     <a class="knop primair" href="{{ url_for('toernooi_loting', toernooi_id=t['id']) }}">Naar loting</a>
     {% if is_organisator %}
     <a class="knop" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Beheren</a>
+    <a class="knop" href="{{ url_for('coupon_scanner') }}">Coupon scannen</a>
     <a class="knop" href="{{ url_for('toernooi_beamer', toernooi_id=t['id']) }}"
        title="Groot scherm met de stand of het knockoutschema. Zet het op de beamer en laat het openstaan: het werkt zichzelf bij.">Beamerscherm</a>
     {% endif %}
@@ -33,6 +34,17 @@
   <p class="ruimte-boven"><a class="knop primair" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Toernooi klaarzetten</a></p>
   {% endif %}
 </section>
+
+{% if mijn_coupon %}
+<a class="kaart lopend-kaart coupon-tip" href="{{ url_for('speler_profiel', speler_id=session['speler_id']) }}#coupons">
+  <span class="lopend-tekst">
+    <span class="lopend-label">Je hebt een coupon</span>
+    <strong>2 gratis pintjes</strong>
+    <small>Toon de code op je profiel aan de bar.</small>
+  </span>
+  <span class="lopend-actie">Toon coupon ›</span>
+</a>
+{% endif %}
 
 {% if winnaar %}
 <div class="kaart winnaar-kaart">

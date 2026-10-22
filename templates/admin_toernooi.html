@@ -8,6 +8,7 @@
   <p>{{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}</p>
   <div class="knop-rij">
     <a class="knop" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}">Publieke pagina</a>
+    <a class="knop primair" href="{{ url_for('coupon_scanner') }}">Coupon scannen</a>
     {% if t['status'] != 'opzet' %}
     <a class="knop" href="{{ url_for('toernooi_loting', toernooi_id=t['id']) }}">Lotingsscherm</a>
     {% endif %}
@@ -36,6 +37,30 @@
 </div>
 {% endif %}
 
+{% if coupons %}
+<!-- ============================================================ coupons -->
+<div class="kaart">
+  <h3>Coupons (eerste 2 pintjes gratis)</h3>
+  <p class="stil klein-tekst">Een team dat een ander team uitnodigde dat ingeschreven bleef tot de
+     loting, krijgt één coupon (op het profiel van beide spelers). Scan hem aan de bar met <em>Coupon scannen</em>.</p>
+  <table class="tabel compact">
+    <tbody>
+      {% for c in coupons %}
+      <tr>
+        <td class="naam">{{ c.team }}{% if c.uitnodiger %} <span class="stil">· uitgenodigd via {{ c.uitnodiger }}</span>{% endif %}</td>
+        <td class="wikkel">
+          {% if c.staat == 'wacht' %}<span class="pil pil-wacht">na de loting</span>
+          {% elif c.staat == 'geldig' %}<span class="pil pil-actief">geldig</span>
+          {% elif c.staat == 'ingelost' %}<span class="pil">ingelost {{ c.ingelost_op[11:16] }}{% if c.ingelost_door %} door {{ c.ingelost_door }}{% endif %}</span>
+          {% else %}<span class="pil stil">vervallen</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- ============================================================== teams -->
 <h2 class="sectiekop" id="teams">Deelnemende teams</h2>
 <div class="kaart">
@@ -45,7 +70,7 @@
     <tbody>
       {% for team in teams %}
       <tr>
-        <td class="naam">{% if t['status'] == 'opzet' %}<span class="stil">{{ loop.index }}.</span> {% endif %}{{ team.naam }}{% if team.wachtlijst %} <span class="pil pil-wacht">wachtlijst {{ team.wachtlijst }}</span>{% endif %}
+        <td class="naam">{% if t['status'] == 'opzet' %}<span class="stil">{{ loop.index }}.</span> {% endif %}{{ team.naam }}{% if team.via %} <span class="pil pil-via" title="Ingeschreven via de uitnodigingslink van {{ team.via }}">via {{ team.via }}</span>{% endif %}{% if team.wachtlijst %} <span class="pil pil-wacht">wachtlijst {{ team.wachtlijst }}</span>{% endif %}
           {% if team.door is defined %}<span class="inschrijf-meta">{% if team.door %}ingeschreven door {{ team.door }}{% else %}toegevoegd door de organisatie{% endif %}{% if team.op %} · {{ team.op[8:10] }}/{{ team.op[5:7] }} {{ team.op[11:16] }}{% endif %}</span>{% endif %}</td>
         <td class="stil wikkel">{{ team.spelers }}
           {% if team.zonder_account %}<span class="pil pil-wacht" title="Deze speler heeft zijn account nog niet opgeëist. Hij doet dat door zich te registreren met exact dezelfde naam.">{{ team.zonder_account|join(', ') }}: nog geen account</span>{% endif %}</td>
