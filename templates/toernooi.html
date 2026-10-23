@@ -38,9 +38,9 @@
 {% if mijn_coupon %}
 <a class="kaart lopend-kaart coupon-tip" href="{{ url_for('speler_profiel', speler_id=session['speler_id']) }}#coupons">
   <span class="lopend-tekst">
-    <span class="lopend-label">Je hebt een coupon</span>
-    <strong>2 gratis pintjes</strong>
-    <small>Toon de code op je profiel aan de bar.</small>
+    <span class="lopend-label">Je hebt {{ mijn_coupon }} coupon{{ 's' if mijn_coupon != 1 }}</span>
+    <strong>{{ mijn_coupon * 2 }} gratis pintjes</strong>
+    <small>Toon de code{{ 's' if mijn_coupon != 1 }} op je profiel aan de bar.</small>
   </span>
   <span class="lopend-actie">Toon coupon ›</span>
 </a>
@@ -56,14 +56,6 @@
 </div>
 {% endif %}
 
-{% if t['status'] == 'opzet' %}
-<div class="kaart inschrijf-kaart">
-  <h2 class="inschrijf-titel">De inschrijvingen zijn open</h2>
-  <p>Schrijf je team in voor {{ t['date']|dag }}. Eén van jullie twee volstaat.
-     Zodra er geloot is, verschijnt hier het volledige programma.</p>
-  <a class="knop primair groot" href="{{ url_for('toernooi_inschrijven', toernooi_id=t['id']) }}">Schrijf je in</a>
-</div>
-{% else %}
 
 <div class="tabs" data-tabs>
   {% if session.get('speler_id') %}
@@ -151,8 +143,7 @@
           <td class="kol-rang">{{ r.positie }}</td>
           <td class="wikkel">
             <span class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=r.team_id) }}">
-              {%- if r.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=r.avatar) }}" alt="">
-              {%- else %}<span class="avatar-mini avatar-fallback">{{ r.naam[0]|upper }}</span>{% endif %} {{ r.naam }}</a></span>
+              <img class="avatar-mini dop-img" src="{{ dop_team(r.team_id) }}" alt="" loading="lazy"> {{ r.naam }}</a></span>
             <div class="klein-tekst stil">{{ r.spelers }}</div>
             {% if r.onbeslist %}<span class="pil pil-rood">shootout nodig</span>
             {% elif r.gedeeld %}<span class="pil">gedeelde plaats</span>{% endif %}
@@ -371,8 +362,7 @@
         {% for team in teams %}
         <tr>
           <td><span class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=team.id) }}">
-            {%- if team.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=team.avatar) }}" alt="">
-            {%- else %}<span class="avatar-mini avatar-fallback">{{ team.naam[0]|upper }}</span>{% endif %} {{ team.naam }}</a></span></td>
+            <img class="avatar-mini dop-img" src="{{ dop_team(team.id) }}" alt="" loading="lazy"> {{ team.naam }}</a></span></td>
           <td class="stil wikkel">{{ team.spelers }}</td>
           {% if potten_aantal > 1 %}<td class="verbergen-mobiel"><span class="pot-pil pot-{{ team.pot }}">Pot {{ team.pot }}</span></td>{% endif %}
           <td class="kol-elo"><span class="elo-badge">{{ team.elo|elo }}</span></td>
@@ -383,5 +373,4 @@
   </div>
 </div>
 
-{% endif %}
 {% endblock %}

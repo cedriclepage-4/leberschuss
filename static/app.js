@@ -39,6 +39,7 @@
                     document.referrer !== window.location.href;
     if (!vanBinnen || window.history.length <= 1) return;
     knop.addEventListener("click", function (e) {
+      if (e.defaultPrevented) return;      // iemand anders regelt het al (bv. de dop-editor)
       e.preventDefault();
       window.history.back();
     });

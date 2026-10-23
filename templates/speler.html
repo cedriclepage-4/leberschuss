@@ -1,28 +1,59 @@
 {% extends "base.html" %}
 {% block titel %}{{ speler['naam'] }}{% endblock %}
-{% block inhoud %}
-
-<section class="held profiel-kop">
-  <div class="profiel-rij">
-    {% if speler['avatar'] %}<img class="avatar-groot" src="{{ url_for('media', bestand=speler['avatar']) }}" alt="">
-    {% else %}<span class="avatar-groot avatar-fallback">{{ speler['naam'][0]|upper }}</span>{% endif %}
-    <div>
-      <h1>{{ speler['naam'] }}
+{% block boven %}
+{# ------------------------------------------------------------------
+   Profielkop: links de kroonkurk van de speler die in 3D zweeft (sleep om
+   te draaien), rechts naam, rang en de belangrijkste cijfers. De gloed
+   achter de dop heeft de kleur van de dop.
+   ------------------------------------------------------------------ #}
+<section class="profiel-held" style="--dopkleur: {{ kroonkurk_hex(speler['dop']) }}">
+  <div class="wrap profiel-raster">
+    <div class="profiel-dop">
+      <div class="dop3d" data-dop="{{ dop_speler(speler['id']) }}" role="img"
+           aria-label="Kroonkurk van {{ speler['naam'] }}"></div>
+      {% if is_eigen %}
+      {% if bewaarde_doppen %}
+      {# Snel wisselen tussen je bewaarde ontwerpen: één tik. #}
+      <div class="dop-wissel" role="group" aria-label="Wissel van kroonkurk">
+        {% for b in bewaarde_doppen %}
+        <form method="post" action="{{ url_for('dop_kiezen', plek=b.plek) }}">
+          <button type="submit" class="dop-wissel-knop {{ 'actief' if b.actief }}" {{ 'disabled' if b.actief }}
+                  aria-label="Ontwerp {{ b.plek + 1 }}{{ ' (nu gekozen)' if b.actief }}">{{ b.svg }}</button>
+        </form>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <a class="knop klein dop-aanpas" href="{{ url_for('dop_ontwerpen') }}">Kroonkurk aanpassen</a>
+      {% endif %}
+    </div>
+    <div class="profiel-info">
+      <p class="profiel-boventitel"><span class="speler-id" title="Spelersnummer, handig om elkaar terug te vinden">#{{ speler['id'] }}</span>
+        Lid sinds {{ speler['created_at']|datum }}</p>
+      <h1>{{ speler['naam'] }}</h1>
+      <div class="profiel-pillen">
         {% if rang %}<span class="rang-pil groot" data-kleur="{{ rang['color'] }}">{{ rang['name'] }}</span>{% endif %}
+        {% if is_eigen %}<span class="pil">dit ben jij</span>{% endif %}
         {% if not speler['active'] %}<span class="pil">inactief</span>{% endif %}
-      </h1>
-      <p><span class="speler-id" title="Spelersnummer, handig om elkaar terug te vinden">#{{ speler['id'] }}</span>
-         {% if speler['nickname'] %}Accountnaam: {{ speler['name'] }} · {% endif %}{% if is_eigen %}Dit is jouw profiel. {% endif %}Lid sinds {{ speler['created_at']|datum }}.</p>
+      </div>
+      {% if speler['nickname'] %}<p class="profiel-sub">Accountnaam: {{ speler['name'] }}</p>{% endif %}
+      <div class="profiel-tegels">
+        <div class="tegel aura"><strong>{{ speler['elo']|elo }}</strong><span>Aura</span></div>
+        {% if plaats %}<div class="tegel"><strong>#{{ plaats }}</strong><span>van {{ aantal_in_klassement }} in het klassement</span></div>{% endif %}
+        <div class="tegel"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
+        <div class="tegel"><strong>{{ stats['winst'] }}<small> – </small>{{ verlies }}</strong><span>gewonnen – verloren</span></div>
+        {% if pct is not none %}<div class="tegel"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
+      </div>
+      {% if vorm %}
+      <div class="profiel-vorm" title="De laatste {{ vorm|length }} wedstrijden, de recentste rechts">
+        <span>Vorm</span>{% for w in vorm %}<i class="{{ 'w' if w else 'v' }}">{{ 'W' if w else 'V' }}</i>{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
-  <div class="held-cijfers">
-    <div class="cijfer"><strong>{{ speler['elo']|elo }}</strong><span>permanente Aura</span></div>
-    <div class="cijfer"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
-    <div class="cijfer"><strong>{{ stats['winst'] }}</strong><span>gewonnen</span></div>
-    <div class="cijfer"><strong>{{ verlies }}</strong><span>verloren</span></div>
-    {% if pct is not none %}<div class="cijfer"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
-  </div>
 </section>
+{% endblock %}
+
+{% block inhoud %}
 
 {% if coupons %}
 {# ------------------------------------------------------------ coupons -- #}
@@ -30,12 +61,12 @@
 <div class="coupon-lijst">
   {% for c in coupons %}
   {% if c.staat == 'geldig' %}
-  <div class="kaart coupon-kaart" data-coupon="{{ url_for('coupon_staat_json', toernooi_id=c.toernooi_id, team_id=c.team_id, sleutel=c.sleutel) }}">
+  <div class="kaart coupon-kaart" data-coupon="{{ url_for('coupon_staat_json', toernooi_id=c.toernooi_id, vriend_team_id=c.vriend_team_id, houder_id=c.houder_id, sleutel=c.sleutel) }}">
     <div class="coupon-tekst">
       <p class="coupon-label">{{ c.toernooi['name'] }}</p>
       <p class="coupon-titel">2 gratis pintjes</p>
-      <p class="coupon-uitleg">Voor de eerste 2 pintjes van “{{ c.team }}”, één voor elk van jullie. Toon deze code
-         aan de bar: de organisatie scant hem en dan is hij ingelost, ook voor je ploegmaat.</p>
+      <p class="coupon-uitleg">Omdat “{{ c.vriend }}” via jouw link meedoet. Toon deze code aan de bar:
+         de organisatie scant hem en dan is hij ingelost.</p>
     </div>
     <div class="coupon-qr">{{ c.qr }}</div>
     <div class="coupon-ingelost" hidden>
@@ -46,10 +77,12 @@
   {% else %}
   <div class="kaart coupon-kaart coupon-wacht">
     <div class="coupon-tekst">
-      <p class="coupon-label">{{ c.toernooi['name'] }} · na de loting</p>
+      <p class="coupon-label">{{ c.toernooi['name'] }} · {{ 'op de wachtlijst' if c.wachtlijst else 'na de loting' }}</p>
       <p class="coupon-titel">2 gratis pintjes, bijna</p>
-      <p class="coupon-uitleg">Er schreef zich een team in via de link van {{ c.uitnodiger or 'jullie team' }}.
-         Blijft het ingeschreven tot de loting, dan verschijnt hier jullie coupon.</p>
+      <p class="coupon-uitleg">“{{ c.vriend }}” schreef zich in via jouw link.
+         {%- if c.wachtlijst %} Ze staan nog op de wachtlijst; schuiven ze op, dan verschijnt hier na
+         de loting je coupon.
+         {%- else %} Zodra er geloot is, verschijnt hier je coupon.{% endif %}</p>
     </div>
   </div>
   {% endif %}
@@ -172,8 +205,8 @@
       {% for t in teams %}
       <tr>
         <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=t.id) }}">
-          {%- if t.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=t.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ t.naam[0]|upper }}</span>{% endif %} {{ t.naam }}</a></td>
-        <td><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=t.partner_id) }}">{{ t.partner }}</a></td>
+          <img class="avatar-mini dop-img" src="{{ dop_team(t.id) }}" alt=""> {{ t.naam }}</a></td>
+        <td><a class="profiel-link met-avatar" href="{{ url_for('speler_profiel', speler_id=t.partner_id) }}"><img class="avatar-mini dop-img" src="{{ dop_speler(t.partner_id) }}" alt=""> {{ t.partner }}</a></td>
         <td class="kol-elo"><span class="elo-badge">{{ t.elo|elo }}</span></td>
         <td class="kol-num">{{ t.gespeeld }}</td>
         <td class="kol-num">{{ t.winst }}</td>
@@ -195,7 +228,7 @@
     {% for o in onvolledig %}
     <li>
       <a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=o.id) }}">
-        {%- if o.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=o.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ o.naam[0]|upper }}</span>{% endif %} {{ o.naam }}</a>
+        <img class="avatar-mini dop-img" src="{{ dop_team(o.id) }}" alt=""> {{ o.naam }}</a>
       <span class="pil">onvolledig</span>
       {% if is_eigen %}
         {% if o.genodigde %}<span class="stil klein-tekst">uitnodiging verstuurd naar {{ o.genodigde }}</span>
@@ -240,15 +273,15 @@
 </div>
 <div class="kaart">
   <h3>Profielinstellingen</h3>
-  <form method="post" action="{{ url_for('profiel_instellingen') }}" enctype="multipart/form-data">
+  <form method="post" action="{{ url_for('profiel_instellingen') }}">
     <label>Je naam
       <input type="text" value="{{ speler['name'] }}" disabled></label>
     <p class="stil klein-tekst velduitleg">Je echte naam hoort bij je account en ligt vast.
        Daarmee log je ook in. Klopt er iets niet? Vraag het aan een organisator.</p>
     <label>Bijnaam (zo verschijn je overal op de site; leeg = je echte naam)
       <input type="text" name="bijnaam" maxlength="30" value="{{ speler['nickname'] }}"></label>
-    <label>Profielfoto (png, jpg, webp of gif, max. 3 MB)
-      <input type="file" name="avatar" accept=".png,.jpg,.jpeg,.webp,.gif"></label>
+    <p class="stil klein-tekst velduitleg">Je avatar is je kroonkurk.
+       <a href="{{ url_for('dop_ontwerpen') }}">Pas hem hier aan.</a></p>
     <button type="submit" class="knop primair">Opslaan</button>
   </form>
 </div>
@@ -274,8 +307,8 @@
       <tr>
         <td>{{ h.game['played_at']|datum }}</td>
         <td>{% if h.game['tournament_id'] %}<span class="pil pil-toernooi">{{ h.game|fase }}</span>{% else %}<span class="pil">league</span>{% endif %}</td>
-        <td class="naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=h.eigen_team) }}">{{ namen[h.eigen_team] }}</a></td>
-        <td class="naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=h.tegen_team) }}">{{ namen[h.tegen_team] }}</a></td>
+        <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=h.eigen_team) }}"><img class="avatar-mini dop-img" src="{{ dop_team(h.eigen_team) }}" alt="" loading="lazy"> {{ namen[h.eigen_team] }}</a></td>
+        <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=h.tegen_team) }}"><img class="avatar-mini dop-img" src="{{ dop_team(h.tegen_team) }}" alt="" loading="lazy"> {{ namen[h.tegen_team] }}</a></td>
         <td>{% if h.gewonnen %}<span class="pil pil-actief">gewonnen</span>{% else %}<span class="pil pil-rood">verloren</span>{% endif %}</td>
         <td class="kol-num">
           {% if h.delta is not none %}
@@ -291,4 +324,22 @@
 <div class="kaart leeg">Nog geen wedstrijden gespeeld.</div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('statisch', bestand='dop3d.js') }}"></script>
+{% if is_eigen %}
+<script>
+  /* Kom je met de terugknop terug van de dop-editor, dan toont de browser vaak
+     een bewaarde kopie van deze pagina (met je oude kroonkurk en ontwerpen).
+     Dan laden we haar opnieuw, zodat je ziet wat je net veranderde. */
+  window.addEventListener("pageshow", function (e) {
+    var gewijzigd = false;
+    try { gewijzigd = !!sessionStorage.getItem("dop-gewijzigd"); sessionStorage.removeItem("dop-gewijzigd"); } catch (x) {}
+    var nav = (window.performance && performance.getEntriesByType) ? performance.getEntriesByType("navigation")[0] : null;
+    var terug = e.persisted || (nav && nav.type === "back_forward");
+    if (terug && (gewijzigd || e.persisted)) location.reload();
+  });
+</script>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+{% block titel %}Je kroonkurk{% endblock %}
+{% block body_klasse %}dop-pagina{% endblock %}
+
+{% block boven %}
+{# -----------------------------------------------------------------------
+   De editor voor je kroonkurk. Bovenaan zweeft de dop in 3D; daaronder een
+   draaiknop per onderdeel. Alles gebeurt in de browser (static/dop.js);
+   pas bij "Bewaren" gaat het ontwerp naar de server.
+   ----------------------------------------------------------------------- #}
+<section class="profiel-held dop-held" style="--dopkleur: {{ kroonkurk_hex(ontwerp) }}">
+  <div class="wrap dop-held-binnen">
+    <div class="dop3d groot" data-dop-editor aria-label="Voorbeeld van je kroonkurk"></div>
+    <div class="dop-held-tekst">
+      <p class="dop-held-naam">{{ speler['naam'] }}</p>
+      <div class="dop-snel">
+        <button type="button" class="knop klein" data-willekeurig>🎲 Verras me</button>
+        <button type="button" class="knop klein" data-basis>Basisdop</button>
+      </div>
+      {# Er is geen knop "Bewaren": elke wijziging wordt meteen bewaard. Deze
+         regel verschijnt enkel als dat eens niet lukt (geen verbinding). #}
+      <p class="dop-status" data-status role="status" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block inhoud %}
+<div class="dop-editor">
+  {# Tot drie bewaarde ontwerpen. Tik om er een te laden; ze worden meteen
+     bewaard, los van de knop "Bewaren" onderaan. #}
+  <div class="kaart dop-bewaard" data-bewaard>
+    <div class="dop-bewaard-kop">
+      <strong>Mijn ontwerpen</strong>
+      <span class="stil klein-tekst" data-bewaard-uitleg></span>
+    </div>
+    <div class="dop-sloten" data-sloten></div>
+    <div class="dop-bewaard-acties">
+      <button type="button" class="knop klein" data-bewaar-ontwerp>＋ Dit ontwerp bewaren</button>
+    </div>
+  </div>
+
+  <div class="kaart dop-knoppen" data-knoppen></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('statisch', bestand='dop.js') }}"></script>
+<script src="{{ url_for('statisch', bestand='dop3d.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  var ontwerp = Dop.normaliseer({{ ontwerp|tojson }});
+  var basis = Dop.normaliseer({{ basis|tojson }});
+
+  /* Eén draaiknop per onderdeel. "toon" bepaalt of een knop er nu toe doet
+     (een patroonkleur zonder patroon heeft geen zin). */
+  var ZELFDE = ["zelfde", null, "Zoals de dop"];
+  var KNOPPEN = [
+    { k: "kleur", label: "Kleur", soort: "kleur", lijst: Dop.KLEUREN },
+    { k: "rand", label: "Rand", soort: "vorm", lijst: Dop.RANDEN },
+    { k: "randkleur", label: "Randkleur", soort: "kleur", lijst: [ZELFDE].concat(Dop.KLEUREN) },
+    { k: "patroon", label: "Patroon", soort: "vorm", lijst: Dop.PATRONEN },
+    { k: "patroonkleur", label: "Patroonkleur", soort: "kleur", lijst: Dop.KLEUREN,
+      toon: function (o) { return o.patroon !== "geen"; } },
+    { k: "embleem", label: "Embleem", soort: "vorm", lijst: Dop.EMBLEMEN },
+    { k: "embleemkleur", label: "Embleemkleur", soort: "kleur", lijst: Dop.KLEUREN,
+      toon: function (o) { return o.embleem !== "geen"; } },
+    { k: "nummer", label: "Nummer", soort: "getal",
+      toon: function (o) { return o.embleem === "nummer"; } },
+    { k: "afwerking", label: "Afwerking", soort: "vorm", lijst: Dop.AFWERKINGEN }
+  ];
+
+  /* Laat aan je profiel weten dat er iets veranderde: gaat de browser terug
+     naar een bewaarde kopie van die pagina, dan laadt ze zich opnieuw. */
+  function meldWijziging() { try { sessionStorage.setItem("dop-gewijzigd", "1"); } catch (x) {} }
+
+  var houder = document.querySelector("[data-knoppen]");
+  var voorbeeld = Dop3D(document.querySelector("[data-dop-editor]"));
+  var held = document.querySelector(".dop-held");
+  var teller = 0;
+
+  function naam(e) { return e[e.length - 1]; }
+  function adres(o) { return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(Dop.svg(o, "v")); }
+  function kleurVan(knop, sleutel) {
+    if (sleutel === "zelfde") return Dop.hex[ontwerp.kleur];
+    return Dop.hex[sleutel];
+  }
+  function el(tag, klasse, tekst) {
+    var e = document.createElement(tag);
+    if (klasse) e.className = klasse;
+    if (tekst !== undefined) e.textContent = tekst;
+    return e;
+  }
+
+  /* ----------------------------------------------- de knoppen bouwen -- */
+  KNOPPEN.forEach(function (knop) {
+    var rij = el("div", "dop-knop");
+    rij.setAttribute("data-k", knop.k);
+    var label = el("span", "dop-knop-label", knop.label);
+    var terug = el("button", "dop-pijl", "‹");
+    terug.type = "button"; terug.setAttribute("aria-label", knop.label + ": vorige");
+    var verder = el("button", "dop-pijl", "›");
+    verder.type = "button"; verder.setAttribute("aria-label", knop.label + ": volgende");
+    var waarde;
+    if (knop.soort === "getal") {
+      waarde = el("input", "dop-waarde dop-getal");
+      waarde.type = "number"; waarde.min = 0; waarde.max = 99; waarde.inputMode = "numeric";
+      waarde.setAttribute("aria-label", "Nummer");
+      waarde.addEventListener("input", function () {
+        var n = parseInt(waarde.value, 10);
+        if (!isNaN(n) && n >= 0 && n <= 99) { ontwerp.nummer = n; ververs(true); }
+      });
+    } else {
+      waarde = el("button", "dop-waarde");
+      waarde.type = "button";
+      waarde.setAttribute("aria-expanded", "false");
+      waarde.addEventListener("click", function () { klap(knop, rij); });
+    }
+    terug.addEventListener("click", function () { stap(knop, -1); });
+    verder.addEventListener("click", function () { stap(knop, 1); });
+    var bediening = el("div", "dop-bediening");
+    bediening.appendChild(terug); bediening.appendChild(waarde); bediening.appendChild(verder);
+    rij.appendChild(label); rij.appendChild(bediening);
+    var keuzes = el("div", "dop-keuzes");
+    keuzes.hidden = true;
+    rij.appendChild(keuzes);
+    houder.appendChild(rij);
+    knop.rij = rij; knop.waarde = waarde; knop.keuzes = keuzes;
+  });
+
+  /* Een draaiknop een stap verder of terug (rond: na de laatste de eerste). */
+  function stap(knop, richting) {
+    if (knop.soort === "getal") {
+      ontwerp.nummer = (ontwerp.nummer + richting + 100) % 100;
+    } else {
+      var lijst = knop.lijst, i = 0;
+      for (var j = 0; j < lijst.length; j++) if (lijst[j][0] === ontwerp[knop.k]) i = j;
+      ontwerp[knop.k] = lijst[(i + richting + lijst.length) % lijst.length][0];
+    }
+    ververs();
+  }
+
+  /* Tik op de waarde: alle keuzes van dat onderdeel open- of dichtklappen. */
+  function klap(knop, rij) {
+    var open = knop.keuzes.hidden;
+    KNOPPEN.forEach(function (k) {
+      if (k.keuzes) { k.keuzes.hidden = true; if (k.waarde.setAttribute) k.waarde.setAttribute("aria-expanded", "false"); }
+    });
+    if (open) {
+      knop.keuzes.hidden = false;
+      knop.waarde.setAttribute("aria-expanded", "true");
+      vulKeuzes(knop);
+    }
+  }
+
+  function vulKeuzes(knop) {
+    var doos = knop.keuzes;
+    doos.innerHTML = "";
+    doos.className = "dop-keuzes " + (knop.soort === "kleur" ? "als-kleuren" : "als-doppen");
+    knop.lijst.forEach(function (e) {
+      var b = el("button", "dop-keuze");
+      b.type = "button";
+      b.title = naam(e);
+      b.setAttribute("aria-label", naam(e));
+      b.setAttribute("aria-pressed", ontwerp[knop.k] === e[0] ? "true" : "false");
+      if (knop.soort === "kleur") {
+        var stip = el("span", "dop-stip" + (e[0] === "zelfde" ? " zelfde" : ""));
+        stip.style.background = kleurVan(knop, e[0]);
+        b.appendChild(stip);
+      } else {
+        var proef = {};
+        for (var s in ontwerp) proef[s] = ontwerp[s];
+        proef[knop.k] = e[0];
+        b.innerHTML = Dop.svg(proef, "k" + (teller++) + "_");
+        b.appendChild(el("span", "dop-keuze-naam", naam(e)));
+      }
+      b.addEventListener("click", function () { ontwerp[knop.k] = e[0]; ververs(); });
+      doos.appendChild(b);
+    });
+  }
+
+  /* -------------------------------------------------- bijwerken -- */
+  function ververs(vanuitGetal) {
+    voorbeeld.zet(adres(ontwerp));
+    if (typeof planBewaren === "function" && statusTekst) planBewaren(vanuitGetal ? 400 : 0);
+    if (typeof tekenSloten === "function" && sloten) tekenSloten();
+    held.style.setProperty("--dopkleur", Dop.hex[ontwerp.kleur]);
+    KNOPPEN.forEach(function (knop) {
+      var zichtbaar = !knop.toon || knop.toon(ontwerp);
+      knop.rij.hidden = !zichtbaar;
+      if (knop.soort === "getal") {
+        if (!vanuitGetal) knop.waarde.value = ontwerp.nummer;
+        return;
+      }
+      var e = knop.lijst.filter(function (x) { return x[0] === ontwerp[knop.k]; })[0];
+      knop.waarde.innerHTML = "";
+      if (knop.soort === "kleur") {
+        var stip = el("span", "dop-stip klein" + (e[0] === "zelfde" ? " zelfde" : ""));
+        stip.style.background = kleurVan(knop, e[0]);
+        knop.waarde.appendChild(stip);
+      }
+      knop.waarde.appendChild(el("span", "", naam(e)));
+      if (!knop.keuzes.hidden) vulKeuzes(knop);
+      if (!zichtbaar) knop.keuzes.hidden = true;
+    });
+  }
+
+  /* ------------------------------------------- bewaarde ontwerpen -- */
+  var bewaard = {{ bewaard|tojson }}.map(Dop.normaliseer);
+  var MAX = {{ max_bewaard }};
+  var vervangen = false;           // alle plekken vol: tik op een plek om te vervangen
+  var sloten = document.querySelector("[data-sloten]");
+  var uitleg = document.querySelector("[data-bewaard-uitleg]");
+  var bewaarKnop = document.querySelector("[data-bewaar-ontwerp]");
+  var STANDAARD_UITLEG = "Tik op een ontwerp om het te laden";
+
+  function zeg(tekst, fout) {
+    uitleg.textContent = tekst;
+    uitleg.classList.toggle("fout-tekst", !!fout);
+  }
+
+  function opslaan(nieuw, melding) {
+    var oud = bewaard;
+    bewaard = nieuw; tekenSloten();
+    fetch("{{ url_for('dop_ontwerpen_bewaren') }}", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "ontwerpen=" + encodeURIComponent(JSON.stringify(nieuw))
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || !d.ok) throw new Error();
+      bewaard = d.ontwerpen.map(Dop.normaliseer); tekenSloten();
+      meldWijziging();
+      if (melding) zeg(melding);
+    }).catch(function () {
+      bewaard = oud; tekenSloten();
+      zeg("Niet bewaard: geen verbinding? Probeer opnieuw.", true);
+    });
+  }
+
+  function tekenSloten() {
+    sloten.innerHTML = "";
+    sloten.classList.toggle("vervangen", vervangen);
+    for (var i = 0; i < MAX; i++) {
+      (function (i) {
+        var o = bewaard[i];
+        var slot = el("div", "dop-slot" + (o ? " gevuld" : " leeg"));
+        var knop = el("button", "dop-slot-knop");
+        knop.type = "button";
+        if (o) {
+          var actief = Dop.zelfde(o, ontwerp);
+          if (actief) slot.classList.add("actief");
+          knop.innerHTML = Dop.svg(o, "s" + i + "_" + (teller++) + "_");
+          knop.setAttribute("aria-label", "Ontwerp " + (i + 1) + (actief ? " (nu gekozen)" : ""));
+          knop.addEventListener("click", function () {
+            if (vervangen) {
+              var nieuw = bewaard.slice(); nieuw[i] = Dop.normaliseer(ontwerp);
+              vervangen = false; bewaarKnop.textContent = "＋ Dit ontwerp bewaren";
+              opslaan(nieuw, "Ontwerp " + (i + 1) + " vervangen.");
+            } else {
+              ontwerp = Dop.normaliseer(o); ververs();
+              zeg("Ontwerp " + (i + 1) + " geladen.");
+            }
+          });
+          var weg = el("button", "dop-slot-weg", "×");
+          weg.type = "button";
+          weg.setAttribute("aria-label", "Ontwerp " + (i + 1) + " verwijderen");
+          weg.addEventListener("click", function () {
+            if (!window.confirm("Ontwerp " + (i + 1) + " verwijderen?")) return;
+            var nieuw = bewaard.slice(); nieuw.splice(i, 1);
+            opslaan(nieuw, "Ontwerp verwijderd.");
+          });
+          slot.appendChild(knop); slot.appendChild(weg);
+        } else {
+          knop.appendChild(el("span", "dop-slot-leeg", "Lege plek"));
+          knop.setAttribute("aria-label", "Lege plek: bewaar hier je huidige ontwerp");
+          knop.addEventListener("click", bewaarHuidig);
+          slot.appendChild(knop);
+        }
+        slot.appendChild(el("span", "dop-slot-nummer", String(i + 1)));
+        sloten.appendChild(slot);
+      })(i);
+    }
+    var alBewaard = bewaard.some(function (o) { return Dop.zelfde(o, ontwerp); });
+    bewaarKnop.disabled = alBewaard && !vervangen;
+    if (!vervangen) bewaarKnop.textContent = alBewaard ? "✓ Dit ontwerp is bewaard" : "＋ Dit ontwerp bewaren";
+  }
+
+  function bewaarHuidig() {
+    if (vervangen) {                                  // tweede tik: annuleren
+      vervangen = false; zeg(STANDAARD_UITLEG); tekenSloten(); return;
+    }
+    if (bewaard.some(function (o) { return Dop.zelfde(o, ontwerp); })) return;
+    if (bewaard.length < MAX) {
+      opslaan(bewaard.concat([Dop.normaliseer(ontwerp)]), "Bewaard als ontwerp " + (bewaard.length + 1) + ".");
+      return;
+    }
+    vervangen = true;
+    bewaarKnop.textContent = "Annuleren";
+    zeg("Alle " + MAX + " plekken zijn vol: tik op het ontwerp dat je wil vervangen.");
+    tekenSloten();
+  }
+  bewaarKnop.addEventListener("click", bewaarHuidig);
+  zeg(STANDAARD_UITLEG);
+
+  document.querySelector("[data-willekeurig]").addEventListener("click", function () {
+    ontwerp = Dop.normaliseer(Dop.willekeurig()); ververs();
+  });
+  document.querySelector("[data-basis]").addEventListener("click", function () {
+    ontwerp = Dop.normaliseer(basis); ververs();
+  });
+  /* ------------------------------------------- automatisch bewaren --
+     Elke wijziging gaat meteen naar de server (enkel bij het typen van een
+     nummer wachten we even tot je klaar bent). Is er nog een verzoek onderweg,
+     dan wacht de volgende wijziging daarop en gaat enkel de laatste stand mee:
+     snel tikken geeft dus geen stortvloed. Het verzoek is "keepalive": het
+     loopt door, ook als je de pagina net daarna verlaat. Tik je op een link terwijl er nog iets moet bewaard
+     worden, dan bewaren we eerst en gaan we pas daarna verder. */
+  var BEWAAR_ADRES = "{{ url_for('dop_ontwerpen') }}";
+  var statusTekst = document.querySelector("[data-status]");
+  var laatstBewaard = JSON.stringify(ontwerp), klok = null, onderweg = null;
+
+  function status(tekst, fout) {
+    statusTekst.textContent = tekst;
+    statusTekst.classList.toggle("fout", !!fout);
+  }
+  function wachtend() { return JSON.stringify(ontwerp) !== laatstBewaard; }
+  function planBewaren(pauze) {
+    if (!wachtend()) return;
+    clearTimeout(klok);
+    if (!pauze) { bewaarNu().catch(function () {}); return; }
+    klok = setTimeout(function () { bewaarNu().catch(function () {}); }, pauze);
+  }
+  /* Bewaart wat er nu staat; geeft een belofte die klaar is als het bewaard is. */
+  function bewaarNu() {
+    clearTimeout(klok); klok = null;
+    if (onderweg) return onderweg.catch(function () {}).then(function () { return wachtend() ? bewaarNu() : null; });
+    var tekst = JSON.stringify(ontwerp);
+    if (tekst === laatstBewaard) { status(""); return Promise.resolve(); }
+    onderweg = fetch(BEWAAR_ADRES, {
+      method: "POST", credentials: "same-origin", keepalive: true,
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+      body: "dop=" + encodeURIComponent(tekst)
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      onderweg = null;
+      if (!d || !d.ok) throw new Error();
+      laatstBewaard = tekst;
+      meldWijziging();
+      if (wachtend()) planBewaren(0); else status("");
+    }).catch(function () {
+      onderweg = null;
+      status("Niet bewaard: geen verbinding. Nieuwe poging…", true);
+      klok = setTimeout(function () { bewaarNu().catch(function () {}); }, 4000);
+      throw new Error("niet bewaard");
+    });
+    return onderweg;
+  }
+  /* Een link op deze pagina terwijl er nog iets wacht: eerst bewaren. (We
+     luisteren vóór de link zelf, ook vóór de terugknop van app.js, en laten
+     die pas daarna zijn werk doen.) */
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest("a[href]");
+    if (!a || !(wachtend() || onderweg) || e.defaultPrevented || e.button > 0 ||
+        e.metaKey || e.ctrlKey || e.shiftKey || a.target === "_blank") return;
+    e.preventDefault();
+    e.stopPropagation();
+    var terugInGeschiedenis = a.hasAttribute("data-terug") && document.referrer &&
+      document.referrer.indexOf(location.origin) === 0 && history.length > 1;
+    var verder = function () { if (terugInGeschiedenis) history.back(); else location.href = a.href; };
+    Promise.race([bewaarNu().catch(function () {}), new Promise(function (r) { setTimeout(r, 2500); })])
+      .then(verder, verder);
+  }, true);
+  /* Laatste redmiddel als de pagina zomaar sluit (tabblad dicht, terugknop). */
+  function spoed() {
+    if (!wachtend() || !navigator.sendBeacon) return;
+    var data = new FormData();
+    data.append("dop", JSON.stringify(ontwerp));
+    meldWijziging();
+    navigator.sendBeacon(BEWAAR_ADRES, data);
+  }
+  window.addEventListener("pagehide", spoed);
+  document.addEventListener("visibilitychange", function () { if (document.hidden && wachtend()) bewaarNu().catch(function () {}); });
+
+  ververs();
+})();
+</script>
+{% endblock %}

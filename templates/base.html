@@ -6,7 +6,8 @@
   <meta name="theme-color" content="#0f172a">
   <meta name="mobile-web-app-capable" content="yes">
   <title>{% block titel %}Leberschuss Tonzent{% endblock %} · Leberschuss Tonzent</title>
-  <link rel="stylesheet" href="{{ url_for('statisch', bestand='style.css') }}">
+  <link rel="stylesheet" id="hoofdstijl" href="{{ url_for('statisch', bestand='style.css') }}">
+  {% include "_css_bewaker.html" %}
   <link rel="icon" href="{{ url_for('statisch', bestand=logo_bestand) }}">
   {# installeerbaar als app op de gsm #}
   <link rel="manifest" href="{{ url_for('manifest') }}">
@@ -178,7 +179,7 @@
         {% if viering.wachtlijst %}<span class="viering-wacht">Je staat {{ viering.wachtlijst }}. Schrijft er iemand uit, dan schuif je vanzelf op.</span>
         {% else %}<span class="viering-wacht">Tot dan! Je ploegmaat ziet de inschrijving ook op zijn profiel.</span>{% endif %}
       </p>
-      <p class="viering-pintjes">Nodig een ander team uit en krijg jullie eerste 2 pintjes gratis</p>
+      <p class="viering-pintjes">Nodig andere teams uit: 2 gratis pintjes per team</p>
       <p class="viering-sluit">Tik om verder te gaan</p>
     </div>
   </div>

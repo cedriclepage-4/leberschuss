@@ -41,15 +41,35 @@ self.addEventListener("fetch", (e) => {
   const isVastBestand = new URL(verzoek.url).pathname.startsWith("/static/");
 
   if (isVastBestand) {
-    // Cache first: deze bestanden veranderen zelden.
+    // Cache first: deze bestanden veranderen zelden (en hebben een versiecode
+    // in hun adres). Lukt het netwerk niet, dan liever de vorige versie dan
+    // niets: zonder stijl valt de hele pagina uit elkaar.
     e.respondWith(
       caches.match(verzoek).then((gevonden) =>
         gevonden || fetch(verzoek).then((antwoord) => {
           const kopie = antwoord.clone();
           if (antwoord.ok) caches.open(VERSIE).then((c) => c.put(verzoek, kopie));
           return antwoord;
-        })
+        }).catch(() =>
+          caches.match(verzoek, { ignoreSearch: true }).then((oud) => oud || Response.error())
+        )
       )
+    );
+    return;
+  }
+
+  // Coupons: NOOIT uit de cache. Anders kan een herhaalde scan zonder netwerk
+  // een oud "Geldig!"-scherm tonen en worden de pintjes twee keer gegeven.
+  if (new URL(verzoek.url).pathname.startsWith("/coupon/")) {
+    e.respondWith(
+      fetch(verzoek).catch(() => new Response(
+        '<!DOCTYPE html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<body style="margin:0;font-family:sans-serif;background:#b91c1c;color:#fff;display:flex;' +
+        'min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px">' +
+        '<div><h1 style="font-size:2.4rem;margin:0 0 12px">Geen verbinding</h1>' +
+        '<p style="font-size:1.15rem;max-width:26rem">Deze coupon is <strong>NIET</strong> ingelost. ' +
+        'Geef nog geen pintjes: scan opnieuw zodra er weer internet is.</p></div>',
+        { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }))
     );
     return;
   }

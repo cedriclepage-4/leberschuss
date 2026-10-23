@@ -1,0 +1,38 @@
+{#- Bewaker voor de stijl. Valt style.css weg (slechte verbinding, de server
+    herstartte net), dan ziet de pagina er "ontbonden" uit: witte achtergrond,
+    reuzegrote logo's. Dit stukje merkt dat, toont intussen een eenvoudige,
+    nette noodstijl, en probeert de stijl tot drie keer opnieuw te laden. -#}
+<style>
+  html.zonder-css body { margin: 0; padding: 14px; background: #f8f6f1; color: #1f2937;
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html.zonder-css body::before { content: "De stijl wordt opnieuw geladen…"; display: block;
+    margin: -14px -14px 14px; padding: 10px 14px; background: #0f172a; color: #fbbf24; font-weight: 700; }
+  html.zonder-css svg, html.zonder-css img { max-width: 3rem !important; max-height: 3rem !important; }
+  html.zonder-css canvas, html.zonder-css .logo3d, html.zonder-css .podium-blok { display: none !important; }
+  html.zonder-css a { color: #b45309; }
+</style>
+<script>
+  (function () {
+    var POGINGEN = 3, poging = 0;
+    function stijlIsEr() {
+      try { return !!getComputedStyle(document.documentElement).getPropertyValue("--stil").trim(); }
+      catch (e) { return true; }
+    }
+    function herstel() {
+      if (stijlIsEr()) { document.documentElement.classList.remove("zonder-css"); return; }
+      document.documentElement.classList.add("zonder-css");
+      if (poging >= POGINGEN) return;
+      poging++;
+      var oud = document.getElementById("hoofdstijl");
+      var nieuw = document.createElement("link");
+      nieuw.rel = "stylesheet"; nieuw.id = "hoofdstijl";
+      nieuw.href = oud.href.split("#")[0] + (oud.href.indexOf("?") === -1 ? "?" : "&") + "opnieuw=" + Date.now();
+      nieuw.onload = function () { if (oud && oud.parentNode) oud.parentNode.removeChild(oud); herstel(); };
+      nieuw.onerror = function () { setTimeout(herstel, 1500 * poging); };
+      oud.parentNode.insertBefore(nieuw, oud.nextSibling);
+    }
+    /* Een script vlak na de stijl-link draait pas als die stijl geladen of
+       mislukt is: we kunnen dus meteen kijken, zonder op de hele pagina te wachten. */
+    herstel();
+  })();
+</script>

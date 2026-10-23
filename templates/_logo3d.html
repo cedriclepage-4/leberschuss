@@ -1,5 +1,6 @@
 {# Het Tonzent-logo als 3D-voorwerp (vis op een ruit). Gedeeld door de
-   thuispagina en de inschrijfpagina; thuis.js laat het kantelen en wiegen. #}
+   thuispagina en de inschrijfpagina; thuis.js laat het kantelen en wiegen,
+   en wie op de vis tikt, aait hem. #}
     <div class="logo3d" aria-hidden="true">
       <div class="logo3d-gloed"></div>
       <div class="logo3d-binnen">
@@ -25,11 +26,15 @@
           <polygon points="52,10 92,50 52,90 12,50" fill="url(#l3d-glans)"/>
         </svg>
         <svg class="laag laag-vis" viewBox="0 0 100 100">
-          <g fill="#ffffff">
-            <path d="M24 50 C 33 39, 52 36.5, 62 43 C 65.5 45.2, 67.5 47.8, 67.5 50 C 67.5 52.2, 65.5 54.8, 62 57 C 52 63.5, 33 61, 24 50 Z"/>
-            <path class="vis-staart" d="M61 50 L 76.5 36.5 C 79.5 34.2, 81 35.2, 79.8 38.2 L 73.2 50 L 79.8 61.8 C 81 64.8, 79.5 65.8, 76.5 63.5 Z"/>
+          {#- Tik op de vis en hij springt en knijpt zijn ogen dicht (thuis.js). -#}
+          <g class="vis-lijf">
+            <g fill="#ffffff">
+              <path d="M24 50 C 33 39, 52 36.5, 62 43 C 65.5 45.2, 67.5 47.8, 67.5 50 C 67.5 52.2, 65.5 54.8, 62 57 C 52 63.5, 33 61, 24 50 Z"/>
+              <path class="vis-staart" d="M61 50 L 76.5 36.5 C 79.5 34.2, 81 35.2, 79.8 38.2 L 73.2 50 L 79.8 61.8 C 81 64.8, 79.5 65.8, 76.5 63.5 Z"/>
+            </g>
+            <circle class="vis-oog" cx="36.5" cy="48.2" r="4.6" fill="#0b0b0b"/>
+            <path class="vis-oog-blij" d="M32 49.6 Q 36.5 43.6 41 49.6"/>
           </g>
-          <circle cx="36.5" cy="48.2" r="4.6" fill="#0b0b0b"/>
         </svg>
       </div>
     </div>

@@ -155,21 +155,20 @@
   <div class="zoekbalk"><input type="search" placeholder="Zoek een speler op naam of nummer…" data-zoek="#spelertabel"></div>
   <div class="tabel-venster">
   <table class="tabel" id="spelertabel">
-    <thead><tr><th class="kol-rang">#</th><th>Naam</th><th>Foto</th><th class="kol-elo">Aura</th><th class="kol-num verbergen-mobiel">Wedstrijden in {{ maand_label }}</th><th>Status</th><th>Acties</th></tr></thead>
+    <thead><tr><th class="kol-rang">#</th><th>Naam</th><th>Kroonkurk</th><th class="kol-elo">Aura</th><th class="kol-num verbergen-mobiel">Wedstrijden in {{ maand_label }}</th><th>Status</th><th>Acties</th></tr></thead>
     <tbody>
       {% for p in spelers %}
       <tr>
         <td class="kol-rang stil zoekbaar">{{ p['id'] }}</td>
         <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('speler_profiel', speler_id=p['id']) }}">
-          {%- if p['avatar'] %}<img class="avatar-mini" src="{{ url_for('media', bestand=p['avatar']) }}" alt="">
-          {%- else %}<span class="avatar-mini avatar-fallback">{{ p['naam'][0]|upper }}</span>{% endif %} {{ p['naam'] }}</a>{% if p['nickname'] %} <span class="stil">({{ p['name'] }})</span>{% endif %}{% if p['ben_ik'] %} <span class="stil">(jij)</span>{% endif %}</td>
+          <img class="avatar-mini dop-img" src="{{ dop_speler(p['id']) }}" alt="" loading="lazy"> {{ p['naam'] }}</a>{% if p['nickname'] %} <span class="stil">({{ p['name'] }})</span>{% endif %}{% if p['ben_ik'] %} <span class="stil">(jij)</span>{% endif %}</td>
         <td>
-          {% if p['avatar'] %}
-          <form method="post" action="{{ url_for('speler_avatar_wissen', speler_id=p['id']) }}"
-                data-confirm="De profielfoto van “{{ p['name'] }}” verwijderen?">
-            <button type="submit" class="knop gevaar klein">Foto wissen</button>
+          {% if p['dop'] %}
+          <form method="post" action="{{ url_for('speler_dop_terugzetten', speler_id=p['id']) }}"
+                data-confirm="De kroonkurk van “{{ p['name'] }}” terugzetten naar de basisdop?">
+            <button type="submit" class="knop klein">Terug naar basis</button>
           </form>
-          {% else %}<span class="stil klein-tekst">geen</span>{% endif %}
+          {% else %}<span class="stil klein-tekst">basisdop</span>{% endif %}
         </td>
         <td class="kol-elo"><span class="elo-badge">{{ p['elo']|elo }}</span></td>
         <td class="kol-num verbergen-mobiel">{{ p['deze_maand'] }}</td>
@@ -288,13 +287,12 @@
   <div class="zoekbalk"><input type="search" placeholder="Zoek een team of een speler…" data-zoek="#teamtabel"></div>
   <div class="tabel-venster">
   <table class="tabel compact" id="teamtabel">
-    <thead><tr><th>Team</th><th class="wikkel">Spelers</th><th>Naam wijzigen</th><th>Foto</th><th class="kol-elo">Aura</th><th>Status</th><th>Verwijderen</th></tr></thead>
+    <thead><tr><th>Team</th><th class="wikkel">Spelers</th><th>Naam wijzigen</th><th class="kol-elo">Aura</th><th>Status</th><th>Verwijderen</th></tr></thead>
     <tbody>
       {% for t in teams %}
       <tr>
         <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=t.id) }}">
-          {%- if t.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=t.avatar) }}" alt="">
-          {%- else %}<span class="avatar-mini avatar-fallback">{{ t.naam[0]|upper }}</span>{% endif %} {{ t.naam }}</a></td>
+          <img class="avatar-mini dop-img" src="{{ dop_team(t.id) }}" alt="" loading="lazy"> {{ t.naam }}</a></td>
         <td class="stil wikkel zoekbaar">{{ t.leden }}</td>
         <td>
           <form method="post" action="{{ url_for('team_bewerken', team_id=t.id) }}" class="rij-form nauw">
@@ -303,14 +301,6 @@
                    aria-label="Nieuwe naam voor {{ t.naam }}">
             <button type="submit" class="knop klein">Opslaan</button>
           </form>
-        </td>
-        <td>
-          {% if t.avatar %}
-          <form method="post" action="{{ url_for('team_avatar_wissen', team_id=t.id) }}"
-                data-confirm="De teamfoto van “{{ t.naam }}” verwijderen?">
-            <button type="submit" class="knop gevaar klein">Foto wissen</button>
-          </form>
-          {% else %}<span class="stil klein-tekst">geen</span>{% endif %}
         </td>
         <td class="kol-elo">{{ t.elo|elo }}</td>
         <td>{% if t.status == 'actief' %}<span class="pil pil-actief">actief</span>

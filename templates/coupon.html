@@ -13,8 +13,9 @@
   <svg class="coupon-icoon" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><path d="M30 52 L44 66 L71 37"/></svg>
   <p class="coupon-scherm-titel">Geldig!</p>
   <p class="coupon-scherm-groot">{{ pintjes }} gratis pintjes</p>
-  <p class="coupon-scherm-wie">voor “{{ c.team }}” · {{ c.spelers }}</p>
-  <p class="coupon-scherm-klein">{{ c.toernooi['name'] }}. De coupon is ingelost en verdwijnt van de profielen.</p>
+  <p class="coupon-scherm-wie">voor {{ c.houder }}{% if c.team %} · “{{ c.team }}”{% endif %}</p>
+  <p class="coupon-scherm-klein">Verdiend met “{{ c.vriend }}” · {{ c.toernooi['name'] }}. De coupon is
+     ingelost en verdwijnt van het profiel.</p>
 </div>
 <script>if (navigator.vibrate) { try { navigator.vibrate([40, 60, 40, 60, 120]); } catch (e) {} }</script>
 
@@ -22,22 +23,23 @@
 <div class="coupon-scherm coupon-fout" role="alert">
   <svg class="coupon-icoon" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="44"/><path d="M34 34 L66 66 M66 34 L34 66"/></svg>
   <p class="coupon-scherm-titel">{{ 'Al ingelost' if c.staat == 'ingelost' else 'Niet geldig' }}</p>
-  <p class="coupon-scherm-wie">“{{ c.team }}” · {{ c.spelers }}</p>
+  <p class="coupon-scherm-wie">{{ c.houder }}{% if c.team %} · “{{ c.team }}”{% endif %}</p>
   <p class="coupon-scherm-klein">
     {% if c.staat == 'ingelost' %}Deze coupon werd al ingelost
       {%- if c.ingelost_op %} op {{ c.ingelost_op[8:10] }}/{{ c.ingelost_op[5:7] }} om {{ c.ingelost_op[11:16] }}{% endif %}
       {%- if c.ingelost_door %} door {{ c.ingelost_door }}{% endif %}. Geen gratis pintjes meer.
-    {% elif c.staat == 'wacht' %}Er is nog niet geloot. De coupon wordt pas geldig als het toernooi begint.
+    {% elif c.staat == 'wacht' %}Nog niet geldig: er is nog niet geloot.
     {% elif c.staat == 'vervallen' %}Het uitgenodigde team of het eigen team doet niet (meer) mee aan {{ c.toernooi['name'] }}.
-    {% else %}Voor dit team staat er geen coupon klaar.{% endif %}
+    {% else %}Deze coupon bestaat niet (meer): het uitgenodigde team schreef zich uit of
+      kwam via iemand anders binnen.{% endif %}
   </p>
 </div>
 <script>if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200]); } catch (e) {} }</script>
 
 {% else %}
 <div class="kaart inschrijf-kaart">
-  <h2 class="inschrijf-titel">Coupon van “{{ c.team }}”</h2>
-  <p>Goed voor de eerste 2 pintjes van {{ c.spelers }}
+  <h2 class="inschrijf-titel">Coupon van {{ c.houder }}</h2>
+  <p>Goed voor 2 gratis pintjes
      op {{ c.toernooi['name'] if c.toernooi else 'het toernooi' }}. Enkel de organisatie kan hem
      inlossen, aan de bar.</p>
   {% if not session.get('speler_id') %}

@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f172a">
   <title>{{ gegevens.naam }} · Beamer · Leberschuss Tonzent</title>
-  <link rel="stylesheet" href="{{ url_for('statisch', bestand='style.css') }}">
+  <link rel="stylesheet" id="hoofdstijl" href="{{ url_for('statisch', bestand='style.css') }}">
+  {% include "_css_bewaker.html" %}
   <link rel="icon" href="{{ url_for('statisch', bestand=logo_bestand) }}">
 </head>
 {# ---------------------------------------------------------------------

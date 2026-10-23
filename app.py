@@ -38,13 +38,14 @@ os.environ["TZ"] = TIJDZONE
 if hasattr(time, "tzset"):          # Linux en macOS; op Windows niet nodig
     time.tzset()
 
-from flask import (Flask, abort, flash, g, redirect, render_template, request,
+from flask import (Flask, abort, flash, g, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
 from markupsafe import Markup
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import league as liga_motor
 import tournament as toernooi_motor
+import dop as kroonkurk
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
                       verbind, vrij_spelernummer)
 from elo import (START_ELO, fase_factor, fase_omschrijving, proces_wedstrijd)
@@ -103,7 +104,7 @@ if os.environ.get("ACHTER_PROXY") == "1":
 MAANDEN = ["januari", "februari", "maart", "april", "mei", "juni", "juli",
            "augustus", "september", "oktober", "november", "december"]
 
-_TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png",
+_TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png", "dop.js", "dop3d.js",
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
                       "icon-maskable-512.png", "apple-touch-icon.png", "thuis.js",
                       "rook.js", "beamer.js", "viering.js", "jsQR.js",
@@ -1163,6 +1164,7 @@ _TERUG_REGELS = [
     (re.compile(r"^/toernooi/\d+"), "toernooien", "Alle toernooien"),
     (re.compile(r"^/speler/\d+"), "index", "Klassement"),
     (re.compile(r"^/team/\d+"), "index", "Klassement"),
+    (re.compile(r"^/profiel/dop$"), "mijn_profiel", "Je profiel"),
     (re.compile(r"^/claimen/\d+"), "claimen", "Kies je naam"),
     (re.compile(r"^/admin/seizoen/\d+"), "admin_seizoenen", "Alle seizoenen"),
     (re.compile(r"^/admin/toernooi/\d+"), "admin_toernooien", "Alle toernooien"),
@@ -1257,14 +1259,16 @@ def extra_context():
     # bij statische bestanden (die hoeven geen databasevraag).
     nu_spelen = None
     if session.get("speler_id") and request.endpoint not in (
-            None, "statisch", "media", "service_worker", "manifest"):
+            None, "statisch", "media", "service_worker", "manifest",
+            "dop_speler_svg", "dop_team_svg"):
         try:
             nu_spelen = actieve_wedstrijd(get_db(), session["speler_id"])
         except Exception:
             nu_spelen = None            # nooit een pagina laten crashen hierdoor
     te_bevestigen = None
     if session.get("speler_id") and request.endpoint not in (
-            None, "statisch", "media", "service_worker", "manifest"):
+            None, "statisch", "media", "service_worker", "manifest",
+            "dop_speler_svg", "dop_team_svg"):
         try:
             te_bevestigen = _te_bevestigen(get_db(), session["speler_id"])
         except Exception:
@@ -1296,7 +1300,24 @@ def seizoen_status(s):
 def statisch(bestand):
     if os.path.basename(bestand) not in _TOEGELATEN_STATIC:
         abort(404)
-    return send_from_directory(STATIC_MAP, os.path.basename(bestand))
+    antwoord = send_from_directory(STATIC_MAP, os.path.basename(bestand))
+    # Met een versiecode in het adres (?v=...) verandert de inhoud nooit meer:
+    # de gsm mag het bestand dan een jaar bijhouden zonder telkens te vragen.
+    # Minder verzoeken = minder kans dat de stijl op een slechte verbinding
+    # wegvalt. Een nieuwe versie krijgt vanzelf een nieuw adres.
+    if request.args.get("v"):
+        antwoord.cache_control.no_cache = None
+        antwoord.cache_control.public = True
+        antwoord.cache_control.max_age = 365 * 24 * 3600
+        antwoord.cache_control.immutable = True
+    return antwoord
+
+
+@app.url_defaults
+def _versie_in_statische_adressen(endpoint, waarden):
+    """Elk adres naar een vast bestand krijgt de versiecode erbij."""
+    if endpoint == "statisch" and "v" not in waarden:
+        waarden["v"] = _static_versie()
 
 
 def _static_versie():
@@ -1308,6 +1329,11 @@ def _static_versie():
     verandert. Door de inhoud van de bestanden te hashen gebeurt dat vanzelf,
     en hoeven we bij elke aanpassing niets handmatig op te hogen.
     """
+    # Onthouden zolang geen enkel bestand wijzigde: dit wordt bij elke pagina
+    # gevraagd en mag dus niet telkens alle bestanden inlezen.
+    tijden = tuple(_mtime(os.path.join(STATIC_MAP, n)) for n in sorted(_TOEGELATEN_STATIC))
+    if _VERSIE_GEHEUGEN.get("tijden") == tijden:
+        return _VERSIE_GEHEUGEN["code"]
     stempel = hashlib.sha1()
     for naam in sorted(_TOEGELATEN_STATIC):
         pad = os.path.join(STATIC_MAP, naam)
@@ -1316,7 +1342,18 @@ def _static_versie():
                 stempel.update(f.read())
         except OSError:
             continue
-    return stempel.hexdigest()[:12]
+    _VERSIE_GEHEUGEN.update(tijden=tijden, code=stempel.hexdigest()[:12])
+    return _VERSIE_GEHEUGEN["code"]
+
+
+_VERSIE_GEHEUGEN = {}
+
+
+def _mtime(pad):
+    try:
+        return os.path.getmtime(pad)
+    except OSError:
+        return None
 
 
 @app.route("/sw.js")
@@ -1351,6 +1388,157 @@ def manifest():
                                   mimetype="application/manifest+json")
     antwoord.headers["Cache-Control"] = "no-cache"
     return antwoord
+
+
+# ------------------------------------------------------------- kroonkurken --
+#
+# Elke speler heeft een kroonkurk (een "dop") als avatar, zelf te ontwerpen.
+# Een team toont een dop die in het midden gesplitst is: links de helft van de
+# ene speler, rechts die van de andere. De server tekent ze als SVG (dop.py);
+# in de pagina's staan ze als gewone afbeelding met een versiecode in het
+# adres, zodat de gsm ze voor altijd mag bijhouden tot het ontwerp verandert.
+
+def _dop_gegevens():
+    """Alle ontwerpen en teamsamenstellingen, één keer per verzoek opgehaald.
+    Beide tabellen zijn klein; zo kost een lijst van 30 teams geen 30 vragen."""
+    if "doppen" not in g:
+        db = get_db()
+        g.doppen = {r["id"]: r["dop"] or "" for r in db.execute("SELECT id, dop FROM players")}
+        g.team_spelers = {r["id"]: (r["player1_id"], r["player2_id"])
+                          for r in db.execute("SELECT id, player1_id, player2_id FROM teams")}
+    return g.doppen, g.team_spelers
+
+
+def _dop_versie(*teksten):
+    return hashlib.sha1("|".join(teksten).encode()).hexdigest()[:10]
+
+
+def dop_speler(speler_id):
+    """Adres van de dop van een speler (voor in een <img>)."""
+    doppen, _ = _dop_gegevens()
+    return url_for("dop_speler_svg", speler_id=speler_id or 0,
+                   v=_dop_versie(doppen.get(speler_id, "")))
+
+
+def dop_team(team_id):
+    """Adres van de gesplitste dop van een team."""
+    doppen, teams = _dop_gegevens()
+    p1, p2 = teams.get(team_id, (None, None))
+    return url_for("dop_team_svg", team_id=team_id or 0,
+                   v=_dop_versie(doppen.get(p1, ""), doppen.get(p2, "")))
+
+
+def kroonkurk_hex(ontwerp):
+    """De hoofdkleur van een ontwerp (voor de gloed achter de dop)."""
+    return kroonkurk.HEX[kroonkurk.normaliseer(ontwerp)["kleur"]]
+
+
+def dop_kleur(speler_id):
+    doppen, _ = _dop_gegevens()
+    return kroonkurk_hex(doppen.get(speler_id))
+
+
+app.jinja_env.globals.update(dop_speler=dop_speler, dop_team=dop_team,
+                             kroonkurk_hex=kroonkurk_hex, dop_kleur=dop_kleur)
+
+
+def _plaats_in_klassement(rijen, eigen_id, stats):
+    """Plaats in het klassement (op Aura), onder wie al minstens één keer speelde.
+    Geeft (plaats, aantal) of (None, aantal)."""
+    lijst = sorted((r for r in rijen if stats.get(r["id"], {}).get("gespeeld")),
+                   key=lambda r: -r["elo"])
+    for i, r in enumerate(lijst):
+        if r["id"] == eigen_id:
+            return i + 1, len(lijst)
+    return None, len(lijst)
+
+
+def _svg_antwoord(inhoud):
+    antwoord = app.response_class(inhoud, mimetype="image/svg+xml")
+    if request.args.get("v"):
+        antwoord.cache_control.public = True
+        antwoord.cache_control.max_age = 365 * 24 * 3600
+        antwoord.cache_control.immutable = True
+    else:
+        antwoord.headers["Cache-Control"] = "no-cache"
+    # Een SVG mag nooit scripts uitvoeren, ook niet als iemand hem rechtstreeks opent.
+    antwoord.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+    return antwoord
+
+
+@app.route("/dop/s/<int:speler_id>.svg")
+def dop_speler_svg(speler_id):
+    doppen, _ = _dop_gegevens()
+    return _svg_antwoord(kroonkurk.svg(doppen.get(speler_id)))
+
+
+@app.route("/dop/t/<int:team_id>.svg")
+def dop_team_svg(team_id):
+    doppen, teams = _dop_gegevens()
+    p1, p2 = teams.get(team_id, (None, None))
+    return _svg_antwoord(kroonkurk.team_svg(doppen.get(p1), doppen.get(p2)))
+
+
+@app.route("/profiel")
+@speler_vereist
+def mijn_profiel():
+    """Je eigen profiel (bv. als vangnet voor de terugknop in de dop-editor)."""
+    return redirect(url_for("speler_profiel", speler_id=session["speler_id"]))
+
+
+@app.route("/profiel/dop", methods=["GET", "POST"])
+@speler_vereist
+def dop_ontwerpen():
+    """De editor voor je eigen kroonkurk."""
+    db = get_db()
+    speler_id = session["speler_id"]
+    speler = db.execute(f"SELECT id, {WEERGAVE} AS naam, dop FROM players p WHERE id = ?",
+                        (speler_id,)).fetchone()
+    if request.method == "POST":
+        try:
+            ontwerp = json.loads(request.form.get("dop") or "{}")
+        except ValueError:
+            ontwerp = {}
+        # De editor bewaart elke wijziging meteen (zonder knop), dus geen
+        # melding of doorverwijzing: enkel een kort antwoord.
+        db.execute("UPDATE players SET dop = ? WHERE id = ?", (kroonkurk.als_tekst(ontwerp), speler_id))
+        db.commit()
+        return jsonify({"ok": True})
+    bewaard = kroonkurk.bewaarde_lijst(db.execute(
+        "SELECT dop_ontwerpen FROM players WHERE id = ?", (speler_id,)).fetchone()[0])
+    return render_template("dop.html", speler=speler, ontwerp=kroonkurk.normaliseer(speler["dop"]),
+                           basis=kroonkurk.BASIS, bewaard=bewaard, max_bewaard=kroonkurk.MAX_BEWAARD)
+
+
+@app.route("/profiel/dop/ontwerpen", methods=["POST"])
+@speler_vereist
+def dop_ontwerpen_bewaren():
+    """De (hoogstens drie) bewaarde ontwerpen bijwerken. De editor stuurt telkens
+    de volledige lijst; we bewaren ze meteen, los van de knop "Bewaren"."""
+    try:
+        lijst = json.loads(request.form.get("ontwerpen") or "[]")
+    except ValueError:
+        return jsonify({"ok": False}), 400
+    lijst = kroonkurk.bewaarde_lijst(lijst)
+    db = get_db()
+    db.execute("UPDATE players SET dop_ontwerpen = ? WHERE id = ?",
+               (json.dumps(lijst, separators=(",", ":"), sort_keys=True), session["speler_id"]))
+    db.commit()
+    return jsonify({"ok": True, "ontwerpen": lijst})
+
+
+@app.route("/profiel/dop/kies/<int:plek>", methods=["POST"])
+@speler_vereist
+def dop_kiezen(plek):
+    """Met één tik op je profiel wisselen naar een van je bewaarde ontwerpen."""
+    db = get_db()
+    speler_id = session["speler_id"]
+    bewaard = kroonkurk.bewaarde_lijst(db.execute(
+        "SELECT dop_ontwerpen FROM players WHERE id = ?", (speler_id,)).fetchone()[0])
+    if 0 <= plek < len(bewaard):
+        db.execute("UPDATE players SET dop = ? WHERE id = ?", (kroonkurk.als_tekst(bewaard[plek]), speler_id))
+        db.commit()
+    return redirect(url_for("speler_profiel", speler_id=speler_id))
 
 
 @app.route("/media/<bestand>")
@@ -1869,7 +2057,21 @@ def speler_profiel(speler_id):
                       "titels": sum(1 for x in toernooien_gespeeld
                                     if x["klasse"] == "goud")}
 
-    return render_template("speler.html", speler=speler, stats=s,
+    plaats, aantal = _plaats_in_klassement(
+        db.execute("SELECT id, elo FROM players").fetchall(), speler_id, sp_stats)
+    # Vorm: de laatste vijf uitslagen, de oudste links.
+    vorm = [h["gewonnen"] for h in historiek[:5]][::-1]
+
+    bewaarde_doppen = []
+    if is_eigen:
+        actief = kroonkurk.normaliseer(speler["dop"])
+        for i, o in enumerate(kroonkurk.bewaarde_lijst(speler["dop_ontwerpen"])):
+            bewaarde_doppen.append({"plek": i, "actief": kroonkurk.zelfde(o, actief),
+                                    "svg": Markup(kroonkurk.svg(o, f"b{i}"))})
+
+    return render_template("speler.html", speler=speler, stats=s, plaats=plaats,
+                           bewaarde_doppen=bewaarde_doppen,
+                           aantal_in_klassement=aantal, vorm=vorm,
                            seizoen_ratings=seizoen_ratings,
                            toernooien=toernooien_gespeeld,
                            titels=toernooi_stats["titels"],
@@ -1909,8 +2111,9 @@ def team_profiel(team_id):
     s = tm_stats.get(team_id, {"gespeeld": 0, "winst": 0})
     namen = teamnamen(db)
     leden = db.execute(f"SELECT p.id, {WEERGAVE} AS name, p.elo, p.avatar "
-                       "FROM players p WHERE p.id IN (?, ?)",
-                       (team["player1_id"], team["player2_id"])).fetchall()
+                       "FROM players p WHERE p.id IN (?, ?) "
+                       "ORDER BY CASE WHEN p.id = ? THEN 0 ELSE 1 END",
+                       (team["player1_id"], team["player2_id"], team["player1_id"])).fetchall()
 
     historiek = []
     for r in db.execute("""
@@ -1936,7 +2139,12 @@ def team_profiel(team_id):
     toernooien_team = toernooi_historiek(db, team_id=team_id)
     titels = sum(1 for x in toernooien_team if x["klasse"] == "goud")
 
+    plaats, aantal = _plaats_in_klassement(
+        db.execute("SELECT id, elo FROM teams WHERE status = 'actief'").fetchall(), team_id, tm_stats)
+    vorm = [h["gewonnen"] for h in historiek[:5]][::-1]
+
     return render_template("team.html", team=team, naam=team["name"], leden=leden,
+                           plaats=plaats, aantal_in_klassement=aantal, vorm=vorm,
                            stats=s, verlies=s["gespeeld"] - s["winst"],
                            pct=(100.0 * s["winst"] / s["gespeeld"]) if s["gespeeld"] else None,
                            historiek=historiek, namen=namen, is_lid=is_lid,
@@ -2281,14 +2489,7 @@ def profiel_instellingen():
         return redirect(url_for("speler_profiel", speler_id=speler_id))
     db.execute("UPDATE players SET nickname = ? WHERE id = ?", (bijnaam, speler_id))
 
-    bestand = request.files.get("avatar")
-    if bestand and bestand.filename:
-        naam = bewaar_avatar(bestand, f"p{speler_id}", oud=speler["avatar"])
-        if naam:
-            db.execute("UPDATE players SET avatar = ? WHERE id = ?", (naam, speler_id))
-        else:
-            flash("Die profielfoto kon niet opgeslagen worden (toegelaten: "
-                  "png, jpg, webp of gif, max. 3 MB).", "fout")
+    # Profielfoto's bestaan niet meer: de kroonkurk is nu je avatar.
     db.commit()
     flash("Je profiel is bijgewerkt.", "ok")
     return redirect(url_for("speler_profiel", speler_id=speler_id))
@@ -2479,14 +2680,6 @@ def team_bewerken(team_id):
         db.execute("UPDATE teams SET description = ? WHERE id = ?",
                    ((request.form.get("beschrijving") or "").strip()[:200], team_id))
 
-    bestand = request.files.get("avatar")
-    if bestand and bestand.filename:
-        nieuw = bewaar_avatar(bestand, f"t{team_id}", oud=team["avatar"])
-        if nieuw:
-            db.execute("UPDATE teams SET avatar = ? WHERE id = ?", (nieuw, team_id))
-        else:
-            flash("Die teamfoto kon niet opgeslagen worden (toegelaten: "
-                  "png, jpg, webp of gif, max. 3 MB).", "fout")
     db.commit()
     flash(f"Team heet nu “{naam}”." if naam != team["name"] else "Team bijgewerkt.", "ok")
     return redirect(terug)
@@ -3365,6 +3558,19 @@ def speler_naam_corrigeren(speler_id):
     return redirect(url_for("admin_spelers") + "#spelers")
 
 
+@app.route("/admin/spelers/<int:speler_id>/dop/terugzetten", methods=["POST"])
+@login_vereist
+def speler_dop_terugzetten(speler_id):
+    """Een kroonkurk terug naar de basisdop zetten (voor de organisatie)."""
+    db = get_db()
+    speler = db.execute("SELECT * FROM players WHERE id = ?", (speler_id,)).fetchone()
+    if speler:
+        db.execute("UPDATE players SET dop = NULL WHERE id = ?", (speler_id,))
+        db.commit()
+        flash(f"De kroonkurk van “{speler['name']}” is terug de basisdop.", "ok")
+    return redirect(url_for("admin_spelers") + "#spelers")
+
+
 @app.route("/admin/spelers/<int:speler_id>/avatar/wissen", methods=["POST"])
 @login_vereist
 def speler_avatar_wissen(speler_id):
@@ -4003,6 +4209,10 @@ def toernooien():
 def toernooi_detail(toernooi_id):
     db = get_db()
     t = _toernooi_of_404(db, toernooi_id)
+    # Nog niet geloot? Dan is de inschrijfpagina dé pagina van dit toernooi:
+    # één scherm voor alles, van waar je ook komt (menu, organisatie, beamer...).
+    if t["status"] == "opzet":
+        return redirect(url_for("toernooi_inschrijven", toernooi_id=toernooi_id))
     teams = toernooi_motor.deelnemers(db, toernooi_id)
     groepen, namen, loc_namen = toernooi_motor.kalender(db, toernooi_id)
     kolommen = toernooi_motor.knockout_kolommen(db, toernooi_id)
@@ -4049,11 +4259,10 @@ def toernooi_detail(toernooi_id):
     actieve_types = db.execute("SELECT * FROM stat_types WHERE active = 1 "
                                "ORDER BY name").fetchall()
 
-    mijn_coupon = None
+    mijn_coupon = 0                     # aantal geldige coupons van wie kijkt
     if session.get("speler_id") and t["status"] != "opzet":
-        eigen = team_in_toernooi(db, toernooi_id, session["speler_id"])
-        c = coupon_staat(db, toernooi_id, eigen["team_id"]) if eigen else None
-        mijn_coupon = c if c and c["staat"] == "geldig" else None
+        mijn_coupon = sum(1 for v in uitgenodigd_door_speler(db, toernooi_id, session["speler_id"])
+                          if coupon_staat(db, toernooi_id, v["team_id"])["staat"] == "geldig")
     return render_template("toernooi.html", t=t, huidig_toernooi=t, teams=teams,
                            mijn_coupon=mijn_coupon,
                            groepen=groepen,
@@ -4144,8 +4353,17 @@ def uitnodiger_van_code(toernooi_id, code):
     return speler_id if hmac.compare_digest(code, uitnodigcode(toernooi_id, speler_id)) else None
 
 
-def coupon_sleutel(toernooi_id, team_id):
-    return _handtekening("coupon-team", toernooi_id, team_id)[:20]
+def coupon_sleutel(toernooi_id, vriend_team_id, houder_id):
+    """De sleutel in de QR-code. Hoort bij dit uitgenodigde team én bij wie de
+    coupon heeft: komt het team later via iemand anders binnen, dan werkt een
+    oude schermafdruk van de eerste uitnodiger niet meer."""
+    return _handtekening("coupon", toernooi_id, vriend_team_id, houder_id)[:20]
+
+
+def uitnodig_limiet(t):
+    """Hoeveel teams mag één speler uitnodigen? None = geen limiet."""
+    n = t["uitnodigingen_per_speler"] if t and "uitnodigingen_per_speler" in t.keys() else 1
+    return None if n == 0 else (n if n is not None else 1)
 
 
 def team_in_toernooi(db, toernooi_id, speler_id):
@@ -4157,80 +4375,113 @@ def team_in_toernooi(db, toernooi_id, speler_id):
     """, (toernooi_id, speler_id, speler_id)).fetchone()
 
 
-def coupon_staat(db, toernooi_id, team_id):
-    """Hoe staat het met de coupon van dit team voor dit toernooi?
+def uitgenodigd_door_speler(db, toernooi_id, speler_id):
+    """De teams die via de link van deze speler binnenkwamen, in volgorde."""
+    return db.execute("""
+        SELECT tt.team_id, tt.teruggetrokken, t.name FROM tournament_teams tt
+        JOIN teams t ON t.id = tt.team_id
+        WHERE tt.tournament_id = ? AND tt.uitgenodigd_door = ?
+          AND t.player1_id != ? AND COALESCE(t.player2_id, 0) != ?
+        ORDER BY tt.id""", (toernooi_id, speler_id, speler_id, speler_id)).fetchall()
 
-    Eén coupon per team: het maakt niet uit welke van de twee spelers zijn
-    link deelde, en meer vrienden leveren niet meer pintjes op.
 
-    staat: 'geen'      niemand schreef zich (nog) in via een link van dit team
-           'wacht'     vóór de loting: er is een vriend ingeschreven
-           'geldig'    na de loting, vriend en eigen team doen mee: in te lossen
-           'ingelost'  al ingelost aan de bar
-           'vervallen' na de loting, maar de vriend of het team zelf doet niet mee
-    link_gebruikt: er schreef zich al een team in via een link van dit team
-                   (ook op de wachtlijst): dan valt er niemand meer uit te nodigen.
+def coupon_staat(db, toernooi_id, vriend_team_id):
+    """Hoe staat het met de coupon voor dit uitgenodigde team?
+
+    Elke speler verdient per team dat via zijn link binnenkomt één coupon
+    (2 pintjes), tot aan de limiet van het toernooi. De coupon wordt geldig bij
+    de loting: vóór de start kijkt de organisatie na wie er echt is en haalt wie
+    er niet is uit het toernooi. Wie later niet opdaagt, wordt teruggetrokken.
+
+    staat: 'geen'      geen coupon (niemand nodigde dit team uit, of boven de limiet)
+           'wacht'     ingeschreven, maar er is nog niet geloot
+           'geldig'    geloot, beide teams doen mee: in te lossen aan de bar
+           'ingelost'  al ingelost
+           'vervallen' het uitgenodigde team of de uitnodiger zelf doet niet (meer) mee
     """
     t = toernooi_motor.toernooi(db, toernooi_id)
-    uit = {"staat": "geen", "vrienden": 0, "vrienden_wacht": 0, "link_gebruikt": False,
-           "team": None, "team_id": team_id, "spelers": "", "uitnodiger": None,
-           "toernooi": t, "sleutel": coupon_sleutel(toernooi_id, team_id)}
-    eigen = db.execute("""
-        SELECT tt.teruggetrokken, t.name, t.player1_id, t.player2_id
-        FROM tournament_teams tt JOIN teams t ON t.id = tt.team_id
-        WHERE tt.tournament_id = ? AND tt.team_id = ?""", (toernooi_id, team_id)).fetchone()
-    if not t or not eigen:
+    uit = {"staat": "geen", "toernooi": t, "vriend_team_id": vriend_team_id, "vriend": None,
+           "houder_id": None, "houder": None, "team": None, "spelers": "", "wachtlijst": False,
+           "sleutel": None}
+    if not t:
         return uit
     namen = weergavenamen(db)
-    uit["team"] = eigen["name"]
-    uit["spelers"] = " & ".join(namen.get(p, "?") for p in (eigen["player1_id"], eigen["player2_id"]) if p)
-    spelers = (eigen["player1_id"], eigen["player2_id"] or -1)
-    wacht = set(toernooi_motor.wachtlijst(db, toernooi_id))
-    vrienden = db.execute("""
-        SELECT team_id, teruggetrokken, uitgenodigd_door FROM tournament_teams
-        WHERE tournament_id = ? AND team_id != ? AND uitgenodigd_door IN (?, ?)
-        ORDER BY id""", (toernooi_id, team_id, *spelers)).fetchall()
-    zeker = [r for r in vrienden if r["team_id"] not in wacht and not r["teruggetrokken"]]
-    uit["vrienden"] = len(zeker)
-    uit["vrienden_wacht"] = sum(1 for r in vrienden if r["team_id"] in wacht)
-    uit["link_gebruikt"] = bool(vrienden)
-    if vrienden:
-        uit["uitnodiger"] = namen.get(vrienden[0]["uitgenodigd_door"])
+    vriend = db.execute("""
+        SELECT tt.uitgenodigd_door, tt.teruggetrokken, t.name FROM tournament_teams tt
+        JOIN teams t ON t.id = tt.team_id WHERE tt.tournament_id = ? AND tt.team_id = ?""",
+        (toernooi_id, vriend_team_id)).fetchone()
     ingelost = db.execute(f"""
-        SELECT ci.ingelost_op, {WEERGAVE.replace('p.', 'd.')} AS door
+        SELECT ci.ingelost_op, ci.speler_id, {WEERGAVE.replace('p.', 'd.')} AS door
         FROM coupon_inlossingen ci LEFT JOIN players d ON d.id = ci.ingelost_door
-        WHERE ci.tournament_id = ? AND ci.team_id = ?""", (toernooi_id, team_id)).fetchone()
+        WHERE ci.tournament_id = ? AND ci.vriend_team_id = ?""", (toernooi_id, vriend_team_id)).fetchone()
+    houder = vriend["uitgenodigd_door"] if vriend else (ingelost["speler_id"] if ingelost else None)
+    if vriend:
+        uit["vriend"] = vriend["name"]
+    if houder:
+        uit["houder_id"], uit["houder"] = houder, namen.get(houder)
+        uit["sleutel"] = coupon_sleutel(toernooi_id, vriend_team_id, houder)
+        eigen = team_in_toernooi(db, toernooi_id, houder)
+        if eigen:
+            uit["team"] = eigen["name"]
+            uit["spelers"] = " & ".join(namen.get(p, "?") for p in (eigen["player1_id"], eigen["player2_id"]) if p)
     if ingelost:
         uit.update(staat="ingelost", ingelost_op=ingelost["ingelost_op"], ingelost_door=ingelost["door"])
-    elif not vrienden:
-        pass
-    elif t["status"] == "opzet":
-        # Een vriend op de wachtlijst telt nog niet: die doet misschien niet mee.
-        uit["staat"] = "wacht" if zeker else "geen"
-    elif zeker and not eigen["teruggetrokken"]:
-        uit["staat"] = "geldig"
-    else:
+        return uit
+    if not vriend or not houder:
+        return uit
+    # Binnen de limiet van de uitnodiger? (de eerste N teams via zijn link)
+    # Een team dat niet kwam opdagen, vervalt meteen en neemt geen plaats in:
+    # dan schuift het volgende team dat via deze speler kwam op.
+    if vriend["teruggetrokken"]:
         uit["staat"] = "vervallen"
+        return uit
+    limiet = uitnodig_limiet(t)
+    volgorde = [r["team_id"] for r in uitgenodigd_door_speler(db, toernooi_id, houder)
+                if not r["teruggetrokken"]]
+    if vriend_team_id not in volgorde or (limiet is not None and volgorde.index(vriend_team_id) >= limiet):
+        return uit
+    eigen = team_in_toernooi(db, toernooi_id, houder)
+    if t["status"] == "opzet":
+        if eigen:
+            uit["staat"] = "wacht"
+            uit["wachtlijst"] = vriend_team_id in set(toernooi_motor.wachtlijst(db, toernooi_id))
+        return uit
+    if not eigen or eigen["teruggetrokken"] or vriend["teruggetrokken"]:
+        uit["staat"] = "vervallen"
+        return uit
+    uit["staat"] = "geldig"
     return uit
 
 
+def uitnodig_stand(db, toernooi_id, speler_id):
+    """Voor de uitnodigingskaart: hoeveel teams kwamen er al via deze speler,
+    hoeveel mag hij er nog uitnodigen, en hoe staan zijn coupons?"""
+    t = toernooi_motor.toernooi(db, toernooi_id)
+    limiet = uitnodig_limiet(t)
+    teams = uitgenodigd_door_speler(db, toernooi_id, speler_id)
+    coupons = [coupon_staat(db, toernooi_id, r["team_id"]) for r in teams]
+    coupons = [c for c in coupons if c["staat"] != "geen"]
+    return {"limiet": limiet, "gebruikt": len(teams),
+            "nog": None if limiet is None else max(0, limiet - len(teams)),
+            "onderweg": sum(1 for c in coupons if c["staat"] == "wacht" and not c["wachtlijst"]),
+            "wachtlijst": sum(1 for c in coupons if c["wachtlijst"]),
+            "geldig": sum(1 for c in coupons if c["staat"] == "geldig")}
+
+
 def mijn_coupons(db, speler_id):
-    """De coupons van de teams van deze speler (wachtend of geldig)."""
+    """De coupons van deze speler (wachtend of geldig), over alle toernooien."""
     uit = []
-    for r in db.execute("""
-        SELECT tt.tournament_id, tt.team_id FROM tournament_teams tt
-        JOIN teams t ON t.id = tt.team_id
-        WHERE (t.player1_id = ? OR t.player2_id = ?)
-          AND EXISTS (SELECT 1 FROM tournament_teams v WHERE v.tournament_id = tt.tournament_id
-                      AND v.uitgenodigd_door IN (t.player1_id, t.player2_id))
-    """, (speler_id, speler_id)):
-        c = coupon_staat(db, r["tournament_id"], r["team_id"])
-        if c["staat"] in ("wacht", "geldig"):
-            c["toernooi_id"] = r["tournament_id"]
-            c["url"] = externe_url("coupon_inlossen", toernooi_id=r["tournament_id"],
-                                   team_id=r["team_id"], sleutel=c["sleutel"])
-            c["qr"] = qr_svg(c["url"]) if c["staat"] == "geldig" else None
-            uit.append(c)
+    for r in db.execute("""SELECT DISTINCT tournament_id FROM tournament_teams
+                           WHERE uitgenodigd_door = ?""", (speler_id,)):
+        for v in uitgenodigd_door_speler(db, r["tournament_id"], speler_id):
+            c = coupon_staat(db, r["tournament_id"], v["team_id"])
+            if c["staat"] in ("wacht", "geldig"):
+                c["toernooi_id"] = r["tournament_id"]
+                c["url"] = externe_url("coupon_inlossen", toernooi_id=r["tournament_id"],
+                                       vriend_team_id=v["team_id"], houder_id=speler_id,
+                                       sleutel=c["sleutel"])
+                c["qr"] = qr_svg(c["url"]) if c["staat"] == "geldig" else None
+                uit.append(c)
     uit.sort(key=lambda c: (c["staat"] != "geldig", c["toernooi"]["date"]))
     return uit
 
@@ -4304,7 +4555,7 @@ def toernooi_inschrijven(toernooi_id):
         uitnodiging = {"link": link, "tekst": _deel_tekst(t, link),
                        # volledig gecodeerd, ook de schuine strepen (vraagt Snapchat)
                        "link_code": quote(link, safe=""),
-                       "coupon": coupon_staat(db, toernooi_id, mijn["id"])}
+                       "stand": uitnodig_stand(db, toernooi_id, ik)}
     return render_template("inschrijven.html", t=t, lijst=lijst, mijn=mijn,
                            uitnodiging=uitnodiging, via_naam=via_naam,
                            mijn_teams=mijn_teams, spelers=spelers, bevestigd=bevestigd,
@@ -4433,6 +4684,10 @@ def toernooi_inschrijven_post(toernooi_id):
         session["via"] = uitnodigingen
     flash(f"“{team['name']}” is ingeschreven voor {t['name']}"
           + (f", {wacht}." if wacht else ". Tot dan!"), "ok")
+    if via:
+        # Zwart op wit dat de uitnodiging meetelt: geen discussie achteraf.
+        flash(f"Je schreef je in via de uitnodiging van {weergavenamen(db).get(via, 'een vriend')}: "
+              "dat telt voor zijn gratis pintjes.", "ok")
     # Meteen bij de uitnodigingskaart uitkomen: nu is het moment om te delen.
     return redirect(terug + "#uitnodigen")
 
@@ -4472,39 +4727,60 @@ def toernooi_uitschrijven(toernooi_id):
 
 # ---------------------------------------------------------------- coupons --
 
-@app.route("/coupon/<int:toernooi_id>/<int:team_id>/<sleutel>")
-def coupon_inlossen(toernooi_id, team_id, sleutel):
+def _coupon_antwoord(html, status=200):
+    """Couponpagina's nooit bewaren (browser, app, tussenliggende servers)."""
+    antwoord = app.make_response((html, status))
+    antwoord.headers["Cache-Control"] = "no-store"
+    return antwoord
+
+
+@app.route("/coupon/<int:toernooi_id>/<int:vriend_team_id>/<int:houder_id>/<sleutel>")
+def coupon_inlossen(toernooi_id, vriend_team_id, houder_id, sleutel):
     """Hier komt de QR-code van een coupon uit. Een organisator die hem opent
     (met de scanner in de app of met de camera van zijn gsm), lost hem meteen
     in. Iemand anders krijgt enkel uitleg."""
     db = get_db()
-    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, team_id)):
+    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, vriend_team_id, houder_id)):
         abort(404)
-    c = coupon_staat(db, toernooi_id, team_id)
-    if not c["team"]:
-        abort(404)
+    # Enkel een echte scan lost in: de link geopend als pagina. Een browser die
+    # hem op voorhand ophaalt (prefetch/prerender) of als afbeelding laadt, niet.
+    if "prefetch" in (request.headers.get("Sec-Purpose", "") + request.headers.get("Purpose", "")).lower():
+        return _coupon_antwoord("", 204)
+    # (Via de service worker van de app komt een echte scan binnen als "empty",
+    # dus enkel soorten weigeren die nooit een scan kunnen zijn.)
+    if request.headers.get("Sec-Fetch-Dest", "") in ("image", "script", "style", "font", "audio",
+                                                      "video", "track", "object", "embed",
+                                                      "worker", "sharedworker", "manifest", "xslt"):
+        abort(403)
+    c = coupon_staat(db, toernooi_id, vriend_team_id)
+    if c["houder_id"] != houder_id:
+        # Echte code, maar de coupon is niet (meer) van deze persoon: het team
+        # schreef zich intussen via iemand anders in, of werd verwijderd.
+        c = dict(c, staat="geen", houder=weergavenamen(db).get(houder_id, "?"), team=None)
     if not is_organisator():
-        return render_template("coupon.html", soort="info", c=c)
+        return _coupon_antwoord(render_template("coupon.html", soort="info", c=c))
     if c["staat"] == "geldig":
         try:
-            db.execute("INSERT INTO coupon_inlossingen (tournament_id, team_id, ingelost_door) "
-                       "VALUES (?, ?, ?)", (toernooi_id, team_id, session["speler_id"]))
+            db.execute("INSERT INTO coupon_inlossingen (tournament_id, vriend_team_id, speler_id, "
+                       "ingelost_door) VALUES (?, ?, ?, ?)",
+                       (toernooi_id, vriend_team_id, houder_id, session["speler_id"]))
             db.commit()
-            return render_template("coupon.html", soort="ok", c=c, pintjes=COUPON_PINTJES)
+            return _coupon_antwoord(render_template("coupon.html", soort="ok", c=c,
+                                                    pintjes=COUPON_PINTJES))
         except sqlite3.IntegrityError:          # net tegelijk twee keer gescand
             db.rollback()
-            c = coupon_staat(db, toernooi_id, team_id)
-    return render_template("coupon.html", soort="fout", c=c)
+            c = coupon_staat(db, toernooi_id, vriend_team_id)
+    return _coupon_antwoord(render_template("coupon.html", soort="fout", c=c))
 
 
-@app.route("/coupon/<int:toernooi_id>/<int:team_id>/<sleutel>/staat.json")
-def coupon_staat_json(toernooi_id, team_id, sleutel):
+@app.route("/coupon/<int:toernooi_id>/<int:vriend_team_id>/<int:houder_id>/<sleutel>/staat.json")
+def coupon_staat_json(toernooi_id, vriend_team_id, houder_id, sleutel):
     """Voor het profiel: zo verdwijnt de coupon zodra hij aan de bar gescand is."""
-    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, team_id)):
+    if not hmac.compare_digest(sleutel, coupon_sleutel(toernooi_id, vriend_team_id, houder_id)):
         abort(404)
-    antwoord = app.response_class(
-        json.dumps({"staat": coupon_staat(get_db(), toernooi_id, team_id)["staat"]}),
-        mimetype="application/json")
+    c = coupon_staat(get_db(), toernooi_id, vriend_team_id)
+    staat = c["staat"] if c["houder_id"] == houder_id else "geen"
+    antwoord = app.response_class(json.dumps({"staat": staat}), mimetype="application/json")
     antwoord.headers["Cache-Control"] = "no-store"
     return antwoord
 
@@ -4612,14 +4888,14 @@ def _beamer_gegevens(db, toernooi_id):
             return None
         x = teams[team_id]
         return {"id": team_id, "naam": x["naam"], "spelers": x["spelers"],
-                "foto": url_for("media", bestand=x["avatar"]) if x["avatar"] else None}
+                "foto": dop_team(team_id)}
 
     stand = []
     if t["status"] != "opzet":
         geordend, _ = toernooi_motor.stand(db, toernooi_id)
         for r in geordend:
             stand.append({"id": r["team_id"], "naam": r["naam"], "spelers": r["spelers"],
-                          "foto": url_for("media", bestand=r["avatar"]) if r["avatar"] else None,
+                          "foto": dop_team(r["team_id"]),
                           "positie": r["positie"], "gespeeld": r["gespeeld"],
                           "winst": r["winst"], "verlies": r["verlies"],
                           "punten": r["punten"], "vorm": r["vorm"][-5:],
@@ -4729,8 +5005,9 @@ def toernooi_nieuw():
     try:
         db.execute("""
             INSERT INTO tournaments (name, description, date, start_tijd,
-                                     bracket_ronden, ko_teams, potten, slot_minuten)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                     bracket_ronden, ko_teams, potten, slot_minuten,
+                                     uitnodigingen_per_speler)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
         """, (naam, (request.form.get("beschrijving") or "").strip(), datum,
               request.form.get("start_tijd") or "19:00",
               int(request.form.get("ronden") or 4),
@@ -4821,12 +5098,30 @@ def toernooi_beheer(toernooi_id):
     """, (toernooi_id,)):
         meldingen_per_game[r["game_id"]].append(r)
 
-    coupons = []
+    # Wie nodigde welk team uit? De organisatie kan het invullen of verbeteren,
+    # bv. als de vriend de link op een andere gsm opende dan waarop hij inschreef.
+    namen_via = weergavenamen(db)
+    via_van = {r["team_id"]: r["uitgenodigd_door"] for r in db.execute(
+        "SELECT team_id, uitgenodigd_door FROM tournament_teams WHERE tournament_id = ?", (toernooi_id,))}
     for team in teams:
-        c = coupon_staat(db, toernooi_id, team["id"])
+        team["via_id"] = via_van.get(team["id"])
+        team["via"] = namen_via.get(team["via_id"]) if team["via_id"] else None
+    via_keuzes = sorted(({"id": p, "naam": namen_via.get(p, "?"), "team": x["naam"], "team_id": x["id"]}
+                         for x in teams for p in (x["player1_id"], x["player2_id"]) if p),
+                        key=lambda v: v["naam"].lower())
+
+    coupons = []
+    for r in db.execute("SELECT team_id FROM tournament_teams WHERE tournament_id = ? "
+                        "AND uitgenodigd_door IS NOT NULL ORDER BY id", (toernooi_id,)):
+        c = coupon_staat(db, toernooi_id, r["team_id"])
         if c["staat"] != "geen":
             coupons.append(c)
-    return render_template("admin_toernooi.html", t=t, teams=teams, coupons=coupons,
+    # ook al ingeloste coupons van teams die intussen niet meer ingeschreven zijn
+    for r in db.execute("SELECT vriend_team_id FROM coupon_inlossingen WHERE tournament_id = ? "
+                        "AND vriend_team_id NOT IN (SELECT team_id FROM tournament_teams "
+                        "WHERE tournament_id = ?)", (toernooi_id, toernooi_id)):
+        coupons.append(coupon_staat(db, toernooi_id, r["vriend_team_id"]))
+    return render_template("admin_toernooi.html", t=t, teams=teams, coupons=coupons, via_keuzes=via_keuzes,
                            beschikbaar=beschikbaar,
                            locaties=toernooi_motor.locaties(db, toernooi_id),
                            loc_namen={l["id"]: l["name"] for l in
@@ -4862,7 +5157,12 @@ def toernooi_instellingen(toernooi_id):
             "slot_minuten": int(request.form.get("slot") or t["slot_minuten"]),
             "max_teams": (int(request.form["max_teams"]) if (request.form.get("max_teams") or "").strip()
                           else None),
+            "uitnodigingen_per_speler": (int(request.form["uitnodigingen"])
+                                         if (request.form.get("uitnodigingen") or "").strip()
+                                         else t["uitnodigingen_per_speler"]),
         }
+        if not 0 <= velden["uitnodigingen_per_speler"] <= 50:
+            raise ValueError
         if velden["max_teams"] is not None and velden["max_teams"] < 4:
             raise ValueError
     except ValueError:
@@ -4953,6 +5253,38 @@ def toernooi_team_weg(toernooi_id, team_id):
             n = db.execute("SELECT name FROM teams WHERE id = ?", (tid_,)).fetchone()
             flash(f"“{n['name']}” schuift daardoor op van de wachtlijst.", "ok")
     return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
+
+
+@app.route("/admin/toernooi/<int:toernooi_id>/teams/<int:team_id>/via", methods=["POST"])
+@login_vereist
+def toernooi_team_via(toernooi_id, team_id):
+    """Wie nodigde dit team uit? Voor als het krediet verloren ging (bv. de
+    vriend opende de link op een andere gsm dan waarop hij inschreef)."""
+    db = get_db()
+    _toernooi_of_404(db, toernooi_id)
+    terug = url_for("toernooi_beheer", toernooi_id=toernooi_id) + "#teams"
+    team = db.execute("SELECT t.* FROM tournament_teams tt JOIN teams t ON t.id = tt.team_id "
+                      "WHERE tt.tournament_id = ? AND tt.team_id = ?", (toernooi_id, team_id)).fetchone()
+    if not team:
+        abort(404)
+    if db.execute("SELECT 1 FROM coupon_inlossingen WHERE tournament_id = ? AND vriend_team_id = ?",
+                  (toernooi_id, team_id)).fetchone():
+        flash("De coupon voor dit team is al ingelost; de uitnodiger kan niet meer veranderen.", "fout")
+        return redirect(terug)
+    keuze = (request.form.get("speler") or "").strip()
+    nieuw = int(keuze) if keuze.isdigit() else None
+    if nieuw is not None:
+        uitnodiger = team_in_toernooi(db, toernooi_id, nieuw)
+        if nieuw in (team["player1_id"], team["player2_id"]) or not uitnodiger:
+            flash("Die speler kan dit team niet uitgenodigd hebben: hij moet zelf met een "
+                  "ander team meedoen aan dit toernooi.", "fout")
+            return redirect(terug)
+    db.execute("UPDATE tournament_teams SET uitgenodigd_door = ? WHERE tournament_id = ? AND team_id = ?",
+               (nieuw, toernooi_id, team_id))
+    db.commit()
+    flash(f"“{team['name']}” " + (f"telt nu als uitgenodigd door {weergavenamen(db).get(nieuw)}."
+                                  if nieuw else "telt niet meer als uitgenodigd."), "ok")
+    return redirect(terug)
 
 
 @app.route("/admin/toernooi/<int:toernooi_id>/teams/<int:team_id>/terugtrekken",

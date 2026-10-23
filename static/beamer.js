@@ -42,7 +42,7 @@
   }
   function foto(team, klasse) {
     if (team && team.foto) {
-      var img = el("img", "bm-foto " + (klasse || ""));
+      var img = el("img", "bm-foto dop-img " + (klasse || ""));
       img.src = team.foto; img.alt = "";
       return img;
     }

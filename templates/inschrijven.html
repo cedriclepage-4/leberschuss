@@ -22,6 +22,9 @@
         {% if wachtend and is_organisator %}<div class="cijfer"><strong>{{ wachtend|length }}</strong><span>op de wachtlijst</span></div>{% endif %}
       </div>
       {% endif %}
+      {% if is_organisator %}
+      <p class="inschrijf-beheer"><a class="knop" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Toernooi beheren</a></p>
+      {% endif %}
     </div>
     {% include "_logo3d.html" %}
   </div>
@@ -68,7 +71,7 @@
      {% if mijn.wachtlijst %}Je staat op plaats {{ mijn.wachtlijst }} van de wachtlijst. Schrijft
      er een team uit, dan schuif je vanzelf op.{% else %}Tot {{ t['date']|dag }}!{% endif %}</p>
   <form method="post" action="{{ url_for('toernooi_uitschrijven', toernooi_id=t['id']) }}"
-        data-confirm="“{{ mijn.naam }}” uitschrijven voor {{ t['name'] }}?{% if not mijn.wachtlijst and t['max_teams'] %} Je plaats gaat dan naar de wachtlijst.{% endif %}{% if uitnodiging and uitnodiging.coupon.link_gebruikt %} Jullie coupon voor 2 gratis pintjes vervalt dan voorgoed, ook als je je later opnieuw inschrijft.{% endif %}">
+        data-confirm="“{{ mijn.naam }}” uitschrijven voor {{ t['name'] }}?{% if not mijn.wachtlijst and t['max_teams'] %} Je plaats gaat dan naar de wachtlijst.{% endif %}{% if uitnodiging and uitnodiging.stand.gebruikt %} Jullie coupons voor gratis pintjes vervallen dan voorgoed, ook als je je later opnieuw inschrijft.{% endif %}">
     <input type="hidden" name="team" value="{{ mijn.id }}">
     <button type="submit" class="knop gevaar klein">Uitschrijven</button>
   </form>
@@ -76,7 +79,7 @@
 
 {% if uitnodiging %}
 {# ------------------------------------------- een ander team uitnodigen -- #}
-{% set c = uitnodiging.coupon %}
+{% set st = uitnodiging.stand %}
 <div class="kaart uitnodig-kaart" id="uitnodigen">
   <div class="uitnodig-kop">
     <svg class="uitnodig-pint" viewBox="0 0 64 64" aria-hidden="true">
@@ -86,31 +89,23 @@
       <path class="pint-schuim" d="M14 16c0-5 4-8 8-7 2-4 9-5 12-1 4-3 11-1 11 5 3 1 4 5 1 7H15c-2-1-2-3-1-4z"/>
     </svg>
     <div>
-      <p class="uitnodig-label">Nodig een ander team uit</p>
-      <h2 class="uitnodig-titel">Jullie eerste 2 pintjes gratis</h2>
+      <p class="uitnodig-label">Nodig andere teams uit</p>
+      <h2 class="uitnodig-titel">2 gratis pintjes per team</h2>
     </div>
   </div>
-  {% if c.link_gebruikt %}
-  {# Eén uitnodiging per team: is ze gebruikt, dan valt er niets meer te delen. #}
-  {% if c.vrienden %}
-  <p class="uitnodig-status ok">Gelukt: er schreef zich een team in via
-     {{ 'jouw link' if c.uitnodiger == ik_naam else 'de link van ' ~ c.uitnodiger }}. Blijft het ingeschreven tot de loting,
-     dan krijgen jullie een coupon voor jullie eerste 2 pintjes. Die verschijnt na de loting op
-     jullie profiel.</p>
-  {% else %}
-  <p class="uitnodig-status">Er schreef zich een team in via
-     {{ 'jouw link' if c.uitnodiger == ik_naam else 'de link van ' ~ c.uitnodiger }}, maar het staat nog op de wachtlijst.
-     Schuift het op, dan hebben jullie je coupon.</p>
+  {% if st.gebruikt %}
+  <p class="uitnodig-status ok">Al {{ st.gebruikt }} team{{ 's' if st.gebruikt != 1 }} via jouw link
+     {%- if st.onderweg %}: {{ st.onderweg }} coupon{{ 's' if st.onderweg != 1 }} komt eraan zodra
+     er geloot is{% endif %}
+     {%- if st.wachtlijst %}{{ ',' if st.onderweg else ':' }} {{ st.wachtlijst }} staat nog op de wachtlijst{% endif %}.</p>
   {% endif %}
-  <p class="stil klein-tekst">Elk team kan één ander team uitnodigen. Schrijft dat team zich uit,
-     dan kunnen jullie opnieuw iemand uitnodigen. Schrijven jullie je zelf uit, dan vervalt
-     de coupon voorgoed.</p>
-  {% else %}
-  <p>Stuur je link naar vrienden. Schrijft hun team zich ermee in en blijven ze ingeschreven
-     tot de loting, dan krijgen jullie een coupon voor de eerste 2 pintjes van jullie team.
-     Hij verschijnt op jullie profiel en je toont hem aan de bar.</p>
-  <p class="stil klein-tekst">Eén uitnodiging per team: zodra er een team binnenkomt via jouw link
-     of die van je ploegmaat, is ze gebruikt.</p>
+  {% if st.nog is none or st.nog > 0 %}
+  <p>Stuur je eigen link naar vrienden. Voor elk team dat zich ermee inschrijft en op het
+     toernooi meedoet, krijg jij een coupon voor 2 gratis pintjes. Na de loting staat hij op je
+     profiel en toon je hem aan de bar.</p>
+  <p class="stil klein-tekst">{% if st.nog is none %}Geen limiet: nodig zoveel teams uit als je wil.
+     {%- else %}Je kan nog {{ st.nog }} team{{ 's' if st.nog != 1 }} uitnodigen
+     (maximum {{ st.limiet }} per speler).{% endif %} Je ploegmaat heeft zijn eigen link.</p>
   {# Eigen, eenvoudige icoontjes in de kleur van elke app (geen officiële logo's). #}
   <div class="deel-knoppen">
     <a class="deel-knop deel-whatsapp" href="https://wa.me/?text={{ uitnodiging.tekst|urlencode }}" target="_blank" rel="noopener">
@@ -182,7 +177,12 @@
     });
   })();
 </script>
+  {% else %}
+  <p>Je hebt je {{ st.limiet }} uitnodiging{{ 'en' if st.limiet != 1 }} gebruikt. Schrijft een van die
+     teams zich uit, dan komt er weer een vrij. Je ploegmaat kan met zijn eigen link nog
+     andere teams uitnodigen.</p>
   {% endif %}
+  <p class="stil klein-tekst">Schrijven jullie je zelf uit, dan vervallen jullie coupons voorgoed.</p>
 </div>
 {% endif %}
 
@@ -199,8 +199,7 @@
       <label class="inschrijf-keuze {{ 'keuze-uit' if team.probleem }}">
         <input type="radio" name="keuze" value="team:{{ team.id }}" {{ 'disabled' if team.probleem }}
                {{ 'checked' if loop.first and not team.probleem }}>
-        {% if team.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=team.avatar) }}" alt="">
-        {% else %}<span class="avatar-mini avatar-fallback">{{ team.naam[0]|upper }}</span>{% endif %}
+        <img class="avatar-mini dop-img" src="{{ dop_team(team.id) }}" alt="">
         <span class="inschrijf-keuze-tekst">
           <strong>{{ team.naam }}</strong>
           <span>met {{ team.partner }}</span>

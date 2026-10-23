@@ -1,37 +1,50 @@
 {% extends "base.html" %}
 {% block titel %}{{ naam }}{% endblock %}
-{% block inhoud %}
-
-<section class="held profiel-kop">
-  <div class="profiel-rij">
-    {% if team['avatar'] %}<img class="avatar-groot" src="{{ url_for('media', bestand=team['avatar']) }}" alt="">
-    {% else %}<span class="avatar-groot avatar-fallback">{{ naam[0]|upper }}</span>{% endif %}
-    <div>
-      <h1>{{ naam }}
-        {% if team['status'] == 'onvolledig' %}<span class="pil">onvolledig</span>{% endif %}
-      </h1>
-      {% if team['status'] == 'onvolledig' %}
-      <p>Team van
-        {% for lid in leden %}<a class="profielz-link" href="{{ url_for('speler_profiel', speler_id=lid['id']) }}">{{ lid['name'] }}</a>{% endfor %},
-        nog zonder teamgenoot. Opgericht {{ team['created_at']|datum }}.</p>
-      {% else %}
-      <p>Team van
-        {% for lid in leden %}<a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=lid['id']) }}">{{ lid['name'] }}</a>{{ " en " if not loop.last }}{% endfor %}.
-        Samen sinds {{ team['created_at']|datum }}.</p>
+{% block boven %}
+{# ------------------------------------------------------------------
+   Teamkop: een kroonkurk die in het midden gesplitst is, links de helft van
+   de ene speler, rechts die van de andere. Achter elke helft een gloed in
+   de kleur van die speler.
+   ------------------------------------------------------------------ #}
+{% set lid1 = leden[0] if leden|length > 0 else none %}
+{% set lid2 = leden[1] if leden|length > 1 else none %}
+<section class="profiel-held team" style="--dopkleur: {{ dop_kleur(lid1['id'] if lid1 else none) }}; --dopkleur2: {{ dop_kleur(lid2['id'] if lid2 else none) }}">
+  <div class="wrap profiel-raster">
+    <div class="profiel-dop">
+      <div class="dop3d" data-dop="{{ dop_team(team['id']) }}" role="img" aria-label="Kroonkurk van {{ naam }}"></div>
+    </div>
+    <div class="profiel-info">
+      <p class="profiel-boventitel">{{ 'Opgericht' if team['status'] == 'onvolledig' else 'Samen sinds' }} {{ team['created_at']|datum }}</p>
+      <h1>{{ naam }}</h1>
+      <div class="lid-chips">
+        {% for lid in leden %}
+        <a class="lid-chip" href="{{ url_for('speler_profiel', speler_id=lid['id']) }}">
+          <img class="dop-img" src="{{ dop_speler(lid['id']) }}" alt=""> {{ lid['name'] }}</a>
+        {% if not loop.last %}<span class="en">&amp;</span>{% endif %}
+        {% endfor %}
+        {% if team['status'] == 'onvolledig' %}<span class="pil">onvolledig: nog zonder teamgenoot</span>{% endif %}
+      </div>
+      {% if team['description'] %}<p class="profiel-sub"><span class="team-beschrijving">“{{ team['description'] }}”</span></p>{% endif %}
+      {% if team['status'] == 'actief' %}
+      <div class="profiel-tegels">
+        <div class="tegel aura"><strong>{{ team['elo']|elo }}</strong><span>team-Aura</span></div>
+        {% if plaats %}<div class="tegel"><strong>#{{ plaats }}</strong><span>van {{ aantal_in_klassement }} in het teamklassement</span></div>{% endif %}
+        <div class="tegel"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
+        <div class="tegel"><strong>{{ stats['winst'] }}<small> – </small>{{ verlies }}</strong><span>gewonnen – verloren</span></div>
+        {% if pct is not none %}<div class="tegel"><strong>{{ pct|round|int }}%</strong><span>gewonnen</span></div>{% endif %}
+      </div>
+      {% if vorm %}
+      <div class="profiel-vorm" title="De laatste {{ vorm|length }} wedstrijden, de recentste rechts">
+        <span>Vorm</span>{% for w in vorm %}<i class="{{ 'w' if w else 'v' }}">{{ 'W' if w else 'V' }}</i>{% endfor %}
+      </div>
       {% endif %}
-      {% if team['description'] %}<p class="team-beschrijving">“{{ team['description'] }}”</p>{% endif %}
+      {% endif %}
     </div>
   </div>
-  {% if team['status'] == 'actief' %}
-  <div class="held-cijfers">
-    <div class="cijfer"><strong>{{ team['elo']|elo }}</strong><span>team-Aura</span></div>
-    <div class="cijfer"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
-    <div class="cijfer"><strong>{{ stats['winst'] }}</strong><span>gewonnen</span></div>
-    <div class="cijfer"><strong>{{ verlies }}</strong><span>verloren</span></div>
-    {% if pct is not none %}<div class="cijfer"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
-  </div>
-  {% endif %}
 </section>
+{% endblock %}
+
+{% block inhoud %}
 
 {% if team['status'] == 'onvolledig' %}
 {# ---- uitnodiging: versturen, intrekken of (als genodigde) beantwoorden ---- #}
@@ -91,12 +104,11 @@
 {% if is_lid %}
 <div class="kaart">
   <h3>Teaminstellingen</h3>
-  <form method="post" action="{{ url_for('team_bewerken', team_id=team['id']) }}" enctype="multipart/form-data">
+  <form method="post" action="{{ url_for('team_bewerken', team_id=team['id']) }}">
     <label>Teamnaam <input type="text" name="naam" maxlength="40" value="{{ team['name'] }}" required></label>
     <label>Beschrijving (optioneel)
       <input type="text" name="beschrijving" maxlength="200" value="{{ team['description'] }}"></label>
-    <label>Teamfoto (png, jpg, webp of gif, max. 3 MB)
-      <input type="file" name="avatar" accept=".png,.jpg,.jpeg,.webp,.gif"></label>
+    <p class="stil klein-tekst velduitleg">De teamdop bestaat uit jullie twee kroonkurken: elk de helft.</p>
     <button type="submit" class="knop primair">Opslaan</button>
   </form>
   {% if not heeft_games %}
@@ -130,7 +142,7 @@
       <tr>
         <td>{{ h.game['played_at']|datum }}</td>
         <td>{% if h.game['tournament_id'] %}<span class="pil pil-toernooi">{{ h.game|fase }}</span>{% else %}<span class="pil">league</span>{% endif %}</td>
-        <td class="naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=h.tegen_team) }}">{{ namen[h.tegen_team] }}</a></td>
+        <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=h.tegen_team) }}"><img class="avatar-mini dop-img" src="{{ dop_team(h.tegen_team) }}" alt="" loading="lazy"> {{ namen[h.tegen_team] }}</a></td>
         <td>{% if h.gewonnen %}<span class="pil pil-actief">gewonnen</span>{% else %}<span class="pil pil-rood">verloren</span>{% endif %}</td>
         <td class="kol-num">
           {% if h.delta is not none %}
@@ -146,4 +158,8 @@
 <div class="kaart leeg">Dit team heeft nog geen wedstrijden gespeeld.</div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('statisch', bestand='dop3d.js') }}"></script>
 {% endblock %}

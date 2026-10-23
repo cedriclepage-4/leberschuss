@@ -31,8 +31,7 @@
       {% for plaats in [2, 1, 3] %}{% set s = spelers[plaats - 1] %}
       <li class="podium-plek plek-{{ plaats }}">
         <a class="podium-speler" href="{{ url_for('speler_profiel', speler_id=s.id) }}">
-          {%- if s.avatar %}<img class="podium-foto" src="{{ url_for('media', bestand=s.avatar) }}" alt="">
-          {%- else %}<span class="podium-foto podium-letter">{{ s.naam[0]|upper }}</span>{% endif %}
+          <img class="podium-foto dop-img" src="{{ dop_speler(s.id) }}" alt="">
           <span class="podium-naam">{{ s.naam }}</span>
           <span class="podium-aura"><strong data-tel="{{ s.elo|elo }}">{{ s.elo|elo }}</strong> Aura</span>
         </a>
@@ -102,7 +101,7 @@
         <tr>
           <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
           <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('speler_profiel', speler_id=s.id) }}">
-            {%- if s.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=s.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ s.naam[0]|upper }}</span>{% endif %} {{ s.naam }}</a></td>
+            <img class="avatar-mini dop-img" src="{{ dop_speler(s.id) }}" alt="" loading="lazy"> {{ s.naam }}</a></td>
           <td class="verbergen-mobiel">{% if s.rang %}<span class="rang-pil" data-kleur="{{ s.rang['color'] }}">{{ s.rang['name'] }}</span>{% else %}<span class="stil">—</span>{% endif %}</td>
           <td class="kol-elo"><span class="elo-badge">{{ s.elo|elo }}</span></td>
           <td class="kol-num verbergen-mobiel">{{ s.gespeeld }}</td>
@@ -139,7 +138,7 @@
         <tr>
           <td class="kol-rang"><span class="rang-nr r{{ loop.index }}">{{ loop.index }}</span></td>
           <td class="naam"><a class="profiel-link met-avatar" href="{{ url_for('team_profiel', team_id=t.id) }}">
-            {%- if t.avatar %}<img class="avatar-mini" src="{{ url_for('media', bestand=t.avatar) }}" alt="">{% else %}<span class="avatar-mini avatar-fallback">{{ t.naam[0]|upper }}</span>{% endif %} {{ t.naam }}</a></td>
+            <img class="avatar-mini dop-img" src="{{ dop_team(t.id) }}" alt="" loading="lazy"> {{ t.naam }}</a></td>
           <td class="kol-elo"><span class="elo-badge">{{ t.elo|elo }}</span></td>
           <td class="kol-num verbergen-mobiel">{{ t.gespeeld }}</td>
           <td class="kol-num">{{ t.winst }}</td>

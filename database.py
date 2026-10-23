@@ -40,7 +40,11 @@ CREATE TABLE IF NOT EXISTS players (
     role          TEXT NOT NULL DEFAULT 'speler',
     elo           REAL NOT NULL DEFAULT 1000,   -- permanente Aura (liga + toernooi)
     active        INTEGER NOT NULL DEFAULT 1,
-    avatar        TEXT,
+    avatar        TEXT,                          -- oude profielfoto, niet meer getoond
+    -- De kroonkurk (avatar) als JSON, zie dop.py. Leeg = de gewone basisdop.
+    dop           TEXT,
+    -- Tot drie bewaarde ontwerpen (JSON-lijst) om tussen te wisselen.
+    dop_ontwerpen TEXT,
     -- Werd dit account aangemaakt door een ploegmaat die zich voor een toernooi
     -- inschreef? Dan mag de echte persoon het overnemen door zich te registreren
     -- met precies die naam (zie app.registreren). Accounts van de organisatie
@@ -149,6 +153,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
     potten         INTEGER NOT NULL DEFAULT 4,
     slot_minuten   INTEGER NOT NULL DEFAULT 20,
     max_teams      INTEGER,                        -- leeg = geen maximum
+    uitnodigingen_per_speler INTEGER NOT NULL DEFAULT 1,  -- teams per speler uit te nodigen (0 = geen limiet)
     status         TEXT NOT NULL DEFAULT 'opzet'
                    CHECK (status IN ('opzet', 'bracket', 'knockout', 'afgelopen')),
     created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -271,16 +276,18 @@ CREATE TABLE IF NOT EXISTS settings (
 -- hier bijgehouden, zodat een vergissing zichtbaar is en teruggedraaid kan
 -- worden. De naam wordt mee bewaard: ook na het verwijderen van een speler
 -- blijft leesbaar wat er gebeurd is.
--- Ingeloste coupons ("eerste 2 pintjes gratis"): één per team per toernooi.
--- Of een team een coupon heeft, wordt telkens berekend uit de inschrijvingen;
--- hier staat enkel welke al aan de bar ingelost werden, wanneer en door wie.
+-- Ingeloste coupons (2 gratis pintjes). Elke coupon hoort bij één uitgenodigd
+-- team (vriend_team_id) en is van de speler wiens link dat team gebruikte.
+-- Of een coupon bestaat en geldig is, wordt telkens berekend uit de
+-- inschrijvingen; hier staat enkel welke al aan de bar ingelost werden.
 CREATE TABLE IF NOT EXISTS coupon_inlossingen (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
-    team_id       INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-    ingelost_op   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-    ingelost_door INTEGER REFERENCES players(id) ON DELETE SET NULL,
-    UNIQUE (tournament_id, team_id)
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_id  INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    vriend_team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    speler_id      INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    ingelost_op    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    ingelost_door  INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    UNIQUE (tournament_id, vriend_team_id)
 );
 
 CREATE TABLE IF NOT EXISTS claim_log (
@@ -453,6 +460,16 @@ def _migreer_inschrijvingen(conn):
     """Kolommen voor de inschrijfpagina van toernooien."""
     if _kolommen(conn, "tournaments"):
         _voeg_kolom_toe(conn, "tournaments", "max_teams", "INTEGER")
+        # Hoeveel teams mag één speler uitnodigen (en zo coupons verdienen)? 0 = geen limiet.
+        _voeg_kolom_toe(conn, "tournaments", "uitnodigingen_per_speler", "INTEGER NOT NULL DEFAULT 1")
+        # Eerst stond de standaard op 2; toernooien in opbouw gaan mee naar 1.
+        al_gedaan = (not _kolommen(conn, "settings") or conn.execute(
+            "SELECT 1 FROM settings WHERE key = 'uitnodigingen_standaard_1'").fetchone())
+        if not al_gedaan:
+            conn.execute("UPDATE tournaments SET uitnodigingen_per_speler = 1 "
+                         "WHERE uitnodigingen_per_speler = 2 AND status = 'opzet'")
+            conn.execute("INSERT INTO settings (key, value) VALUES ('uitnodigingen_standaard_1', '1')")
+            conn.commit()
     if _kolommen(conn, "tournament_teams"):
         _voeg_kolom_toe(conn, "tournament_teams", "ingeschreven_door",
                         "INTEGER REFERENCES players(id) ON DELETE SET NULL")
@@ -466,22 +483,38 @@ def _migreer_inschrijvingen(conn):
     if _kolommen(conn, "players"):
         _voeg_kolom_toe(conn, "players", "aangemaakt_door",
                         "INTEGER REFERENCES players(id) ON DELETE SET NULL")
+        # De kroonkurk die de profielfoto vervangt. Iedereen start leeg = basisdop.
+        _voeg_kolom_toe(conn, "players", "dop", "TEXT")
+        _voeg_kolom_toe(conn, "players", "dop_ontwerpen", "TEXT")
 
 
 def _migreer_coupons_per_team(conn):
-    """De eerste versie van de coupons hing aan een speler; nu aan een team.
-    Een al ingeloste coupon gaat naar het team waarmee die speler meedeed."""
+    """Eerdere versies van de coupons hingen aan een speler of aan een team; nu
+    hoort elke coupon bij het uitgenodigde team. Een al ingeloste coupon gaat
+    naar het eerste team dat via die speler of dat team binnenkwam."""
     kolommen = _kolommen(conn, "coupon_inlossingen")
-    if not kolommen or "team_id" in kolommen:
+    if not kolommen or "vriend_team_id" in kolommen:
         return
     conn.execute("ALTER TABLE coupon_inlossingen RENAME TO coupon_inlossingen_oud")
     conn.executescript(SCHEMA)
-    conn.execute("""
-        INSERT OR IGNORE INTO coupon_inlossingen (tournament_id, team_id, ingelost_op, ingelost_door)
-        SELECT o.tournament_id, tt.team_id, o.ingelost_op, o.ingelost_door
-        FROM coupon_inlossingen_oud o
-        JOIN tournament_teams tt ON tt.tournament_id = o.tournament_id
-        JOIN teams t ON t.id = tt.team_id AND o.player_id IN (t.player1_id, t.player2_id)""")
+    if "team_id" in kolommen:
+        eigenaars = "o.team_id IN (SELECT tt2.team_id FROM tournament_teams tt2 JOIN teams t2 ON t2.id = tt2.team_id " \
+                    "WHERE tt2.tournament_id = o.tournament_id AND v.uitgenodigd_door IN (t2.player1_id, t2.player2_id))"
+    else:
+        eigenaars = "v.uitgenodigd_door = o.player_id"
+    for o in conn.execute("SELECT * FROM coupon_inlossingen_oud").fetchall():
+        vriend = conn.execute(f"""
+            SELECT v.team_id, v.uitgenodigd_door FROM tournament_teams v,
+                   (SELECT ? AS tournament_id, ? AS team_id, ? AS player_id) o
+            WHERE v.tournament_id = o.tournament_id AND {eigenaars}
+            ORDER BY v.id LIMIT 1""",
+            (o["tournament_id"], o["team_id"] if "team_id" in kolommen else None,
+             o["player_id"] if "player_id" in kolommen else None)).fetchone()
+        if vriend:
+            conn.execute("INSERT OR IGNORE INTO coupon_inlossingen (tournament_id, vriend_team_id, "
+                         "speler_id, ingelost_op, ingelost_door) VALUES (?, ?, ?, ?, ?)",
+                         (o["tournament_id"], vriend["team_id"], vriend["uitgenodigd_door"],
+                          o["ingelost_op"], o["ingelost_door"]))
     conn.execute("DROP TABLE coupon_inlossingen_oud")
     conn.commit()
 
@@ -596,6 +629,7 @@ _SPELER_VERWIJZINGEN = [
     ("tournament_teams", "te_bevestigen", None),
     ("tournament_teams", "uitgenodigd_door", None),
     ("coupon_inlossingen", "ingelost_door", None),
+    ("coupon_inlossingen", "speler_id", None),
     ("players", "aangemaakt_door", None),
 ]
 

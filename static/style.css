@@ -1251,6 +1251,21 @@ h3 { font-weight: 700; }
 }
 @keyframes staart { from { transform: rotate(-10deg); } to { transform: rotate(10deg); } }
 
+/* ---- de vis aaien (paasei, zie thuis.js) ----
+   Tik op de vis: hij springt en knijpt zijn oog dicht. Hoe meer je tikt,
+   hoe gelukkiger hij wordt. */
+.logo3d { cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.laag-vis { transform-origin: 46% 61%; }
+.vis-oog { transform-box: fill-box; transform-origin: center; transition: transform .12s ease, opacity .12s ease; }
+.vis-oog-blij { fill: none; stroke: #0b0b0b; stroke-width: 2.8; stroke-linecap: round; opacity: 0;
+  transform-box: fill-box; transform-origin: center bottom; transform: scaleY(.3); transition: opacity .1s ease, transform .16s cubic-bezier(.3, 1.6, .5, 1); }
+.logo3d.geaaid .vis-oog { transform: scaleY(.1); opacity: 0; }
+.logo3d.geaaid .vis-oog-blij { opacity: 1; transform: none; }
+.logo3d.kwispelt .vis-staart { animation: none; }
+.logo3d-gloed { transition: filter .4s ease; }
+.logo3d.geaaid .logo3d-gloed { filter: hue-rotate(calc(var(--roze, 0) * -55deg)) saturate(calc(1 + var(--roze, 0) * .6)); }
+
 /* ---- podium ---- */
 .podium {
   list-style: none; margin: 34px 0 0; padding: 0;
@@ -2090,3 +2105,263 @@ html.viering-open, html.viering-open body { overflow: hidden; }
 .pil.pil-via { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
 .coupon-tip { border-left: 4px solid var(--amber); }
 .gelijkend-keuzes { display: grid; gap: 10px; margin: 0 0 8px; }
+
+/* organisatie: uitnodiger van een team invullen of verbeteren */
+.via-blok { display: inline-block; margin-left: .3rem; font-size: .8rem; font-weight: 400; }
+.via-blok summary { cursor: pointer; color: var(--stil); text-decoration: underline dotted; }
+.via-blok form { display: flex; gap: .4rem; margin-top: .35rem; flex-wrap: wrap; }
+.via-blok select { font: inherit; padding: .25rem .4rem; border-radius: 6px; border: 1px solid var(--lijn); max-width: 16rem; }
+
+.inschrijf-beheer { margin: 20px 0 0 !important; }
+
+/* ================================================================
+   Kroonkurken — de avatar van elke speler (en de gesplitste dop van
+   een team). De afbeeldingen komen van de server (dop.py); hier enkel
+   hoe ze staan, de 3D-versie op een profiel en de editor.
+   ================================================================ */
+img.dop-img {
+  border: 0 !important; border-radius: 0 !important; object-fit: contain;
+  background: none !important; box-shadow: none !important;
+  filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, .35));
+}
+.avatar-mini.dop-img { width: 28px; height: 28px; }
+.podium-foto.dop-img { width: 76px; height: 76px; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55)); }
+.bm-foto.dop-img { filter: drop-shadow(0 .4vh .6vh rgba(0, 0, 0, .5)); }
+
+/* ---- de zwevende 3D-dop (static/dop3d.js) ----
+   Bovenaan de dop, daaronder donkere kopieën die samen de zijkant vormen,
+   achteraan de binnenkant met de grijze voering. --d is de dikte. */
+.dop3d {
+  --d: 26px;
+  position: relative; width: 220px; aspect-ratio: 1; perspective: 760px;
+  cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent; flex: 0 0 auto;
+}
+.dop3d:active { cursor: grabbing; }
+.dop3d-draai { position: absolute; inset: 0; transform-style: preserve-3d; will-change: transform; }
+.dop3d-laag { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.dop3d-boven { transform: translateZ(calc(var(--d) / 2)); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.dop3d-zij {
+  transform: translateZ(calc(var(--d) / 2 - (var(--i) + 1) * var(--d) / 10)) scale(calc(1 + var(--i) * .005));
+  filter: brightness(.42) saturate(.8);
+}
+.dop3d-achter {
+  transform: rotateY(180deg) translateZ(calc(var(--d) / 2));
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+.dop3d-achter img { position: absolute; inset: 0; width: 100%; height: 100%; filter: brightness(.55) saturate(.7); }
+.dop3d-achter span {
+  position: absolute; inset: 19%; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #f1f5f9, #cbd5e1 45%, #94a3b8 75%, #64748b);
+  box-shadow: inset 0 0 0 3px rgba(15, 23, 42, .25), inset 0 6px 14px rgba(15, 23, 42, .25);
+}
+.dop3d-schaduw {
+  position: absolute; left: 16%; right: 16%; bottom: -9%; height: 13%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, .6), transparent);
+  pointer-events: none;
+}
+
+/* ---- profielkop ----
+   Donker zoals de thuispagina, met een gloed in de kleur van de dop. */
+.profiel-held {
+  position: relative; overflow: hidden; isolation: isolate; color: #fff;
+  background: var(--baksteen), linear-gradient(180deg, var(--navy) 0%, var(--navy-donker) 100%);
+  border-bottom: 4px solid var(--amber);
+  padding: 36px 0 34px;
+}
+.profiel-held::before, .profiel-held::after {
+  content: ""; position: absolute; z-index: -1; width: 520px; height: 520px; border-radius: 50%;
+  top: 50%; left: max(-60px, calc(50% - 560px)); transform: translateY(-50%);
+  background: radial-gradient(circle, var(--dopkleur, #f59e0b), transparent 62%); opacity: .34;
+}
+.profiel-held::after { display: none; }
+.profiel-held.team::before { left: max(-140px, calc(50% - 640px)); }
+.profiel-held.team::after {
+  display: block; left: max(60px, calc(50% - 440px));
+  background: radial-gradient(circle, var(--dopkleur2, #f59e0b), transparent 62%);
+}
+.profiel-raster { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px; align-items: center; }
+.profiel-dop { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.profiel-dop .dop3d { width: 230px; --d: 28px; }
+.dop-hint { margin: -6px 0 0; font-size: .78rem; color: #94a3b8; }
+.profiel-boventitel { margin: 0 0 8px; color: #94a3b8; font-size: .9rem; }
+.profiel-boventitel .speler-id { background: rgba(255, 255, 255, .1); color: #e2e8f0; }
+.profiel-info h1 {
+  font-family: var(--kop); font-weight: 800; color: #fff; margin: 0 0 10px;
+  font-size: clamp(2.4rem, 6vw, 4rem); line-height: .95; letter-spacing: .3px;
+  text-shadow: 0 4px 30px rgba(0, 0, 0, .35); overflow-wrap: anywhere;
+}
+.profiel-pillen { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.profiel-pillen .pil { background: rgba(255, 255, 255, .12); color: #e2e8f0; }
+.profiel-sub { margin: 6px 0 0; color: #cbd5e1; }
+.profiel-sub a { color: #fff; }
+.profiel-sub .team-beschrijving { color: #cbd5e1; }
+.profiel-tegels {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 10px;
+  margin-top: 22px;
+}
+.tegel {
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 14px; padding: 12px 14px 10px; min-width: 0;
+}
+.tegel strong {
+  display: block; font-family: var(--kop); font-weight: 800; font-size: 2rem; line-height: 1;
+  color: #fff; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tegel span { display: block; margin-top: 4px; font-size: .8rem; color: #94a3b8; line-height: 1.25; }
+.tegel.aura { background: linear-gradient(160deg, rgba(245, 158, 11, .28), rgba(245, 158, 11, .08)); border-color: rgba(245, 158, 11, .45); }
+.tegel.aura strong { color: #fcd34d; }
+.tegel small { font-size: .55em; color: #94a3b8; font-weight: 700; }
+.profiel-vorm { display: flex; align-items: center; gap: 6px; margin-top: 14px; font-size: .82rem; color: #94a3b8; }
+.profiel-vorm span { margin-right: 4px; }
+.profiel-vorm i {
+  font-style: normal; font-weight: 800; font-size: .74rem; width: 24px; height: 24px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+}
+.profiel-vorm i.w { background: var(--groen); }
+.profiel-vorm i.v { background: var(--rood); }
+.lid-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.lid-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .12);
+  color: #fff; text-decoration: none; font-weight: 600;
+}
+.lid-chip:hover { background: rgba(255, 255, 255, .16); }
+.lid-chip img { width: 30px; height: 30px; }
+.lid-chips .en { color: #94a3b8; font-weight: 700; }
+.dop-aanpas.knop { background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
+.dop-aanpas.knop:hover { background: rgba(255, 255, 255, .18); }
+
+@media (max-width: 720px) {
+  .profiel-held { padding: 24px 0 26px; }
+  .profiel-raster { grid-template-columns: 1fr; gap: 8px; text-align: center; }
+  .profiel-dop { gap: 16px; }
+  .profiel-dop .dop3d { width: 170px; --d: 22px; }
+  .profiel-held::before { left: 50%; top: 120px; transform: translate(-50%, -50%); width: 380px; height: 380px; }
+  .profiel-held.team::before { left: 32%; }
+  .profiel-held.team::after { left: 68%; top: 120px; transform: translate(-50%, -50%); width: 380px; height: 380px; }
+  .profiel-pillen, .lid-chips, .profiel-vorm { justify-content: center; }
+  .profiel-tegels { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; text-align: left; }
+  .tegel.aura { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; }
+  .tegel.aura strong { font-size: 2.2rem; }
+  .profiel-dop { margin-bottom: 14px; }
+  .tegel { padding: 10px 10px 8px; }
+  .tegel strong { font-size: 1.55rem; }
+  .tegel span { font-size: .72rem; }
+}
+
+/* ---- de editor ----
+   De kop met het voorbeeld blijft bovenaan plakken: zo zie je de dop
+   veranderen terwijl je verder naar beneden aan de knoppen draait. */
+.dop-pagina .nu-balk { display: none; }
+.dop-held { padding: 16px 0 16px; position: sticky; top: 0; z-index: 20; }
+.dop-held::before { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 420px; height: 420px; }
+.dop-held-binnen { display: flex; align-items: center; justify-content: center; gap: 28px; }
+.dop3d.groot { width: 156px; --d: 20px; }
+.dop-held-tekst { display: flex; flex-direction: column; gap: 10px; }
+.dop-held-naam { margin: 0; font-family: var(--kop); font-weight: 800; font-size: 1.6rem; color: #fff; line-height: 1; }
+.dop-snel { display: flex; gap: 8px; }
+.dop-snel .knop { background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
+.dop-editor { max-width: 600px; margin: 0 auto; }
+.dop-knoppen { padding: 4px 0; }
+.dop-knop {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 10px;
+  padding: 10px 16px; border-top: 1px solid var(--lijn);
+}
+.dop-knop:first-child { border-top: 0; }
+.dop-knop-label { font-weight: 700; }
+.dop-bediening { display: flex; align-items: center; gap: 6px; }
+.dop-pijl {
+  width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--lijn); background: #fff;
+  font-size: 1.5rem; line-height: 1; color: var(--navy-donker); cursor: pointer; padding: 0 0 3px;
+  transition: transform .1s, background .15s; -webkit-tap-highlight-color: transparent;
+}
+.dop-pijl:hover { background: #fef3c7; }
+.dop-pijl:active { transform: scale(.9); }
+.dop-waarde {
+  width: 150px; height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: 999px; border: 1px solid var(--lijn); background: var(--fond); color: var(--inkt);
+  font: inherit; font-weight: 600; padding: 0 12px; cursor: pointer; white-space: nowrap; overflow: hidden;
+}
+.dop-waarde[aria-expanded="true"] { border-color: var(--amber); background: #fef3c7; }
+input.dop-getal { text-align: center; font-weight: 800; font-size: 1.1rem; cursor: text; -moz-appearance: textfield; }
+input.dop-getal::-webkit-inner-spin-button, input.dop-getal::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.dop-stip {
+  width: 30px; height: 30px; border-radius: 50%; display: inline-block; flex: 0 0 auto;
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, .15);
+}
+.dop-stip.klein { width: 18px; height: 18px; }
+.dop-stip.zelfde { outline: 2px dashed var(--stil); outline-offset: 2px; }
+.dop-keuzes { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 12px; }
+.dop-keuzes.als-kleuren { grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); justify-items: center; }
+.dop-keuzes.als-doppen { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
+.dop-keuze {
+  border: 0; background: none; padding: 5px 2px; border-radius: 12px; cursor: pointer; font: inherit;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--inkt);
+  -webkit-tap-highlight-color: transparent;
+}
+.dop-keuze svg { width: 54px; height: 54px; display: block; }
+.dop-keuze-naam { font-size: .74rem; color: var(--stil); }
+.als-doppen .dop-keuze[aria-pressed="true"] { background: #fef3c7; box-shadow: inset 0 0 0 2px var(--amber); }
+.als-kleuren .dop-keuze { padding: 3px; border-radius: 50%; }
+.als-kleuren .dop-keuze[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--amber); }
+.dop-status { display: none; margin: 0; max-width: 12rem; font-size: .8rem; font-weight: 600; color: #fca5a5; }
+.dop-status.fout { display: block; }
+.dop-editor { padding-bottom: 24px; }
+@media (max-width: 720px) {
+  .dop-held { padding: 12px 0 12px; border-bottom-width: 3px; }
+  .dop-held-binnen { gap: 18px; }
+  .dop3d.groot { width: 128px; --d: 16px; }
+  .dop-held-naam { display: none; }
+  .dop-snel { flex-direction: column; }
+  .dop-knop { padding: 9px 12px; }
+  .dop-waarde { width: 132px; padding: 0 8px; font-size: .92rem; }
+  .dop-pijl { width: 38px; height: 38px; }
+}
+
+/* ---- bewaarde ontwerpen (editor) ---- */
+.dop-bewaard { padding: 14px 16px; }
+.dop-bewaard-kop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.dop-bewaard-kop .fout-tekst { color: var(--rood); }
+.dop-sloten { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dop-slot { position: relative; }
+.dop-slot-knop {
+  width: 100%; aspect-ratio: 1; border-radius: 16px; border: 2px solid transparent; background: var(--fond);
+  display: flex; align-items: center; justify-content: center; padding: 10%; cursor: pointer;
+  font: inherit; color: var(--stil); -webkit-tap-highlight-color: transparent; transition: transform .12s;
+}
+.dop-slot-knop:active { transform: scale(.95); }
+.dop-slot-knop svg { width: 100%; height: 100%; display: block; }
+.dop-slot.leeg .dop-slot-knop { border: 2px dashed var(--lijn); }
+.dop-slot.leeg .dop-slot-knop:hover { border-color: var(--amber); color: var(--amber-donker); }
+.dop-slot-leeg { font-size: .8rem; font-weight: 600; }
+.dop-slot.actief .dop-slot-knop { border-color: var(--amber); background: #fef3c7; }
+.dop-slot-nummer {
+  position: absolute; left: 7px; top: 5px; font-size: .72rem; font-weight: 800; color: var(--stil);
+  pointer-events: none;
+}
+.dop-slot-weg {
+  position: absolute; right: -6px; top: -6px; width: 26px; height: 26px; border-radius: 50%;
+  border: 0; background: var(--navy-donker); color: #fff; font-size: 1rem; line-height: 1;
+  cursor: pointer; padding: 0 0 2px; box-shadow: 0 2px 6px rgba(15, 23, 42, .3);
+}
+.dop-sloten.vervangen .dop-slot.gevuld .dop-slot-knop { border-color: var(--rood); animation: dop-wiebel .5s ease-in-out infinite alternate; }
+.dop-sloten.vervangen .dop-slot-weg { display: none; }
+@keyframes dop-wiebel { from { transform: rotate(-2deg); } to { transform: rotate(2deg); } }
+.dop-bewaard-acties { margin-top: 12px; display: flex; justify-content: center; }
+.dop-bewaard-acties .knop[disabled] { opacity: .7; cursor: default; }
+
+/* ---- snel wisselen op je eigen profiel ---- */
+.dop-wissel { display: flex; gap: 10px; justify-content: center; margin-top: -6px; }
+.dop-wissel form { margin: 0; }
+.dop-wissel-knop {
+  width: 46px; height: 46px; padding: 4px; border-radius: 50%; cursor: pointer;
+  background: rgba(255, 255, 255, .06); border: 2px solid rgba(255, 255, 255, .14);
+  transition: transform .15s, border-color .15s; -webkit-tap-highlight-color: transparent;
+}
+.dop-wissel-knop:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, .4); }
+.dop-wissel-knop svg { width: 100%; height: 100%; display: block; }
+.dop-wissel-knop.actief { border-color: var(--amber); background: rgba(245, 158, 11, .18); cursor: default; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .dop-sloten.vervangen .dop-slot.gevuld .dop-slot-knop { animation: none; }
+}

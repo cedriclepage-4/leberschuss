@@ -44,7 +44,7 @@
   function gevonden(tekst) {
     var pad = null;
     try { pad = new URL(tekst, location.href).pathname; } catch (e) {}
-    if (pad && /^\/coupon\/\d+\/\d+\/[0-9a-f]+$/.test(pad)) {
+    if (pad && /^\/coupon\/\d+\/\d+\/\d+\/[0-9a-f]+$/.test(pad)) {
       klaar = true;
       zeg("Coupon gevonden…");
       if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) {} }
