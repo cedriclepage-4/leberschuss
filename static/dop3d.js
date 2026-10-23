@@ -70,82 +70,90 @@
     return 0.5 - 0.5 * Math.cos(p.n * h);
   }
 
-  /* Bouwt alle driehoeken. randstijlen = [links, rechts]. */
+  /* Bouwt alle delen van de dop als hoekpunten (positie, normaal, uv: 8 getallen)
+     plus een lijst driehoeken die naar die hoekpunten verwijst. Elk hoekpunt
+     staat er maar één keer in: zo blijft het licht genoeg om bij elke tik op
+     de rand-draaiknop opnieuw te bouwen, ook op een gsm. randstijlen = [links, rechts]. */
   function bouw(randstijlen) {
-    var buiten = [], binnen = [];
-    var i, j;
-    function punt(i, j) {
-      var h = i / N * 2 * Math.PI, s = j / (M - 1);
-      var pr = profiel(s), x = Math.cos(h), y = Math.sin(h);
+    var i, j, k, a, b;
+    var P = new Float32Array(N * M * 3), Q = new Float32Array(N * M * 3);
+    for (i = 0; i < N; i++) {
+      var h = i / N * 2 * Math.PI, x = Math.cos(h), y = Math.sin(h);
       var stijl = x < 0 ? randstijlen[0] : randstijlen[1];
       var p = PLOOIEN[stijl] || PLOOIEN.klassiek;
-      var w = glad(0.30, 0.62, s);
       var g = plooi(stijl, h) - (p.n ? 0.5 : 0);
-      var r = pr[0] + p.amp * g * w;
-      var z = pr[1] + 0.018 * g * glad(0.75, 1, s);  // de onderrand golft mee
-      return [r * x, r * y, z];
-    }
-    var P = [];
-    for (i = 0; i < N; i++) { P.push([]); for (j = 0; j < M; j++) P[i].push(punt(i, j)); }
-    // normalen uit de buren (rond loopt over)
-    var Nm = [];
-    for (i = 0; i < N; i++) {
-      Nm.push([]);
       for (j = 0; j < M; j++) {
-        var a = P[(i + 1) % N][j], b = P[(i + N - 1) % N][j];
-        var c = P[i][Math.min(M - 1, j + 1)], d = P[i][Math.max(0, j - 1)];
-        var dh = [a[0] - b[0], a[1] - b[1], a[2] - b[2]], ds = [c[0] - d[0], c[1] - d[1], c[2] - d[2]];
-        var n = [dh[1] * ds[2] - dh[2] * ds[1], dh[2] * ds[0] - dh[0] * ds[2], dh[0] * ds[1] - dh[1] * ds[0]];
-        var q = P[i][j];
-        if (n[0] * q[0] + n[1] * q[1] + n[2] * 1.0 < 0) n = [-n[0], -n[1], -n[2]];
-        var l = Math.hypot(n[0], n[1], n[2]) || 1;
-        Nm[i].push([n[0] / l, n[1] / l, n[2] / l]);
+        var sj = j / (M - 1), pr = profiel(sj);
+        var r = pr[0] + p.amp * g * glad(0.30, 0.62, sj);
+        k = (i * M + j) * 3;
+        P[k] = r * x; P[k + 1] = r * y; P[k + 2] = pr[1] + 0.018 * g * glad(0.75, 1, sj);  // de onderrand golft mee
       }
     }
-    function rooster(pos, nor, uit, keer) {
-      for (i = 0; i < N; i++) {
-        var i2 = (i + 1) % N;
-        for (j = 0; j < M - 1; j++) {
-          var hoeken = [[i, j], [i2, j], [i2, j + 1], [i, j], [i2, j + 1], [i, j + 1]];
-          hoeken.forEach(function (k) {
-            var p = pos(k[0], k[1]), m = nor(k[0], k[1]);
-            uit.push(p[0], p[1], p[2], keer * m[0], keer * m[1], keer * m[2], 0, 0);
-          });
-        }
+    // normalen uit de buren (rond loopt over)
+    for (i = 0; i < N; i++) {
+      var iv = ((i + 1) % N) * M, ia = ((i + N - 1) % N) * M;
+      for (j = 0; j < M; j++) {
+        var jv = Math.min(M - 1, j + 1), ja = Math.max(0, j - 1);
+        a = (iv + j) * 3; b = (ia + j) * 3;
+        var c = (i * M + jv) * 3, d = (i * M + ja) * 3;
+        var hx = P[a] - P[b], hy = P[a + 1] - P[b + 1], hz = P[a + 2] - P[b + 2];
+        var sx = P[c] - P[d], sy = P[c + 1] - P[d + 1], sz = P[c + 2] - P[d + 2];
+        var nx = hy * sz - hz * sy, ny = hz * sx - hx * sz, nz = hx * sy - hy * sx;
+        k = (i * M + j) * 3;
+        if (nx * P[k] + ny * P[k + 1] + nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+        var l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+        Q[k] = nx / l; Q[k + 1] = ny / l; Q[k + 2] = nz / l;
       }
     }
-    // buitenkant (schouder + rok)
-    rooster(function (a, b) { return P[a][b]; }, function (a, b) { return Nm[a][b]; }, buiten, 1);
-    // binnenkant: dezelfde vorm, een wanddikte naar binnen
-    function binnenPunt(a, b) {
-      var p = P[a][b], m = Nm[a][b];
-      return [p[0] - m[0] * DIK, p[1] - m[1] * DIK, p[2] - m[2] * DIK];
+    // het rooster van de buitenkant en (een wanddikte naar binnen) de binnenkant
+    var buiten = new Float32Array(N * M * 8), binnen = new Float32Array(N * M * 8);
+    for (k = 0; k < N * M; k++) {
+      var o = k * 8, q = k * 3;
+      buiten[o] = P[q]; buiten[o + 1] = P[q + 1]; buiten[o + 2] = P[q + 2];
+      buiten[o + 3] = Q[q]; buiten[o + 4] = Q[q + 1]; buiten[o + 5] = Q[q + 2];
+      binnen[o] = P[q] - Q[q] * DIK; binnen[o + 1] = P[q + 1] - Q[q + 1] * DIK; binnen[o + 2] = P[q + 2] - Q[q + 2] * DIK;
+      binnen[o + 3] = -Q[q]; binnen[o + 4] = -Q[q + 1]; binnen[o + 5] = -Q[q + 2];
     }
-    rooster(binnenPunt, function (a, b) { return Nm[a][b]; }, binnen, -1);
+    var rooster = new Uint16Array(N * (M - 1) * 6);
+    for (i = 0, k = 0; i < N; i++) {
+      var i2 = (i + 1) % N;
+      for (j = 0; j < M - 1; j++) {
+        var v00 = i * M + j, v10 = i2 * M + j;
+        rooster[k++] = v00; rooster[k++] = v10; rooster[k++] = v10 + 1;
+        rooster[k++] = v00; rooster[k++] = v10 + 1; rooster[k++] = v00 + 1;
+      }
+    }
     // de lip: buiten- en binnenrand onderaan verbinden
-    var lip = [];
+    var lip = new Float32Array(N * 2 * 8), lipD = new Uint16Array(N * 6);
     for (i = 0; i < N; i++) {
-      var i3 = (i + 1) % N;
-      var o1 = P[i][M - 1], o2 = P[i3][M - 1], b1 = binnenPunt(i, M - 1), b2 = binnenPunt(i3, M - 1);
-      [o1, o2, b2, o1, b2, b1].forEach(function (p) { lip.push(p[0], p[1], p[2], 0, 0, -1, 0, 0); });
+      var bo = (i * M + M - 1) * 8;
+      for (k = 0; k < 3; k++) { lip[i * 8 + k] = buiten[bo + k]; lip[(N + i) * 8 + k] = binnen[bo + k]; }
+      lip[i * 8 + 5] = -1; lip[(N + i) * 8 + 5] = -1;
+      var n2 = (i + 1) % N;
+      lipD.set([i, n2, N + n2, i, N + n2, N + i], i * 6);
     }
-    // het platte bovenvlak (met het ontwerp) en de binnenkant ervan
-    var boven = [], onder = [], voering = [];
-    for (i = 0; i < N; i++) {
-      var h1 = i / N * 2 * Math.PI, h2 = (i + 1) / N * 2 * Math.PI;
-      var r0 = P[i][0], r1 = P[(i + 1) % N][0];
-      [[0, 0], [r0[0], r0[1]], [r1[0], r1[1]]].forEach(function (p) {
-        boven.push(p[0], p[1], 0, 0, 0, 1, 0.5 + p[0] / TOP_R * BEELD_R, 0.5 - p[1] / TOP_R * BEELD_R);
-      });
-      [[0, 0], [r1[0], r1[1]], [r0[0], r0[1]]].forEach(function (p) {
-        onder.push(p[0] * 0.99, p[1] * 0.99, -DIK, 0, 0, -1, 0, 0);
-      });
-      var vr = 0.70;
-      [[0, 0], [Math.cos(h2) * vr, Math.sin(h2) * vr], [Math.cos(h1) * vr, Math.sin(h1) * vr]].forEach(function (p) {
-        voering.push(p[0], p[1], -DIK - 0.012, 0, 0, -1, 0, 0);
-      });
+    // schijven: het bovenvlak (met het ontwerp), de binnenkant ervan en de voering
+    function schijf(straal, z, nz, metBeeld, omgekeerd) {
+      var v = new Float32Array((N + 1) * 8), d = new Uint16Array(N * 3);
+      v[5] = nz; v[6] = 0.5; v[7] = 0.5; v[2] = z;
+      for (i = 0; i < N; i++) {
+        var o2 = (i + 1) * 8, px, py;
+        if (straal) { var hh = i / N * 2 * Math.PI; px = Math.cos(hh) * straal; py = Math.sin(hh) * straal; }
+        else { px = P[i * M * 3] * 0.99; py = P[i * M * 3 + 1] * 0.99; }
+        if (metBeeld) { px = P[i * M * 3]; py = P[i * M * 3 + 1]; }
+        v[o2] = px; v[o2 + 1] = py; v[o2 + 2] = z; v[o2 + 5] = nz;
+        if (metBeeld) { v[o2 + 6] = 0.5 + px / TOP_R * BEELD_R; v[o2 + 7] = 0.5 - py / TOP_R * BEELD_R; }
+        var volgende = (i + 1) % N + 1;
+        if (omgekeerd) d.set([0, volgende, i + 1], i * 3); else d.set([0, i + 1, volgende], i * 3);
+      }
+      return { v: v, d: d };
     }
-    return { boven: boven, buiten: buiten.concat(lip), binnen: binnen.concat(onder), voering: voering };
+    return {
+      boven: schijf(0, 0, 1, true, false),
+      buiten: { v: buiten, d: rooster }, lip: { v: lip, d: lipD },
+      binnen: { v: binnen, d: rooster }, onder: schijf(0, -DIK, -1, false, true),
+      voering: schijf(0.70, -DIK - 0.012, -1, false, true)
+    };
   }
 
   /* ============================================================ shaders == */
@@ -275,11 +283,14 @@
       huidigeVorm = sleutel;
       var g = bouw(stijlen);
       Object.keys(g).forEach(function (k) {
-        if (delen[k]) gl.deleteBuffer(delen[k].buf);
+        if (delen[k]) { gl.deleteBuffer(delen[k].buf); gl.deleteBuffer(delen[k].idx); }
         var buf = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(g[k]), gl.STATIC_DRAW);
-        delen[k] = { buf: buf, n: g[k].length / 8 };
+        gl.bufferData(gl.ARRAY_BUFFER, g[k].v, gl.STATIC_DRAW);
+        var idx = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idx);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, g[k].d, gl.STATIC_DRAW);
+        delen[k] = { buf: buf, idx: idx, n: g[k].d.length };
       });
     }
 
@@ -337,7 +348,7 @@
       gl.uniform3fv(loc.uKleurL, stijl.rand[0]); gl.uniform3fv(loc.uKleurR, stijl.rand[1]);
       gl.uniform3fv(loc.uAfwL, stijl.afw[0]); gl.uniform3fv(loc.uAfwR, stijl.afw[1]);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, beeld); gl.uniform1i(loc.uBeeld, 0);
-      [["boven", 0], ["buiten", 1], ["binnen", 2], ["voering", 3]].forEach(function (d) {
+      [["boven", 0], ["buiten", 1], ["lip", 1], ["binnen", 2], ["onder", 2], ["voering", 3]].forEach(function (d) {
         var deel = delen[d[0]];
         if (!deel) return;
         gl.bindBuffer(gl.ARRAY_BUFFER, deel.buf);
@@ -345,7 +356,8 @@
         gl.enableVertexAttribArray(loc.aNor); gl.vertexAttribPointer(loc.aNor, 3, gl.FLOAT, false, 32, 12);
         gl.enableVertexAttribArray(loc.aUv); gl.vertexAttribPointer(loc.aUv, 2, gl.FLOAT, false, 32, 24);
         gl.uniform1i(loc.uModus, d[1]);
-        gl.drawArrays(gl.TRIANGLES, 0, deel.n);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, deel.idx);
+        gl.drawElements(gl.TRIANGLES, deel.n, gl.UNSIGNED_SHORT, 0);
       });
     }
     return { zet: zet, teken: teken };

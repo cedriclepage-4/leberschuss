@@ -1,7 +1,7 @@
 /* Het grote scherm na het melden van een uitslag, zoals bij Strava of je
  * bankapp: het hele scherm kleurt, er springt een groot icoon tevoorschijn,
- * en bij winst volgt er confetti. Tik ergens (of druk op een toets) om verder
- * te gaan; na een paar seconden verdwijnt het vanzelf.
+ * en bij winst volgt er confetti. Het blijft staan tot je ergens tikt (of op
+ * een toets drukt): zo mis je het nooit.
  */
 (function () {
   "use strict";
@@ -35,7 +35,6 @@
     scherm.addEventListener("click", sluit);
     document.addEventListener("keydown", sluit);
   }, 600);
-  setTimeout(sluit, gewonnen ? 5200 : 4200);
 
   /* ------------------------------------------------------- confetti -- */
   if (!gewonnen || rustig) return;

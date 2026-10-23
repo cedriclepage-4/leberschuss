@@ -309,3 +309,48 @@
     cirkels.forEach(function (c) { c.classList.remove("actief"); });
   });
 })();
+
+/* Wachtwoordvelden: een oogje om te tonen wat je tikt, en bij "herhaal je
+   wachtwoord" meteen zien als de twee niet gelijk zijn (de server controleert
+   het daarna nog eens). */
+(function () {
+  "use strict";
+  var OOG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3.2"/></svg>';
+  var DICHT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3.2"/><path d="M4 20 20 4"/></svg>';
+
+  document.querySelectorAll('input[type="password"]').forEach(function (veld) {
+    var omhulsel = document.createElement("span");
+    omhulsel.className = "ww-veld" + (veld.classList.contains("mini-input") ? " mini" : "");
+    veld.parentNode.insertBefore(omhulsel, veld);
+    omhulsel.appendChild(veld);
+    var knop = document.createElement("button");
+    knop.type = "button";
+    knop.className = "ww-oog";
+    knop.innerHTML = OOG;
+    knop.setAttribute("aria-label", "Wachtwoord tonen");
+    knop.addEventListener("click", function () {
+      var tonen = veld.type === "password";
+      veld.type = tonen ? "text" : "password";
+      knop.innerHTML = tonen ? DICHT : OOG;
+      knop.setAttribute("aria-label", tonen ? "Wachtwoord verbergen" : "Wachtwoord tonen");
+      knop.setAttribute("aria-pressed", tonen ? "true" : "false");
+    });
+    omhulsel.appendChild(knop);
+    // Bij het versturen altijd terug verborgen: zo onthoudt de browser het
+    // als wachtwoord en staat het niet leesbaar op het scherm.
+    if (veld.form) veld.form.addEventListener("submit", function () { veld.type = "password"; });
+  });
+
+  document.querySelectorAll("input[data-herhaal-van]").forEach(function (herhaal) {
+    var form = herhaal.form;
+    var eerste = form && form.querySelector('input[name="' + herhaal.getAttribute("data-herhaal-van") + '"]');
+    if (!eerste) return;
+    function check() {
+      herhaal.setCustomValidity(herhaal.value && herhaal.value !== eerste.value
+        ? "De twee wachtwoorden zijn niet hetzelfde." : "");
+      herhaal.classList.toggle("ww-anders", !!herhaal.value && herhaal.value !== eerste.value);
+    }
+    herhaal.addEventListener("input", check);
+    eerste.addEventListener("input", check);
+  });
+})();

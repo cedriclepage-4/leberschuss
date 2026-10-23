@@ -5,8 +5,6 @@
 <div class="login-wrap">
   <div class="kaart login-kaart">
     <h1>Inloggen</h1>
-    <p class="stil">Log in met je spelersaccount. Organisatoren gebruiken hetzelfde
-       account: het organisatiepaneel verschijnt vanzelf.</p>
     <form method="post">
       <label>Je naam of spelersnummer
         <input type="text" name="naam" autocomplete="username" autofocus required></label>
@@ -15,7 +13,7 @@
       <button type="submit" class="knop primair breed">Inloggen</button>
     </form>
     {% if claim_venster_open %}
-    <p class="klein-tekst ruimte-boven">Ingeschreven via het formulier? Dan staat je
+    <p class="klein-tekst ruimte-boven">Heeft je ploegmaat je team al ingeschreven in een toernooi? Dan staat je
        account al klaar: <a href="{{ url_for('claimen') }}">eis het hier op</a> en kies
        een wachtwoord.</p>
     {% endif %}

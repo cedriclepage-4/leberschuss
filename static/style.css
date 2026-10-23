@@ -2397,3 +2397,20 @@ input.dop-getal::-webkit-inner-spin-button, input.dop-getal::-webkit-outer-spin-
 @media (prefers-reduced-motion: reduce) {
   .dop-sloten.vervangen .dop-slot.gevuld .dop-slot-knop { animation: none; }
 }
+
+/* ---- wachtwoordvelden: oogje om te tonen ---- */
+.ww-veld { position: relative; display: block; margin-top: 4px; }
+label .ww-veld input { margin-top: 0; }
+.ww-veld.mini { display: inline-block; }
+.ww-veld input { padding-right: 46px !important; width: 100%; }
+.ww-oog {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; border: 0; background: none; border-radius: 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--stil); padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.ww-oog:hover { color: var(--inkt); background: rgba(15, 23, 42, .05); }
+.ww-oog svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ww-veld.mini .ww-oog { width: 30px; height: 30px; }
+.ww-veld.mini .ww-oog svg { width: 18px; height: 18px; }
+input.ww-anders { border-color: var(--rood) !important; box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }

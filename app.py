@@ -2190,6 +2190,12 @@ def registreren():
         naam = " ".join((request.form.get("naam") or "").split())
         bijnaam = (request.form.get("bijnaam") or "").strip()
         ww = request.form.get("wachtwoord") or ""
+        # Twee keer hetzelfde wachtwoord, tegen tikfouten. Klopt het niet, dan
+        # tonen we het formulier opnieuw (met je naam er al in).
+        if ww != (request.form.get("herhaal") or ""):
+            flash("De twee wachtwoorden zijn niet hetzelfde. Tik ze nog eens in.", "fout")
+            return render_template("registreren.html", eerste=eerste, volgende=volgende,
+                                   overname=None, ingevuld={"naam": naam, "bijnaam": bijnaam})
         bestaand = db.execute("SELECT * FROM players WHERE name = ? COLLATE NOCASE",
                               (naam,)).fetchone() if naam else None
         if (bestaand is not None and not bestaand["password_hash"]
@@ -4158,6 +4164,8 @@ def wachtwoord_wijzigen():
         flash("Je huidige wachtwoord klopt niet.", "fout")
     elif len(nieuw) < 6:
         flash("Kies een nieuw wachtwoord van minstens 6 tekens.", "fout")
+    elif nieuw != request.form.get("herhaal", ""):
+        flash("De twee nieuwe wachtwoorden zijn niet hetzelfde.", "fout")
     else:
         db.execute("UPDATE players SET password_hash = ? WHERE id = ?",
                    (generate_password_hash(nieuw), ik["id"]))

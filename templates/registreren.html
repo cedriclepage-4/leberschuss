@@ -65,7 +65,10 @@
       <label>Wachtwoord (min. 6 tekens)
         <input type="password" name="wachtwoord" minlength="6" autocomplete="new-password" required
                {{ 'autofocus' if overname or gelijkend }}></label>
-      {% if gelijkend %}<p class="stil klein-tekst velduitleg">Tik je wachtwoord nog eens in.</p>{% endif %}
+      <label>Herhaal je wachtwoord
+        <input type="password" name="herhaal" minlength="6" autocomplete="new-password" required
+               data-herhaal-van="wachtwoord"></label>
+      {% if gelijkend %}<p class="stil klein-tekst velduitleg">Tik je wachtwoord nog eens in (twee keer).</p>{% endif %}
       {% if overname %}
       <label class="schakel"><input type="checkbox" name="dat_ben_ik" value="ja" required>
         <span>Ja, dat ben ik</span></label>
