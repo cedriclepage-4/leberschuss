@@ -1438,7 +1438,24 @@ def dop_kleur(speler_id):
     return kroonkurk_hex(doppen.get(speler_id))
 
 
-app.jinja_env.globals.update(dop_speler=dop_speler, dop_team=dop_team,
+def dop_3d(speler_id=None, team_id=None):
+    """De data-attributen voor de 3D-dop (static/dop3d.js): afbeelding, randkleur,
+    randvorm en afwerking. Bij een team twee waarden: links en rechts."""
+    doppen, teams = _dop_gegevens()
+    if team_id is not None:
+        p1, p2 = teams.get(team_id, (None, None))
+        ontwerpen = [kroonkurk.normaliseer(doppen.get(p1)), kroonkurk.normaliseer(doppen.get(p2))]
+        adres = dop_team(team_id)
+    else:
+        ontwerpen = [kroonkurk.normaliseer(doppen.get(speler_id))]
+        adres = dop_speler(speler_id)
+    rand = ",".join(kroonkurk.randkleur_hex(o) for o in ontwerpen)
+    vorm = ",".join(o["rand"] for o in ontwerpen)
+    afw = ",".join(o["afwerking"] for o in ontwerpen)
+    return Markup(f'data-dop="{adres}" data-rand="{rand}" data-randvorm="{vorm}" data-afwerking="{afw}"')
+
+
+app.jinja_env.globals.update(dop_speler=dop_speler, dop_team=dop_team, dop_3d=dop_3d,
                              kroonkurk_hex=kroonkurk_hex, dop_kleur=dop_kleur)
 
 

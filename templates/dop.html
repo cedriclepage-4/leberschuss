@@ -182,7 +182,10 @@
 
   /* -------------------------------------------------- bijwerken -- */
   function ververs(vanuitGetal) {
-    voorbeeld.zet(adres(ontwerp));
+    voorbeeld.zet(adres(ontwerp), {
+      rand: [ontwerp.randkleur === "zelfde" ? Dop.hex[ontwerp.kleur] : Dop.hex[ontwerp.randkleur]],
+      randvorm: [ontwerp.rand], afwerking: [ontwerp.afwerking]
+    });
     if (typeof planBewaren === "function" && statusTekst) planBewaren(vanuitGetal ? 400 : 0);
     if (typeof tekenSloten === "function" && sloten) tekenSloten();
     held.style.setProperty("--dopkleur", Dop.hex[ontwerp.kleur]);

@@ -11,7 +11,7 @@
 <section class="profiel-held team" style="--dopkleur: {{ dop_kleur(lid1['id'] if lid1 else none) }}; --dopkleur2: {{ dop_kleur(lid2['id'] if lid2 else none) }}">
   <div class="wrap profiel-raster">
     <div class="profiel-dop">
-      <div class="dop3d" data-dop="{{ dop_team(team['id']) }}" role="img" aria-label="Kroonkurk van {{ naam }}"></div>
+      <div class="dop3d" {{ dop_3d(team_id=team['id']) }} role="img" aria-label="Kroonkurk van {{ naam }}"></div>
     </div>
     <div class="profiel-info">
       <p class="profiel-boventitel">{{ 'Opgericht' if team['status'] == 'onvolledig' else 'Samen sinds' }} {{ team['created_at']|datum }}</p>
@@ -27,11 +27,11 @@
       {% if team['description'] %}<p class="profiel-sub"><span class="team-beschrijving">“{{ team['description'] }}”</span></p>{% endif %}
       {% if team['status'] == 'actief' %}
       <div class="profiel-tegels">
-        <div class="tegel aura"><strong>{{ team['elo']|elo }}</strong><span>team-Aura</span></div>
+        <div class="tegel aura"><strong>{{ team['elo']|elo }}</strong><span>Aura</span></div>
         {% if plaats %}<div class="tegel"><strong>#{{ plaats }}</strong><span>van {{ aantal_in_klassement }} in het teamklassement</span></div>{% endif %}
         <div class="tegel"><strong>{{ stats['gespeeld'] }}</strong><span>gespeeld</span></div>
         <div class="tegel"><strong>{{ stats['winst'] }}<small> – </small>{{ verlies }}</strong><span>gewonnen – verloren</span></div>
-        {% if pct is not none %}<div class="tegel"><strong>{{ pct|round|int }}%</strong><span>gewonnen</span></div>{% endif %}
+        {% if pct is not none %}<div class="tegel"><strong>{{ pct|round|int }}%</strong><span>winstpercentage</span></div>{% endif %}
       </div>
       {% if vorm %}
       <div class="profiel-vorm" title="De laatste {{ vorm|length }} wedstrijden, de recentste rechts">

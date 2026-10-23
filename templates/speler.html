@@ -9,7 +9,7 @@
 <section class="profiel-held" style="--dopkleur: {{ kroonkurk_hex(speler['dop']) }}">
   <div class="wrap profiel-raster">
     <div class="profiel-dop">
-      <div class="dop3d" data-dop="{{ dop_speler(speler['id']) }}" role="img"
+      <div class="dop3d" {{ dop_3d(speler_id=speler['id']) }} role="img"
            aria-label="Kroonkurk van {{ speler['naam'] }}"></div>
       {% if is_eigen %}
       {% if bewaarde_doppen %}

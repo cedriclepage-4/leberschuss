@@ -270,7 +270,7 @@
     return [defs, uit];
   }
 
-  var KOP = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">';
+  var KOP = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">';
 
   /* De dop van één speler. */
   function svg(ontwerp, p) {
