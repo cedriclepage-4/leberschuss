@@ -1264,6 +1264,35 @@ h3 { font-weight: 700; }
 .logo3d.geaaid .vis-oog-blij { opacity: 1; transform: none; }
 .logo3d.kwispelt .vis-staart { animation: none; }
 .logo3d-gloed { transition: filter .4s ease; }
+/* De knal (zie thuis.js): de vis verdwijnt, stukjes vliegen weg, en na een
+   paar tellen schiet hij vanachter de ruit weer naar voren. */
+.logo3d.ontploft .laag-vis { visibility: hidden; }
+.logo3d.terug .laag-vis { animation: vis-terug 1.1s cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes vis-terug {
+  0% { transform: translateZ(-70px) scale(.3); opacity: 0; }
+  12% { opacity: 1; }
+  55% { transform: translateZ(64px) scale(1.18); }
+  78% { transform: translateZ(34px) scale(.95); }
+  100% { transform: translateZ(40px) scale(1); }
+}
+.vis-stuk { position: absolute; z-index: 6; background: #fff; pointer-events: none; will-change: transform, opacity;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, .35)); }
+.vis-stuk-staart { background: none; clip-path: none; }
+.vis-stuk-staart svg { width: 100%; height: 100%; display: block; }
+.vis-stuk-oog { background: #0b0b0b; border-radius: 50%; box-shadow: 0 0 0 2px #fff; }
+.vis-flits, .vis-golf { position: absolute; z-index: 5; border-radius: 50%; pointer-events: none; }
+.vis-flits {
+  background: radial-gradient(circle, #fff 0, rgba(255, 255, 255, .85) 30%, rgba(253, 224, 71, .5) 55%, transparent 70%);
+  animation: vis-flits .5s ease-out forwards;
+}
+@keyframes vis-flits { from { transform: scale(.2); opacity: 1; } to { transform: scale(2.6); opacity: 0; } }
+.vis-golf { border: 3px solid rgba(255, 255, 255, .9); animation: vis-golf .7s ease-out forwards; }
+.vis-golf.klein { border-width: 2px; border-color: rgba(255, 255, 255, .6); }
+@keyframes vis-golf { from { transform: scale(.2); opacity: 1; } to { transform: scale(2.8); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .logo3d.terug .laag-vis { animation: vis-terug-rustig .6s ease both; }
+  @keyframes vis-terug-rustig { from { opacity: 0; } to { opacity: 1; } }
+}
 .logo3d.geaaid .logo3d-gloed { filter: hue-rotate(calc(var(--roze, 0) * -55deg)) saturate(calc(1 + var(--roze, 0) * .6)); }
 
 /* ---- podium ---- */

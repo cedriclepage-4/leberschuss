@@ -119,6 +119,10 @@
      hoger springen, wat sneller kwispelen, een vrolijk dansje en een
      rozer licht. Stop je, dan komt hij binnen een paar tellen tot rust.
 
+     Blijf je echt razendsnel tikken, dan loopt de druk op: de vis zwelt op
+     als een kogelvis, begint te trillen en ontploft. Na zo'n zeven tellen
+     schiet hij vanuit de ruit weer tevoorschijn.
+
      Alles in de eenheden van het SVG-vlak (100 x 100), dus even groot op
      pc en gsm. Een eigen kleine lus die enkel loopt zolang er iets beweegt. */
   function aaibareVis(logo, rustig) {
@@ -139,6 +143,9 @@
     var kant = 0, vkant = 0;    // scheef hangen (veer, in graden)
     var geluk = 0;              // hoe blij: +1 per aai, zakt vlot weer weg
     var laatsteAai = -1e9, vorige = 0, loopt = false, links = 1;
+    var druk = 0, ontploft = false;  // druk: +1 per tik, loopt weg als je trager tikt
+    var KNAL = 24;                   // bij deze druk ontploft hij (~3 tellen spammen)
+    var TERUG_NA = 7000;             // en zoveel ms later is hij terug
 
     /* De staart. Gewoonlijk wiegt hij via CSS (keyframes "staart": van -10°
        naar +10° en terug, 0,9 s per kant). Tijdens het aaien neemt dit script
@@ -162,7 +169,9 @@
     }
 
     function aai(e) {
-      if (e.button > 0) return;
+      if (e.button > 0 || ontploft) return;
+      druk += 1;
+      if (druk >= KNAL) { ontplof(); return; }
       var nu = performance.now();
       geluk = Math.min(geluk + 1, MAX_GELUK);
       laatsteAai = nu;
@@ -187,8 +196,10 @@
     }
 
     function lus(t) {
+      if (ontploft) { loopt = false; return; }
       var dt = vorige ? Math.min(.04, (t - vorige) / 1000) : 0;
       vorige = t;
+      druk = Math.max(0, druk - dt * 2.2);
 
       // sprong en landing
       vy += ZWAARTE * dt; y += vy * dt;
@@ -207,8 +218,13 @@
       var sy = 1 + rek, sx = 1 - rek * .55;
       // erg blij? dan een rustig heen-en-weer van het hele lijf
       var dans = geluk > 6 ? Math.sin(t / 160) * (geluk - 6) * .5 : 0;
-      lijf.style.translate = "0 " + (y * eenheid).toFixed(2) + "px";
-      lijf.style.rotate = (kant + dans).toFixed(2) + "deg";
+      // de druk loopt op: opzwellen als een kogelvis, en steeds harder trillen
+      var opblaas = Math.max(0, Math.min(1, (druk - 8) / (KNAL - 8)));
+      var tril = rustig ? 0 : opblaas * opblaas * 3;
+      sx *= 1 + .65 * opblaas; sy *= 1 + .65 * opblaas;
+      var tx = (Math.random() - .5) * 2 * tril, ty = (Math.random() - .5) * 2 * tril;
+      lijf.style.translate = (tx * eenheid).toFixed(2) + "px " + ((y + ty) * eenheid).toFixed(2) + "px";
+      lijf.style.rotate = (kant + dans + (Math.random() - .5) * tril * 3).toFixed(2) + "deg";
       lijf.style.scale = sx.toFixed(3) + " " + sy.toFixed(3);
 
       // kwispelen: zacht meegroeien met het geluk, en even zacht weer zakken
@@ -233,7 +249,7 @@
 
       // oog gaat pas weer open als je even gestopt bent met aaien
       var rust = t - laatsteAai > 650 && geluk < 1.2;
-      var stil = Math.abs(y) < .05 && Math.abs(vy) < 1 && Math.abs(rek) < .002 &&
+      var stil = druk < .05 && Math.abs(y) < .05 && Math.abs(vy) < 1 && Math.abs(rek) < .002 &&
                  Math.abs(vrek) < .02 && Math.abs(kant) < .05 && Math.abs(vkant) < .2;
       if (rust) logo.classList.remove("geaaid");
       if (rust && stil && geluk < .05 && klaarMetStaart) {
@@ -247,6 +263,93 @@
       loopt = true; vorige = 0;
       eenheid = logo.offsetWidth / 100;
       requestAnimationFrame(lus);
+    }
+
+    /* ------------------------------------------------- de knal -- */
+    var STAART = '<svg viewBox="58 33 24 34"><path fill="#fff" d="M61 50 76.5 36.5c3-2.3 4.5-1.3 3.3 1.7L73.2 50l6.6 11.8c1.2 3-.3 4-3.3 1.7z"/></svg>';
+
+    function stuk(cx, cy, b, opties) {
+      var el = document.createElement("span");
+      el.className = "vis-stuk " + (opties.klasse || "");
+      if (opties.html) el.innerHTML = opties.html;
+      var maat = opties.maat;
+      el.style.width = maat + "px"; el.style.height = (opties.hoogte || maat) + "px";
+      el.style.left = (cx - maat / 2) + "px"; el.style.top = (cy - (opties.hoogte || maat) / 2) + "px";
+      if (opties.vorm) el.style.clipPath = opties.vorm;
+      logo.appendChild(el);
+      var hoek = opties.hoek, ver = opties.ver * b;
+      var dx = Math.cos(hoek) * ver, dy = Math.sin(hoek) * ver;
+      var val = (25 + Math.random() * 35) * b;          // zwaartekracht
+      var draai = (Math.random() - .5) * 900;
+      // Per fase een eigen versnelling: wegschieten, even hangen, vallen en vervagen.
+      var anim = el.animate([
+        { transform: "translate(0,0) rotate(0deg) scale(.6)", opacity: 1, easing: "cubic-bezier(.15,.8,.4,1)" },
+        { transform: "translate(" + dx * .75 + "px," + (dy * .75 - 6 * b) + "px) rotate(" + draai * .45 + "deg) scale(1)", opacity: 1, offset: .35, easing: "ease-in-out" },
+        { transform: "translate(" + dx * .9 + "px," + (dy * .9 + val * .4) + "px) rotate(" + draai * .75 + "deg) scale(1)", opacity: 1, offset: .7, easing: "ease-in" },
+        { transform: "translate(" + dx + "px," + (dy + val) + "px) rotate(" + draai + "deg) scale(.85)", opacity: 0 }
+      ], { duration: 1300 + Math.random() * 600 });
+      anim.onfinish = function () { el.remove(); };
+    }
+
+    function effect(klasse, cx, cy, maat, duur) {
+      var el = document.createElement("span");
+      el.className = klasse;
+      el.style.width = el.style.height = maat + "px";
+      el.style.left = (cx - maat / 2) + "px"; el.style.top = (cy - maat / 2) + "px";
+      logo.appendChild(el);
+      setTimeout(function () { el.remove(); }, duur);
+    }
+
+    function ontplof() {
+      ontploft = true;
+      var lr = logo.getBoundingClientRect(), vr = lijf.getBoundingClientRect();
+      var cx = vr.left - lr.left + vr.width * .48, cy = vr.top - lr.top + vr.height * .5;
+      var b = logo.offsetWidth / 100;
+      // alles van het aaien terugzetten
+      y = vy = rek = vrek = kant = vkant = 0; geluk = 0; druk = 0;
+      staartBezig = false; kwispel = 0;
+      if (staart) staart.style.transform = "";
+      lijf.style.translate = lijf.style.rotate = lijf.style.scale = "";
+      logo.classList.remove("geaaid", "kwispelt", "terug");
+      logo.style.setProperty("--roze", "0");
+      logo.classList.add("ontploft");
+      if (navigator.vibrate) { try { navigator.vibrate([30, 40, 110]); } catch (x) {} }
+      if (!rustig) {
+        effect("vis-flits", cx, cy, 44 * b, 550);
+        effect("vis-golf", cx, cy, 34 * b, 750);
+        var stukken = 28;
+        for (var i = 0; i < stukken; i++) {
+          var punten = [], n = 3 + Math.floor(Math.random() * 2);
+          for (var k = 0; k < n; k++) {
+            var h = (k / n) * 2 * Math.PI + Math.random() * .8;
+            punten.push((50 + Math.cos(h) * (30 + Math.random() * 20)).toFixed(0) + "% " +
+                        (50 + Math.sin(h) * (30 + Math.random() * 20)).toFixed(0) + "%");
+          }
+          stuk(cx + (Math.random() - .5) * 20 * b, cy + (Math.random() - .5) * 10 * b, b, {
+            maat: (5 + Math.random() * 10) * b, vorm: "polygon(" + punten.join(",") + ")",
+            hoek: (i / stukken) * 2 * Math.PI + Math.random() * .5, ver: 22 + Math.random() * 32
+          });
+        }
+        // twee herkenbare stukken: de staart en het oog
+        stuk(cx + 16 * b, cy, b, { klasse: "vis-stuk-staart", html: STAART, maat: 14 * b, hoogte: 20 * b,
+                                   hoek: -Math.PI / 6 + Math.random() * .4, ver: 40 });
+        stuk(cx - 10 * b, cy - 1 * b, b, { klasse: "vis-stuk-oog", maat: 7 * b,
+                                          hoek: -Math.PI * .85 + Math.random() * .3, ver: 36 });
+        logo.animate([{ translate: "0 0" }, { translate: "-6px 4px" }, { translate: "5px -3px" },
+                      { translate: "-3px 2px" }, { translate: "0 0" }], { duration: 380, easing: "ease-out" });
+      }
+      setTimeout(kerOmTerug, TERUG_NA);
+    }
+
+    /* Terug: hij schiet van achter de ruit naar voren, met een klein golfje. */
+    function kerOmTerug() {
+      logo.classList.remove("ontploft");
+      logo.classList.add("terug");
+      if (!rustig) {
+        var b = logo.offsetWidth / 100;
+        setTimeout(function () { effect("vis-golf klein", 46 * b, 50 * b, 26 * b, 700); }, 380);
+      }
+      setTimeout(function () { logo.classList.remove("terug"); ontploft = false; }, 1150);
     }
 
     logo.addEventListener("pointerdown", aai);
