@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% set bron, doel = plan['bron'], plan['doel'] %}
+{% set is_spelers = soort == 'spelers' %}
+{% block titel %}{{ 'Accounts' if is_spelers else 'Teams' }} samenvoegen{% endblock %}
+{% block inhoud %}
+
+<section class="held">
+  <h1>{{ 'Accounts' if is_spelers else 'Teams' }} samenvoegen</h1>
+  <p>{% if is_spelers %}Eén account blijft, het andere verdwijnt. Alles van het
+     verdwijnende account (teams, wedstrijden, inschrijvingen, meldingen,
+     statistieken) verhuist mee naar het account dat blijft.
+     {% else %}Eén team blijft, het andere verdwijnt. Alle wedstrijden,
+     toernooi- en seizoensinschrijvingen van het verdwijnende team verhuizen mee.
+     {% endif %}Bekijk hieronder wat er gebeurt; er verandert pas iets als je bevestigt.</p>
+</section>
+
+{% include "_admin_nav.html" %}
+
+{% macro speler_kaart(s, rol, teams, wedstrijden) %}
+<div class="samen-kaart samen-{{ rol }}">
+  <span class="samen-label">{{ 'Blijft' if rol == 'doel' else 'Verdwijnt' }}</span>
+  <div class="samen-kop">
+    <img class="avatar-mini dop-img" src="{{ dop_speler(s['id']) }}" alt="">
+    <div>
+      <strong><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=s['id']) }}">{{ namen_sp.get(s['id'], s['name']) }}</a></strong>
+      <span class="stil klein-tekst">#{{ s['id'] }}{% if s['nickname'] %} · {{ s['name'] }}{% endif %}</span>
+    </div>
+  </div>
+  <dl class="samen-feiten">
+    <dt>Wachtwoord</dt><dd>{{ 'ja' if s['password_hash'] else 'nog niet' }}</dd>
+    <dt>Aangemaakt</dt><dd>{{ s['created_at']|datum }}</dd>
+    <dt>Aura</dt><dd>{{ s['elo']|elo }}</dd>
+    <dt>Teams</dt><dd>{% for t in teams %}{{ t['name'] }}{{ ', ' if not loop.last }}{% else %}geen{% endfor %}</dd>
+    <dt>Wedstrijden</dt><dd>{{ wedstrijden }}</dd>
+  </dl>
+</div>
+{% endmacro %}
+
+{% macro team_kaart(t, rol, wedstrijden, toernooien) %}
+<div class="samen-kaart samen-{{ rol }}">
+  <span class="samen-label">{{ 'Blijft' if rol == 'doel' else 'Verdwijnt' }}</span>
+  <div class="samen-kop">
+    <img class="avatar-mini dop-img" src="{{ dop_team(t['id']) }}" alt="">
+    <div>
+      <strong><a class="profiel-link" href="{{ url_for('team_profiel', team_id=t['id']) }}">{{ t['name'] }}</a></strong>
+      <span class="stil klein-tekst">{{ namen_sp.get(t['player1_id'], '?') }}{% if t['player2_id'] %} &amp; {{ namen_sp.get(t['player2_id'], '?') }}{% endif %}</span>
+    </div>
+  </div>
+  <dl class="samen-feiten">
+    <dt>Status</dt><dd>{{ t['status'] }}</dd>
+    <dt>Aura</dt><dd>{{ t['elo']|elo }}</dd>
+    <dt>Wedstrijden</dt><dd>{{ wedstrijden }}</dd>
+    <dt>Toernooien</dt><dd>{{ toernooien|join(', ') if toernooien else 'geen' }}</dd>
+  </dl>
+</div>
+{% endmacro %}
+
+<div class="samen-raster">
+  {% if is_spelers %}
+    {{ speler_kaart(doel, 'doel', teams_doel, wedstrijden_doel) }}
+    <div class="samen-pijl" aria-hidden="true">←</div>
+    {{ speler_kaart(bron, 'bron', plan['teams_bron'], plan['wedstrijden']) }}
+  {% else %}
+    {{ team_kaart(doel, 'doel', wedstrijden_doel, toernooien_doel) }}
+    <div class="samen-pijl" aria-hidden="true">←</div>
+    {{ team_kaart(bron, 'bron', plan['wedstrijden'], plan['toernooien']) }}
+  {% endif %}
+</div>
+<div class="knop-rij">
+  <a class="knop klein" href="{{ url_for(request.endpoint, bron=doel['id'], doel=bron['id']) }}">⇄ Omdraaien</a>
+  <a class="knop klein" href="{{ url_for('admin_spelers') }}#samenvoegen">Annuleren</a>
+  <span class="stil klein-tekst">{% if is_spelers %}Het account dat blijft houdt zijn nummer (#{{ doel['id'] }}) en profieladres.{% else %}Laat bij voorkeur het team met de meeste historiek blijven.{% endif %}</span>
+</div>
+
+{% if plan['bezwaren'] %}
+<div class="kaart samen-bezwaar">
+  <h3>Samenvoegen kan (nog) niet</h3>
+  <ul>{% for b in plan['bezwaren'] %}<li>{{ b }}</li>{% endfor %}</ul>
+  <p class="stil klein-tekst">Los dit eerst op en kom dan terug. Er is niets veranderd.</p>
+</div>
+{% else %}
+<form method="post" class="kaart">
+  <input type="hidden" name="bron" value="{{ bron['id'] }}">
+  <input type="hidden" name="doel" value="{{ doel['id'] }}">
+
+  {% if is_spelers %}
+  <h3>Inloggen</h3>
+  <p class="veld-label">Echte naam (daarmee logt de speler in, of met nummer #{{ doel['id'] }})</p>
+  <div class="keuze-groep">
+    {% for s in (doel, bron) %}
+    <label class="radio"><input type="radio" name="naam" value="{{ s['name'] }}" {{ 'checked' if loop.first }}> {{ s['name'] }}</label>
+    {% endfor %}
+  </div>
+  {% if bron['password_hash'] or doel['password_hash'] %}
+  <p class="veld-label">Wachtwoord</p>
+  <div class="keuze-groep">
+    <label class="radio"><input type="radio" name="wachtwoord" value="bron" {{ 'checked' if bron['password_hash'] }} {{ 'disabled' if not bron['password_hash'] }}>
+      Van het verdwijnende account{% if not bron['password_hash'] %} (heeft er geen){% endif %}</label>
+    <label class="radio"><input type="radio" name="wachtwoord" value="doel" {{ 'checked' if not bron['password_hash'] }} {{ 'disabled' if not doel['password_hash'] }}>
+      Van het blijvende account{% if not doel['password_hash'] %} (heeft er geen){% endif %}</label>
+  </div>
+  <p class="stil klein-tekst velduitleg">Maakte iemand een tweede account omdat hij zijn wachtwoord
+     vergeten was? Dan kent hij net het wachtwoord van dat nieuwe account.</p>
+  {% else %}
+  <p class="stil klein-tekst">Geen van beide accounts heeft een wachtwoord: de speler eist
+     het samengevoegde account later zelf op.</p>
+  {% endif %}
+
+  {% if plan['team_samenvoegingen'] %}
+  <h3 class="ruimte-boven">Teams die mee samengaan</h3>
+  <p class="stil klein-tekst">Na het samenvoegen hebben deze teams precies dezelfde twee
+     spelers. Ze worden één team, met de wedstrijden en inschrijvingen van beide.</p>
+  {% for p in plan['team_samenvoegingen'] %}
+  <p class="veld-label">Naam voor <strong>{{ p['doel']['name'] }}</strong> + <strong>{{ p['bron']['name'] }}</strong></p>
+  <div class="keuze-groep">
+    {% for t in (p['doel'], p['bron']) %}
+    <label class="radio"><input type="radio" name="teamnaam_{{ p['doel']['id'] }}" value="{{ t['name'] }}" {{ 'checked' if loop.first }}> {{ t['name'] }}</label>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+  {% else %}
+  <h3>Teamnaam</h3>
+  <div class="keuze-groep">
+    {% for t in (doel, bron) %}
+    <label class="radio"><input type="radio" name="naam" value="{{ t['name'] }}" {{ 'checked' if loop.first }}> {{ t['name'] }}</label>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if plan['opmerkingen'] %}
+  <ul class="samen-opmerkingen">{% for o in plan['opmerkingen'] %}<li>{{ o }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  <div class="samen-bevestig">
+    <p class="klein-tekst">Dit kan je niet ongedaan maken, behalve met de back-up die vooraf
+       automatisch gemaakt wordt. Alle Aura wordt daarna herberekend.
+       Typ <code>{{ woord }}</code> om te bevestigen.</p>
+    <div class="rij-form">
+      <input type="text" name="bevestiging" placeholder="{{ woord }}" autocomplete="off"
+             autocapitalize="none" spellcheck="false" required>
+      <button type="submit" class="knop primair">{{ 'Accounts' if is_spelers else 'Teams' }} samenvoegen</button>
+    </div>
+  </div>
+</form>
+{% endif %}
+
+{% endblock %}

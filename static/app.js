@@ -87,6 +87,48 @@
     });
   });
 
+  /* Beheerlijsten (spelers & teams): zoeken én filterknoppen samen. Elk item
+     heeft data-filters met steekwoorden (bv. "actief geen-ww"); een filterknop
+     toont enkel de items met zijn woord, het zoekveld kijkt naar .naam en
+     .zoekbaar. Een open item blijft zichtbaar zolang het overeenkomt. */
+  document.querySelectorAll("[data-lijst-zoek], [data-lijst-filter]").forEach(function (el) {
+    var lijst = document.querySelector(el.dataset.lijstZoek || el.dataset.lijstFilter);
+    if (!lijst || lijst.dataset.lijstKlaar) return;
+    lijst.dataset.lijstKlaar = "1";
+    var zoek = document.querySelector('[data-lijst-zoek="' + (el.dataset.lijstZoek || el.dataset.lijstFilter) + '"]');
+    var knoppen = document.querySelector('[data-lijst-filter="' + (el.dataset.lijstZoek || el.dataset.lijstFilter) + '"]');
+    var leeg = lijst.querySelector(".lijst-leeg");
+    var filter = "";
+
+    function herteken() {
+      var term = zoek ? zoek.value.trim().toLowerCase() : "";
+      var zichtbaar = 0;
+      lijst.querySelectorAll(".beheer-item").forEach(function (item) {
+        var woorden = (item.dataset.filters || "").split(" ");
+        var tekst = Array.prototype.map.call(item.querySelectorAll(".naam, .zoekbaar"),
+          function (x) { return x.textContent; }).join(" ").toLowerCase();
+        var toon = (!filter || woorden.indexOf(filter) !== -1) &&
+                   (!term || tekst.indexOf(term) !== -1);
+        item.hidden = !toon;
+        if (toon) zichtbaar += 1;
+      });
+      if (leeg) leeg.hidden = zichtbaar > 0;
+    }
+
+    if (zoek) zoek.addEventListener("input", herteken);
+    if (knoppen) {
+      knoppen.querySelectorAll("[data-filter]").forEach(function (knop) {
+        knop.addEventListener("click", function () {
+          knoppen.querySelectorAll("[data-filter]").forEach(function (k) {
+            k.classList.toggle("actief", k === knop);
+          });
+          filter = knop.dataset.filter;
+          herteken();
+        });
+      });
+    }
+  });
+
   /* Kleuren en balkbreedtes die uit de database komen.
      Ze staan als data-attribuut in de HTML (en niet in een style="..."), zodat de
      sjablonen geldige HTML blijven en editors er geen valse CSS-fouten in zien. */

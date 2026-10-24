@@ -12,6 +12,12 @@
         <input type="password" name="wachtwoord" autocomplete="current-password" required></label>
       <button type="submit" class="knop primair breed">Inloggen</button>
     </form>
+    {# Er is geen mailsysteem: de organisatie zet een nieuw wachtwoord. Een
+       tweede account maken is net wat we willen vermijden (zie samenvoegen.py). #}
+    <p class="klein-tekst ruimte-boven"><strong>Wachtwoord vergeten?</strong> Maak geen nieuw
+       account, maar stuur een berichtje naar
+       <a href="https://www.instagram.com/jeugdhuistonzent/" target="_blank" rel="noopener">@jeugdhuistonzent</a>
+       op Instagram. Wij zetten dan een nieuw wachtwoord voor je.</p>
     {% if claim_venster_open %}
     <p class="klein-tekst ruimte-boven">Heeft je ploegmaat je team al ingeschreven in een toernooi? Dan staat je
        account al klaar: <a href="{{ url_for('claimen') }}">eis het hier op</a> en kies

@@ -46,6 +46,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import league as liga_motor
 import tournament as toernooi_motor
 import dop as kroonkurk
+import samenvoegen
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
                       verbind, vrij_spelernummer)
 from elo import (START_ELO, fase_factor, fase_omschrijving, proces_wedstrijd)
@@ -346,9 +347,14 @@ def herbereken_alles(db):
 
     for pid, e in speler_elos.items():
         db.execute("UPDATE players SET elo = ? WHERE id = ?", (e, pid))
-    for tid, (a, b) in team_leden.items():
-        e = team_elos.get(tid, (speler_elos[a] + speler_elos[b]) / 2.0)
-        db.execute("UPDATE teams SET elo = ? WHERE id = ?", (e, tid))
+    for tid, leden in team_leden.items():
+        if tid not in team_elos:
+            # Nog niet gespeeld: het gemiddelde van de spelers. Een onvolledig
+            # team (tweede speler nog niet aanvaard) krijgt de Aura van zijn
+            # enige speler, net zoals bij het aanmaken.
+            aanwezig = [speler_elos[p] for p in leden if p is not None]
+            team_elos[tid] = sum(aanwezig) / len(aanwezig)
+        db.execute("UPDATE teams SET elo = ? WHERE id = ?", (team_elos[tid], tid))
 
     # ------------------------------------------------------- per seizoen --
     for s in db.execute("SELECT id FROM seasons").fetchall():
@@ -3160,27 +3166,41 @@ def admin_spelers():
             d["wis_blokkade"] = ("Zit nog in " + ", ".join(d["teams"])
                                  + ". Verwijder die teams eerst.")
         d["verwijderbaar"] = d["wis_blokkade"] is None
+        # Steekwoorden voor de filterknoppen boven de lijst.
+        d["filters"] = " ".join(
+            ["actief" if r["active"] else "inactief"]
+            + ([] if r["password_hash"] else ["geen-ww"])
+            + (["organisator"] if d["organisator"] else []))
         spelers.append(d)
 
     namen_sp = weergavenamen(db)
+    wedstrijden_per_team = defaultdict(int)
+    for r in db.execute("SELECT team1_id, team2_id FROM games"):
+        wedstrijden_per_team[r["team1_id"]] += 1
+        wedstrijden_per_team[r["team2_id"]] += 1
     teams = []
     for t in db.execute("SELECT * FROM teams ORDER BY status, name"):
         bezig = team_blokkerende_toernooien(db, t["id"])
-        aantal = db.execute("SELECT COUNT(*) AS n FROM games WHERE team1_id = ? "
-                            "OR team2_id = ?", (t["id"], t["id"])).fetchone()["n"]
         teams.append({"id": t["id"], "naam": t["name"], "status": t["status"],
-                      "elo": t["elo"], "avatar": t["avatar"], "wedstrijden": aantal,
+                      "elo": t["elo"], "avatar": t["avatar"],
+                      "wedstrijden": wedstrijden_per_team[t["id"]],
                       "blokkerend": [x["name"] for x in bezig],
+                      "speler_ids": [p for p in (t["player1_id"], t["player2_id"]) if p],
                       "leden": (f'{namen_sp.get(t["player1_id"], "?")} & '
                                 f'{namen_sp.get(t["player2_id"], "?")}'
                                 if t["player2_id"] else
                                 f'{namen_sp.get(t["player1_id"], "?")} (zoekt een teamgenoot)')})
+    for d in spelers:
+        d["team_lijst"] = [t for t in teams if d["id"] in t["speler_ids"]]
     log = db.execute("SELECT * FROM claim_log ORDER BY moment DESC, id DESC "
                      "LIMIT 40").fetchall()
     return render_template("admin_spelers.html", spelers=spelers, teams=teams,
                            claim_open=claim_open(), claim_log=log,
                            claim_adres=externe_url("claimen"),
                            vrij=[p for p in spelers if not p["password_hash"]],
+                           dubbels=samenvoegen.mogelijke_dubbels(db, naam_lijkt_op),
+                           dubbele_teams=samenvoegen.mogelijke_dubbele_teams(db, naam_lijkt_op),
+                           namen_sp=namen_sp,
                            maand_label=f"{MAANDEN[datetime.now().month - 1]} "
                                        f"{datetime.now().year}")
 
@@ -3527,6 +3547,143 @@ def team_definitief_verwijderen(team_id):
           f"{aantal} wedstrijd(en). Alle Aura-ratings zijn herberekend alsof die "
           "wedstrijden nooit gespeeld zijn.", "ok")
     return redirect(url_for("admin_spelers") + "#teams")
+
+
+# ------------------------------------------------------------ samenvoegen --
+#
+# Een tweede account omdat iemand zijn wachtwoord vergat, en een tweede team
+# met dezelfde ploegmaat erbij: de organisator voegt ze samen. Eerst een
+# voorbeeld (GET), dan pas het echte werk (POST, met bevestigingswoord en een
+# back-up vooraf). Het eigenlijke verhuizen staat in samenvoegen.py.
+
+SAMENVOEG_WOORD = "samenvoegen"
+
+
+def _keuze_id(naam):
+    try:
+        return int(request.values.get(naam, ""))
+    except ValueError:
+        return None
+
+
+def _voer_samenvoeging_uit(db, werk):
+    """Back-up, `werk()` uitvoeren, alle Aura herberekenen en committen — of
+    bij een probleem alles terugdraaien. Geeft het resultaat van werk() terug,
+    of None als het mislukte (er staat dan een melding klaar)."""
+    try:
+        maak_backup("samenvoegen")
+    except Exception as fout:
+        flash(f"Er kon geen back-up gemaakt worden ({fout}). Er is niets veranderd.", "fout")
+        return None
+    try:
+        resultaat = werk()
+        na_resultaat(db)                # herberekent alles en commit
+    except samenvoegen.SamenvoegFout as fout:
+        db.rollback()
+        for b in fout.bezwaren:
+            flash(b, "fout")
+        return None
+    except Exception:
+        db.rollback()
+        raise
+    for bestand in resultaat.get("weg_te_gooien", []):
+        wis_avatar(bestand)
+    return resultaat
+
+
+@app.route("/admin/samenvoegen/spelers", methods=["GET", "POST"])
+@login_vereist
+def spelers_samenvoegen():
+    db = get_db()
+    bron_id, doel_id = _keuze_id("bron"), _keuze_id("doel")
+    terug = redirect(url_for("admin_spelers") + "#samenvoegen")
+    if not bron_id or not doel_id:
+        flash("Kies welk account blijft en welk verdwijnt.", "fout")
+        return terug
+    plan = samenvoegen.plan_spelers(db, bron_id, doel_id)
+    if not plan["bron"] or not plan["doel"]:
+        flash("Speler niet gevonden.", "fout")
+        return terug
+    # Zelfde regels als bij een wachtwoord resetten: aan het account van de
+    # eigenaar of (voor gewone organisatoren) van een collega kom je niet.
+    for s in (plan["bron"], plan["doel"]):
+        bezwaar = rol_blokkade(s)
+        if bezwaar and bezwaar not in plan["bezwaren"]:
+            plan["bezwaren"].append(bezwaar)
+    if bron_id == session.get("speler_id"):
+        plan["bezwaren"].append("Je eigen account kan niet verdwijnen terwijl je ermee "
+                                "ingelogd bent. Kies het andere als account dat verdwijnt.")
+
+    if request.method == "POST":
+        if plan["bezwaren"]:
+            for b in plan["bezwaren"]:
+                flash(b, "fout")
+            return redirect(url_for("spelers_samenvoegen", bron=bron_id, doel=doel_id))
+        if not _woord_klopt(SAMENVOEG_WOORD):
+            flash(f"Typ “{SAMENVOEG_WOORD}” om te bevestigen. Er is niets veranderd.", "fout")
+            return redirect(url_for("spelers_samenvoegen", bron=bron_id, doel=doel_id))
+        teamnamen = {p["doel"]["id"]: request.form.get(f"teamnaam_{p['doel']['id']}")
+                     for p in plan["team_samenvoegingen"]}
+        bron_naam = weergave(plan["bron"])
+        resultaat = _voer_samenvoeging_uit(db, lambda: samenvoegen.spelers_samenvoegen(
+            db, bron_id, doel_id,
+            wachtwoord_van_bron=request.form.get("wachtwoord") != "doel",
+            naam=request.form.get("naam"), teamnamen=teamnamen))
+        if not resultaat:
+            return redirect(url_for("spelers_samenvoegen", bron=bron_id, doel=doel_id))
+        extra = ""
+        if resultaat["teams"]:
+            extra = " Mee samengevoegd: " + ", ".join(f"“{n}”" for n in resultaat["teams"]) + "."
+        flash(f"“{bron_naam}” is samengevoegd met #{doel_id}. Er is nu één account, "
+              f"“{resultaat['naam']}”, met de volledige historiek van beide.{extra} "
+              "Alle Aura is herberekend; vooraf is een back-up gemaakt.", "ok")
+        return redirect(url_for("admin_spelers") + "#samenvoegen")
+
+    namen = weergavenamen(db)
+    return render_template("admin_samenvoegen.html", soort="spelers", plan=plan,
+                           namen_sp=namen, woord=SAMENVOEG_WOORD,
+                           teams_doel=teams_van_speler(db, doel_id),
+                           wedstrijden_doel=samenvoegen.aantal_wedstrijden(
+                               db, [t["id"] for t in teams_van_speler(db, doel_id)]))
+
+
+@app.route("/admin/samenvoegen/teams", methods=["GET", "POST"])
+@login_vereist
+def teams_samenvoegen():
+    db = get_db()
+    bron_id, doel_id = _keuze_id("bron"), _keuze_id("doel")
+    terug = redirect(url_for("admin_spelers") + "#samenvoegen")
+    if not bron_id or not doel_id:
+        flash("Kies welk team blijft en welk verdwijnt.", "fout")
+        return terug
+    plan = samenvoegen.plan_teams(db, bron_id, doel_id)
+    if not plan["bron"] or not plan["doel"]:
+        flash("Team niet gevonden.", "fout")
+        return terug
+
+    if request.method == "POST":
+        if plan["bezwaren"]:
+            for b in plan["bezwaren"]:
+                flash(b, "fout")
+            return redirect(url_for("teams_samenvoegen", bron=bron_id, doel=doel_id))
+        if not _woord_klopt(SAMENVOEG_WOORD):
+            flash(f"Typ “{SAMENVOEG_WOORD}” om te bevestigen. Er is niets veranderd.", "fout")
+            return redirect(url_for("teams_samenvoegen", bron=bron_id, doel=doel_id))
+        bron_naam = plan["bron"]["name"]
+        resultaat = _voer_samenvoeging_uit(db, lambda: samenvoegen.teams_samenvoegen(
+            db, bron_id, doel_id, request.form.get("naam")))
+        if not resultaat:
+            return redirect(url_for("teams_samenvoegen", bron=bron_id, doel=doel_id))
+        flash(f"“{bron_naam}” is opgegaan in “{resultaat['naam']}”, met alle "
+              "wedstrijden en inschrijvingen van beide. Alle Aura is herberekend; "
+              "vooraf is een back-up gemaakt.", "ok")
+        return redirect(url_for("admin_spelers") + "#samenvoegen")
+
+    return render_template("admin_samenvoegen.html", soort="teams", plan=plan,
+                           namen_sp=weergavenamen(db), woord=SAMENVOEG_WOORD,
+                           wedstrijden_doel=samenvoegen.aantal_wedstrijden(db, [doel_id]),
+                           toernooien_doel=[t["name"] for t in
+                                            samenvoegen.toernooien_van(db, doel_id).values()])
 
 
 @app.route("/admin/spelers/<int:speler_id>/wachtwoord", methods=["POST"])
