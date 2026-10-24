@@ -18,12 +18,12 @@
     <tbody>
       {% for tn in toernooien_lijst %}
       <tr>
-        <td class="naam"><a class="profiel-link" href="{{ url_for('toernooi_detail', toernooi_id=tn['id']) }}">{{ tn['name'] }}</a></td>
+        <td class="naam"><a class="profiel-link" href="{{ url_for('toernooi_beheer', toernooi_id=tn['id']) }}">{{ tn['name'] }}</a></td>
         <td>{{ tn['date']|dag }}</td>
         <td><span class="pil pil-fase pil-{{ tn['status'] }}">{{ tn['status'] }}</span></td>
         <td class="kol-num">{{ tn['aantal_teams'] }}</td>
         <td class="kol-num">{{ tn['open_games'] }}</td>
-        <td class="kol-num"><a class="knop klein" href="{{ url_for('toernooi_beheer', toernooi_id=tn['id']) }}">Beheren</a></td>
+        <td class="kol-num"><a class="knop klein" href="{{ url_for('toernooi_detail', toernooi_id=tn['id']) }}">Publiek</a></td>
       </tr>
       {% endfor %}
     </tbody>

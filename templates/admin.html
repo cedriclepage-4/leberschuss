@@ -92,7 +92,7 @@
     <tbody>
       {% for t in lopend %}
       <tr>
-        <td class="naam"><a class="profiel-link" href="{{ url_for('toernooi_detail', toernooi_id=t['id']) }}">{{ t['name'] }}</a></td>
+        <td class="naam"><a class="profiel-link" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">{{ t['name'] }}</a></td>
         <td>{{ t['date']|dag }}</td>
         <td><span class="pil pil-fase pil-{{ t['status'] }}">{{ t['status'] }}</span></td>
         <td class="kol-num"><a class="knop klein" href="{{ url_for('toernooi_beheer', toernooi_id=t['id']) }}">Beheren</a></td>
