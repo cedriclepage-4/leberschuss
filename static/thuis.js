@@ -354,5 +354,9 @@
 
     logo.addEventListener("pointerdown", aai);
     logo.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+    /* iPhone trekt zich niet altijd iets aan van touch-action: manipulation,
+       en zoomt dan bij snel tikken in en uit (dubbeltik). Het einde van elke
+       tik afvangen houdt dat tegen; het aaien zelf loopt via pointerdown. */
+    logo.addEventListener("touchend", function (e) { e.preventDefault(); }, { passive: false });
   }
 })();

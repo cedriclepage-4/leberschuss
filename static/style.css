@@ -1195,6 +1195,7 @@ h3 { font-weight: 700; }
 
 .thuis-held {
   position: relative; overflow: hidden; isolation: isolate; color: #fff;
+  touch-action: manipulation;  /* geen dubbeltik-zoom als je net naast de vis tikt */
   background:
     var(--baksteen),
     radial-gradient(ellipse 60% 70% at 78% 40%, rgba(245, 158, 11, .20), transparent 70%),
