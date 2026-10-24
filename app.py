@@ -679,9 +679,19 @@ def wedstrijd_context(g_):
             "url": None, "locatie": None}
 
 
+def rangtelwoord(n):
+    """1ste, 2de, 3de, ..., 8ste, ..., 20ste."""
+    return f"{n}ste" if n in (1, 8) or n >= 20 else f"{n}de"
+
+
 def speler_wedstrijd_meldingen(db, speler_id, toernooi_id=None, alleen_liga=False,
-                               alleen_toernooi=False):
-    """Geplande wedstrijden van deze speler, met de meldstatus van beide teams."""
+                               alleen_toernooi=False, wedstrijdnummer=False):
+    """Geplande wedstrijden van deze speler, met de meldstatus van beide teams.
+
+    Met `wedstrijdnummer` krijgt een bracketwedstrijd erbij de hoeveelste
+    wedstrijd van het team het is, als dat niet het nummer van de speelronde is
+    (bij te weinig tafels zijn er meer speelrondes dan wedstrijden per team).
+    """
     items = []
     filter_sql = ""
     args = [speler_id]
@@ -728,10 +738,19 @@ def speler_wedstrijd_meldingen(db, speler_id, toernooi_id=None, alleen_liga=Fals
             waarden[r["player_id"]][r["stat_type_id"]] = r["value"]
         # Nog een vroegere wedstrijd open? Dan tonen we deze wel, maar op slot.
         vorige = toernooi_motor.eerdere_wedstrijd(db, g_)
+        context = wedstrijd_context(g_)
+        if wedstrijdnummer and g_["fase"] == "bracket" and g_["ronde"]:
+            nummer = db.execute("""
+                SELECT COUNT(*) FROM games
+                WHERE tournament_id = ? AND fase = 'bracket' AND ronde < ?
+                  AND ? IN (team1_id, team2_id)
+            """, (g_["tournament_id"], g_["ronde"], eigen_team)).fetchone()[0] + 1
+            if nummer != g_["ronde"]:
+                context["detail"] += f" (jouw {rangtelwoord(nummer)} wedstrijd)"
         items.append({"game": g_, "eigen_team": eigen_team, "tegen_team": tegen_team,
                       "eigen": eigen, "tegen": tegen, "conflict": conflict,
                       "leden": leden, "waarden": waarden,
-                      "context": wedstrijd_context(g_),
+                      "context": context,
                       "wacht_op": vorige,
                       "heeft_waarden": any(waarden.values())})
     return items
@@ -2079,7 +2098,8 @@ def speler_profiel(speler_id):
     punten = elo_verloop(db, speler_id)
     # Staat de league uit, dan mag een speler ook geen leaguewedstrijden melden.
     meldingen = (speler_wedstrijd_meldingen(db, speler_id,
-                                            alleen_toernooi=not league_toegankelijk())
+                                            alleen_toernooi=not league_toegankelijk(),
+                                            wedstrijdnummer=True)
                  if is_eigen else [])
     actieve_types = (db.execute("SELECT * FROM stat_types WHERE active = 1 "
                                 "ORDER BY name").fetchall() if is_eigen else [])
