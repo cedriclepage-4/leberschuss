@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "leberschuss",
+      "runtimeExecutable": "venv/Scripts/python.exe",
+      "runtimeArgs": ["app.py", "--poort", "5077", "--host", "127.0.0.1"],
+      "port": 5077
+    }
+  ]
+}

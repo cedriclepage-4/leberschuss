@@ -629,22 +629,95 @@ input[type="file"] { padding: 7px 10px; }
 }
 
 /* ------------------------------------------------------------ bracket -- */
-.bracket { display: flex; gap: 18px; overflow-x: auto; padding: 6px 2px 14px; }
-.bracket-kolom { display: flex; flex-direction: column; justify-content: space-around; gap: 14px; min-width: 190px; }
-.bracket-titel {
-  font-size: .72rem; text-transform: uppercase; letter-spacing: .6px;
-  color: var(--stil); text-align: center; margin-bottom: 2px;
+/* Een raster met één kolom per ronde (+ de kampioen). Elke wedstrijd staat in
+   een cel die even hoog is als haar twee voorgangers samen, en de lijnen
+   tussen de rondes zijn randen van die cellen: zo lijnt alles vanzelf uit. */
+.bracket-scroll { overflow-x: auto; margin: 0 -4px; padding: 4px 4px 10px; }
+.bracket {
+  --gap: 40px; --lijnkleur: #d6d3cc; --lijn-dik: 2px;
+  display: grid; column-gap: var(--gap);
+  grid-template-columns: repeat(var(--kolommen), minmax(190px, 1fr)) minmax(150px, .8fr);
+  grid-template-rows: auto repeat(var(--rijen), 1fr) auto;
+  min-width: max-content;
 }
+.bracket-titel {
+  grid-row: 1; font-family: var(--kop); font-weight: 700; font-size: .82rem;
+  text-transform: uppercase; letter-spacing: .8px; color: var(--stil);
+  text-align: center; padding: 0 0 8px; border-bottom: 2px solid var(--lijn-warm);
+  margin-bottom: 6px;
+}
+.bracket-cel {
+  position: relative; display: flex; flex-direction: column; justify-content: center;
+  padding: 7px 0;
+}
+/* De lijn van een wedstrijd naar de volgende ronde: een halve "haak". */
+.bracket-cel.naar-onder::after, .bracket-cel.naar-boven::after,
+.bracket-cel.naar-kampioen::after, .bracket-cel.met-voorgangers::before {
+  content: ""; position: absolute; pointer-events: none;
+  border: 0 solid var(--lijnkleur);
+}
+.bracket-cel.naar-onder::after {
+  left: 100%; width: calc(var(--gap) / 2); top: 50%; bottom: 0;
+  border-top-width: var(--lijn-dik); border-right-width: var(--lijn-dik);
+  border-top-right-radius: 8px;
+}
+.bracket-cel.naar-boven::after {
+  left: 100%; width: calc(var(--gap) / 2); top: 0; bottom: 50%;
+  border-bottom-width: var(--lijn-dik); border-right-width: var(--lijn-dik);
+  border-bottom-right-radius: 8px;
+}
+.bracket-cel.naar-onder::after { margin-top: calc(var(--lijn-dik) / -2); }
+.bracket-cel.naar-boven::after { margin-bottom: calc(var(--lijn-dik) / -2); }
+.bracket-cel.met-voorgangers::before {
+  right: 100%; width: calc(var(--gap) / 2); top: 50%;
+  border-top-width: var(--lijn-dik); margin-top: calc(var(--lijn-dik) / -2);
+}
+.bracket-cel.naar-kampioen::after {
+  left: 100%; width: var(--gap); top: 50%;
+  border-top-width: var(--lijn-dik); margin-top: calc(var(--lijn-dik) / -2);
+}
+.bracket-cel.lijn-actief::after, .bracket-cel.lijn-binnen::before { border-color: var(--amber); }
+
 .bracket-game {
+  position: relative; z-index: 1;
   border: 1px solid var(--lijn); border-radius: 12px; overflow: hidden; background: #fff;
   box-shadow: var(--schaduw);
 }
 .bracket-game.gespeeld { border-color: #fcd34d; }
-.bracket-kant { padding: 8px 12px; font-size: .9rem; border-bottom: 1px solid var(--lijn); }
-.bracket-kant:last-of-type { border-bottom: none; }
-.bracket-kant.winnaar { background: #fffbeb; font-weight: 700; }
-.bracket-kant.winnaar { box-shadow: inset 3px 0 0 var(--amber); }
-.bracket-meta { font-size: .72rem; color: var(--stil); padding: 5px 12px; background: #fafafa; }
+.bracket-kant {
+  display: flex; align-items: center; gap: 8px; min-height: 42px;
+  padding: 6px 10px 6px 12px; font-size: .9rem; border-bottom: 1px solid var(--lijn);
+}
+.bracket-kant .avatar-mini.dop-img { width: 26px; height: 26px; }
+.bracket-naam { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bracket-kant.winnaar { background: #fffbeb; font-weight: 700; box-shadow: inset 3px 0 0 var(--amber); }
+.bracket-kant.verliezer { color: var(--stil); }
+.bracket-kant.verliezer .dop-img { opacity: .5; filter: grayscale(.6); }
+.bracket-kant.leeg .bracket-naam { font-size: .82rem; }
+.bracket-open {
+  width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+  border: 2px dashed var(--lijn);
+}
+.bracket-vink { color: var(--amber-donker); font-weight: 800; }
+.bracket-meta {
+  font-size: .72rem; color: var(--stil); padding: 4px 12px; background: #fafaf8;
+  border-top: 1px solid var(--lijn);
+}
+.bracket-kant + .bracket-meta { border-top: none; }
+
+/* Kleine finale: onder de finale, in dezelfde kolom, zonder lijnen. */
+.bracket-cel-klein { padding-top: 22px; }
+.bracket-titel-klein { border-bottom: none; padding-bottom: 4px; margin: 0; }
+
+.bracket-kampioen {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  border: 2px dashed var(--lijn); border-radius: 14px; padding: 16px 12px; background: #fff;
+}
+.bracket-kampioen .beker-svg { width: 44px; height: 44px; fill: #e5e7eb; }
+.bracket-kampioen .beker-svg .oor { fill: none; stroke: #e5e7eb; stroke-width: 3; }
+.bracket-kampioen.heeft { border: 2px solid var(--amber); background: #fffbeb; font-weight: 700; }
+.bracket-kampioen.heeft .beker-svg { fill: var(--goud); }
+.bracket-kampioen.heeft .beker-svg .oor { stroke: var(--goud); }
 
 .winnaar-kaart { display: flex; align-items: center; gap: 20px; border: 2px solid var(--amber); }
 .winnaar-beker { font-size: 3rem; }
@@ -982,8 +1055,7 @@ button[disabled] { opacity: .5; cursor: not-allowed; }
   span.avatar-groot { font-size: 1.5rem; line-height: 58px; }
   .plan-onder label { flex: 1 1 100%; }
   .rij-form input { flex: 1 1 100%; }
-  .bracket { gap: 12px; }
-  .bracket-kolom { min-width: 165px; }
+  .bracket { --gap: 26px; grid-template-columns: repeat(var(--kolommen), minmax(165px, 1fr)) minmax(120px, .8fr); }
   .record-raster { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .toernooi-raster, .admin-tegels, .potten-raster, .affiche-raster {
     grid-template-columns: 1fr;
@@ -1426,8 +1498,6 @@ h3 { font-weight: 700; }
   .logo3d-binnen { transform: rotateX(-6deg) rotateY(-18deg); }
 }
 
-/* Kleine finale: onder de finale, in dezelfde kolom. */
-.bracket-titel-klein { margin-top: 14px; }
 
 
 /* ================================================================

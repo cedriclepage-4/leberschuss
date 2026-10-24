@@ -49,6 +49,27 @@
     return el("span", "bm-foto bm-letter " + (klasse || ""),
               team && team.naam ? team.naam.charAt(0).toUpperCase() : "?");
   }
+  /* Een team past zijn dop aan tijdens het toernooi? Dan krijgt het een nieuw
+     adres (met versiecode) en wisselen we de afbeelding meteen om. */
+  function werkFotoBij(houder, team) {
+    var oud = houder.querySelector(".bm-foto");
+    if (!oud || !team) return;
+    if (oud.tagName === "IMG" && oud.getAttribute("src") === team.foto) return;
+    if (oud.tagName !== "IMG" && !team.foto) return;
+    var klasse = oud.classList.contains("klein") ? "klein" : "";
+    oud.replaceWith(foto(team, klasse));
+  }
+  function werkFotosBij(d) {
+    var perTeam = {};
+    d.stand.forEach(function (r) { perTeam[r.id] = r; });
+    alleGames(d).forEach(function (g) {
+      [g.team1, g.team2].forEach(function (t) { if (t) perTeam[t.id] = t; });
+    });
+    Object.keys(rijen).forEach(function (id) { werkFotoBij(rijen[id], perTeam[id]); });
+    paneelKo.querySelectorAll(".bm-kant[data-team]").forEach(function (kant) {
+      werkFotoBij(kant, perTeam[kant.dataset.team]);
+    });
+  }
   function telOp(e, van, naar, duur) {
     if (rustig || van === naar) { e.textContent = naar; return; }
     var start = null;
@@ -81,6 +102,7 @@
     rij.querySelector(".bm-w").textContent = r.winst;
     rij.querySelector(".bm-v").textContent = r.verlies;
     rij.querySelector(".bm-ptn").textContent = r.punten;
+    werkFotoBij(rij, r);
     vormBollen(rij.querySelector(".bm-vorm"), r.vorm);
     rij.classList.toggle("door", !!r.doorstoot);
     rij.classList.toggle("onbeslist", !!r.onbeslist);
@@ -873,6 +895,8 @@
 
   /* ========================================================= OPHALEN == */
   async function verwerk(nieuw) {
+    /* Nieuwe doppen meteen tonen, ook als er nog een animatie loopt. */
+    try { werkFotosBij(nieuw); } catch (e) {}
     if (bezig) { wachtrij = nieuw; return; }
     bezig = true;
     try {

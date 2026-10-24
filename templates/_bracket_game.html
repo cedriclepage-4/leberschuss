@@ -1,0 +1,23 @@
+{# Eén wedstrijd in het knockoutschema (toernooi.html). Verwacht g, namen en loc_namen. #}
+{% set gespeeld = g['status'] == 'gespeeld' %}
+<div class="bracket-game {{ 'gespeeld' if gespeeld }}">
+  {% for kant in [1, 2] %}
+    {% set team_id = g['team1_id'] if kant == 1 else g['team2_id'] %}
+    <div class="bracket-kant {{ 'winnaar' if gespeeld and team_id and g['winner_team_id'] == team_id }}
+                {{ 'verliezer' if gespeeld and team_id and g['winner_team_id'] != team_id }} {{ 'leeg' if not team_id }}">
+      {% if team_id %}
+        <img class="avatar-mini dop-img" src="{{ dop_team(team_id) }}" alt="" loading="lazy">
+        <a class="profiel-link bracket-naam" href="{{ url_for('team_profiel', team_id=team_id) }}">{{ namen[team_id] }}</a>
+        {% if gespeeld and g['winner_team_id'] == team_id %}<span class="bracket-vink" aria-label="winnaar">✓</span>{% endif %}
+      {% else %}
+        <span class="bracket-open" aria-hidden="true"></span>
+        <em class="bracket-naam stil">nog te bepalen</em>
+      {% endif %}
+    </div>
+  {% endfor %}
+  <div class="bracket-meta">
+    {% if gespeeld %}Gespeeld · {{ g['played_at']|dag }}
+    {% else %}{{ g['scheduled_at']|uur }}{% if g['location_id'] and loc_namen.get(g['location_id']) %} · {{ loc_namen[g['location_id']] }}{% endif %}
+    {% endif %}
+  </div>
+</div>

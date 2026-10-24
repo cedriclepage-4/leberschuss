@@ -322,31 +322,46 @@
 <div data-paneel="knockout" class="paneel verborgen">
   <div class="kaart">
     <h3>Knockoutschema</h3>
-    <div class="bracket">
+    {# Een raster: elke wedstrijd beslaat zoveel rijen als de wedstrijden die
+       erin uitmonden, zodat ze precies tussen haar twee voorgangers staat.
+       De verbindingslijnen tekent de CSS (bracket-cel::before/::after). #}
+    {% set eerste = kolommen[0].games|length %}
+    {% set n_kol = kolommen|length %}
+    <div class="bracket-scroll">
+    <div class="bracket" style="--kolommen: {{ n_kol }}; --rijen: {{ eerste }};">
       {% for kolom in kolommen %}
-      <div class="bracket-kolom">
-        <div class="bracket-titel">{{ kolom.titel }}</div>
-        {% set kleine = kolom.kleine_finale %}
-        {% for g in kolom.games + ([kleine] if kleine else []) %}
-        {% if g is sameas kleine %}<div class="bracket-titel bracket-titel-klein">Kleine finale</div>{% endif %}
-        <div class="bracket-game {{ 'gespeeld' if g['status'] == 'gespeeld' }}">
-          {% for kant in [1, 2] %}
-            {% set team_id = g['team1_id'] if kant == 1 else g['team2_id'] %}
-            <div class="bracket-kant {{ 'winnaar' if team_id and g['winner_team_id'] == team_id }}">
-              {% if team_id %}
-                <a class="profiel-link" href="{{ url_for('team_profiel', team_id=team_id) }}">{{ namen[team_id] }}</a>
-              {% else %}<em class="stil">—</em>{% endif %}
-            </div>
-          {% endfor %}
-          {% if g['status'] == 'gespeeld' %}
-          <div class="bracket-meta">{{ g['played_at']|datum }}</div>
-          {% elif g['location_id'] and loc_namen.get(g['location_id']) %}
-          <div class="bracket-meta">{{ loc_namen[g['location_id']] }}</div>
+      {% set c = loop.index %}
+      {% set span = eerste // (kolom.games|length or 1) %}
+      <div class="bracket-titel" style="grid-column: {{ c }};">{{ kolom.titel }}</div>
+      {% for g in kolom.games %}
+        {% set richting = '' if not g['volgende_game_id'] else ('naar-onder' if g['volgende_slot'] == 1 else 'naar-boven') %}
+        <div class="bracket-cel {{ richting or 'naar-kampioen' }} {{ 'met-voorgangers' if c > 1 }}
+                    {{ 'lijn-actief' if g['status'] == 'gespeeld' }} {{ 'lijn-binnen' if c > 1 and g['team1_id'] and g['team2_id'] }}"
+             style="grid-column: {{ c }}; grid-row: {{ 2 + (loop.index0 * span) }} / span {{ span }};">
+          {% include "_bracket_game.html" %}
+        </div>
+      {% endfor %}
+      {% if kolom.kleine_finale %}
+        {% set g = kolom.kleine_finale %}
+        <div class="bracket-cel bracket-cel-klein" style="grid-column: {{ c }}; grid-row: {{ 2 + eerste }};">
+          <div class="bracket-titel bracket-titel-klein">Kleine finale</div>
+          {% include "_bracket_game.html" %}
+        </div>
+      {% endif %}
+      {% endfor %}
+      <div class="bracket-titel" style="grid-column: {{ n_kol + 1 }};">Kampioen</div>
+      <div class="bracket-cel bracket-cel-kampioen" style="grid-column: {{ n_kol + 1 }}; grid-row: 2 / span {{ eerste }};">
+        <div class="bracket-kampioen {{ 'heeft' if winnaar }}">
+          <svg class="beker-svg" viewBox="0 0 64 64" aria-hidden="true"><path d="M20 8h24v14a12 12 0 0 1-24 0z"/><path class="oor" d="M20 13h-7v3a9 9 0 0 0 9 9M44 13h7v3a9 9 0 0 1-9 9"/><path d="M29 33h6v10h-6z"/><path d="M22 47h20l2 9H20z"/></svg>
+          {% if winnaar %}
+            <img class="avatar-mini dop-img" src="{{ dop_team(winnaar['id']) }}" alt="">
+            <a class="profiel-link" href="{{ url_for('team_profiel', team_id=winnaar['id']) }}">{{ winnaar['name'] }}</a>
+          {% else %}
+            <span class="stil">nog te bepalen</span>
           {% endif %}
         </div>
-        {% endfor %}
       </div>
-      {% endfor %}
+    </div>
     </div>
   </div>
 </div>
