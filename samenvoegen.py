@@ -377,10 +377,12 @@ def spelers_samenvoegen(db, bron_id, doel_id, wachtwoord_van_bron=True, naam=Non
                nickname = CASE WHEN nickname = '' THEN ? ELSE nickname END,
                dop = COALESCE(dop, ?), dop_ontwerpen = COALESCE(dop_ontwerpen, ?),
                avatar = COALESCE(avatar, ?),
-               active = MAX(active, ?), created_at = MIN(created_at, ?)
+               active = MAX(active, ?), created_at = MIN(created_at, ?),
+               last_seen = NULLIF(MAX(COALESCE(last_seen, ''), COALESCE(?, '')), '')
         WHERE id = ?""",
                (naam, wachtwoord, rol, bron["nickname"], bron["dop"], bron["dop_ontwerpen"],
-                bron["avatar"], bron["active"], bron["created_at"], doel_id))
+                bron["avatar"], bron["active"], bron["created_at"], bron["last_seen"],
+                doel_id))
     _schoon_inschrijvingen(db)
 
     if bron["avatar"] and doel["avatar"]:

@@ -62,6 +62,7 @@
           <span class="beheer-naam">
             <span class="naam">{{ p['naam'] }}{% if p['ben_ik'] %} <span class="stil">(jij)</span>{% endif %}</span>
             <span class="stil klein-tekst zoekbaar">#{{ p['id'] }}{% if p['nickname'] %} · {{ p['name'] }}{% endif %}{% if p['team_lijst'] %} · {{ p['team_lijst']|map(attribute='naam')|join(', ') }}{% endif %}</span>
+            <span class="stil klein-tekst">laatst online: {{ p['last_seen']|online }}</span>
           </span>
           <span class="beheer-pillen">
             {% if p['role'] == 'eigenaar' %}<span class="pil pil-rol">eigenaar</span>
@@ -77,6 +78,7 @@
             <a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=p['id']) }}">Profiel bekijken</a>
             · {{ p['deze_maand'] }} wedstrijd(en) in {{ maand_label }}
             · aangemaakt {{ p['created_at']|datum }}
+            · laatst online {{ p['last_seen']|datum if p['last_seen'] else 'nog nooit' }}
           </p>
 
           {% if p['mag_beheren'] or p['ben_ik'] %}

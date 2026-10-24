@@ -143,13 +143,23 @@ def controleer_sessie():
     de spelersnummers) wordt netjes opgeruimd in plaats van fouten te geven."""
     speler_id = session.get("speler_id")
     if speler_id and request.endpoint not in (None, "statisch", "media"):
-        bestaat = get_db().execute("SELECT 1 FROM players WHERE id = ?",
-                                   (speler_id,)).fetchone()
+        db = get_db()
+        bestaat = db.execute("SELECT last_seen FROM players WHERE id = ?",
+                             (speler_id,)).fetchone()
         if not bestaat:
             session.pop("speler_id", None)
-        elif not session.permanent:
+            return
+        if not session.permanent:
             # Ook wie al ingelogd was vóór deze regel, blijft voortaan ingelogd.
             session.permanent = True
+        # Laatst online, voor de organisatoren. Hoogstens om de vijf minuten
+        # geschreven, zodat niet elk verzoek de database hoeft te vergrendelen.
+        nu = datetime.now()
+        vorige = bestaat["last_seen"]
+        if not vorige or vorige < f"{nu - timedelta(minutes=5):%Y-%m-%d %H:%M:%S}":
+            db.execute("UPDATE players SET last_seen = ? WHERE id = ?",
+                       (f"{nu:%Y-%m-%d %H:%M:%S}", speler_id))
+            db.commit()
 
 
 def instelling(db, sleutel, standaard=None):
@@ -1112,6 +1122,28 @@ def filter_dag(iso):
         d = datetime.fromisoformat(iso)
     except (ValueError, TypeError):
         return iso
+    return f"{d.day} {MAANDEN[d.month - 1]} {d.year}"
+
+
+@app.template_filter("online")
+def filter_online(iso):
+    """Kort en relatief: 'net nog', 'vandaag 14:32', '3 dagen geleden', ..."""
+    if not iso:
+        return "nog nooit"
+    try:
+        d = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return iso
+    nu = datetime.now()
+    if nu - d < timedelta(minutes=10):
+        return "net nog"
+    dagen = (nu.date() - d.date()).days
+    if dagen == 0:
+        return f"vandaag {d:%H:%M}"
+    if dagen == 1:
+        return f"gisteren {d:%H:%M}"
+    if dagen < 30:
+        return f"{dagen} dagen geleden"
     return f"{d.day} {MAANDEN[d.month - 1]} {d.year}"
 
 

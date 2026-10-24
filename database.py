@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS players (
     -- met precies die naam (zie app.registreren). Accounts van de organisatie
     -- blijven achter het opeisvenster.
     aangemaakt_door INTEGER REFERENCES players(id) ON DELETE SET NULL,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    -- Laatste keer dat de speler ingelogd op de site was (enkel voor organisatoren).
+    last_seen     TEXT
 );
 
 -- Teams worden door spelers zelf gemaakt: speler 1 (maker) nodigt speler 2 uit.
@@ -411,6 +413,11 @@ def _migreer_league(conn):
         _voeg_kolom_toe(conn, "matchdays", "tafels", "INTEGER NOT NULL DEFAULT 2")
 
 
+def _migreer_laatst_online(conn):
+    """Voeg de kolom toe die bijhoudt wanneer een speler laatst online was."""
+    _voeg_kolom_toe(conn, "players", "last_seen", "TEXT")
+
+
 def _migreer_terugtrekken(conn):
     """Voeg de kolom toe die bijhoudt of een team zich teruggetrokken heeft."""
     if _kolommen(conn, "tournament_teams"):
@@ -706,6 +713,7 @@ def init_db(pad: str = DB_PATH) -> None:
     _migreer_coupons_per_team(conn)
     _migreer_onvolledige_teams(conn, pad)
     _migreer_terugtrekken(conn)
+    _migreer_laatst_online(conn)
     _migreer_league(conn)
     _migreer_speelrondes(conn)
     _hernummer_spelers(conn, pad)
