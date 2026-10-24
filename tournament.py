@@ -81,14 +81,21 @@ def deelnemers(db, tid, ook_teruggetrokken=False, ook_wachtlijst=False):
           {"" if ook_teruggetrokken else "AND tt.teruggetrokken = 0"}
         ORDER BY t.elo DESC, t.name
     """, (tid,)).fetchall()
-    namen = {r["id"]: r["naam"] for r in db.execute(
-        f"SELECT p.id, {WEERGAVE} AS naam FROM players p")}
+    namen, spelers_aura = {}, {}
+    for r in db.execute(f"SELECT p.id, {WEERGAVE} AS naam, p.elo FROM players p"):
+        namen[r["id"]] = r["naam"]
+        spelers_aura[r["id"]] = r["elo"]
     wacht = set() if ook_wachtlijst else set(wachtlijst(db, tid))
     uit = []
     for r in rijen:
         if r["id"] in wacht:
             continue
         d = dict(r)
+        # Gemiddelde Aura van de spelers: een nieuw team staat altijd op 1000,
+        # ook al zijn de spelers zelf al lang geen nieuwkomers meer.
+        aura = [spelers_aura[pid] for pid in (r["player1_id"], r["player2_id"])
+                if pid in spelers_aura]
+        d["spelers_elo"] = sum(aura) / len(aura) if aura else r["elo"]
         d["spelers"] = (f'{namen.get(r["player1_id"], "?")} & {namen.get(r["player2_id"], "?")}'
                         if r["player2_id"] else f'{namen.get(r["player1_id"], "?")} (nog zonder teamgenoot)')
         uit.append(d)
@@ -146,14 +153,25 @@ def lot_sleutel(tid, team_id):
 STANDAARD_POTTEN = 4
 
 
+def sterkte(t):
+    """Hoe sterk een team geacht wordt voor de potten: eerst de Aura van het
+    team, bij gelijke stand de gemiddelde Aura van de spelers.
+
+    Een nieuw team begint altijd op 1000, ongeacht wie erin zit. Zonder de
+    spelers erbij zou een team van twee toppers dan gelijk staan met twee
+    nieuwkomers — en zouden er op een toernooi vol nieuwe teams geen potten zijn.
+    """
+    return (round(t["elo"], 6), round(t.get("spelers_elo", t["elo"]), 6))
+
+
 def potten_zinvol(teams):
     """Hebben potten hier betekenis?
 
     Potten bestaan om de sterke teams uit elkaar te loten. Staat iedereen op
-    exact dezelfde rating, dan valt er niets te spreiden en is "pot 1" niet meer
-    dan een etiket. Dan slaan we ze over.
+    exact dezelfde rating (team én spelers), dan valt er niets te spreiden en is
+    "pot 1" niet meer dan een etiket. Dan slaan we ze over.
     """
-    return len({round(t["elo"], 6) for t in teams}) > 1
+    return len({sterkte(t) for t in teams}) > 1
 
 
 def potten_aantal(db, tid):
@@ -164,19 +182,18 @@ def potten_aantal(db, tid):
 
 
 def potten_verdelen(teams, aantal_potten, rng=None):
-    """Verdeel de teams (gesorteerd op permanente Aura) over de potten.
+    """Verdeel de teams (gesorteerd op `sterkte`) over de potten.
 
-    Geeft {team_id: potnummer} terug; pot 1 bevat de sterkste teams. Teams met
-    exact dezelfde Aura worden door elkaar geschud: op een eerste toernooi staat
-    iedereen op 1000, en dan mag de alfabetische volgorde niet bepalen wie in
-    welke pot belandt.
+    Geeft {team_id: potnummer} terug; pot 1 bevat de sterkste teams. Teams die
+    exact even sterk zijn (team én spelers) worden door elkaar geschud: dan mag
+    de alfabetische volgorde niet bepalen wie in welke pot belandt.
     """
     n = len(teams)
     aantal_potten = max(1, min(aantal_potten, n))
     teams = list(teams)
     if rng is not None:
-        rng.shuffle(teams)          # sorted() is stabiel: gelijke Aura blijft geschud
-    gesorteerd = sorted(teams, key=lambda t: -t["elo"])
+        rng.shuffle(teams)          # sorted() is stabiel: gelijke sterkte blijft geschud
+    gesorteerd = sorted(teams, key=sterkte, reverse=True)
     basis, rest = divmod(n, aantal_potten)
     pot_van = {}
     i = 0
@@ -2069,7 +2086,7 @@ def loting_data(db, tid):
     for team in teams.values():
         potten.setdefault(team["pot"] or 0, []).append(team)
     for lijst in potten.values():
-        lijst.sort(key=lambda x: (-x["elo"], x["naam"]))
+        lijst.sort(key=lambda x: (-sterkte(x)[0], -sterkte(x)[1], x["naam"]))
     potlijst = [{"nummer": p, "teams": potten[p]} for p in sorted(potten)]
 
     rondes = []

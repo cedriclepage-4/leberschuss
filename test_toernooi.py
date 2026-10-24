@@ -394,6 +394,18 @@ for zaad in range(4):
 check(len(verdelingen) > 1,
       "de potindeling verschilt per loting wanneer alle teams even sterk zijn")
 
+# Nieuwe teams staan allemaal op 1000: dan beslist de Aura van de spelers.
+teams_lijst = [dict(id=i, naam=f"Team {chr(65+i)}", elo=1000.0,
+                    spelers_elo=1000.0 + 10 * i) for i in range(12)]
+check(tm.potten_zinvol(teams_lijst),
+      "potten zijn zinvol wanneer enkel de spelers-Aura verschilt")
+pot_van = tm.potten_verdelen(teams_lijst, 4, random.Random(1))
+check(all(pot_van[i] == 4 - i // 3 for i in range(12)),
+      "bij gelijke team-Aura belanden de sterkste spelers in pot 1")
+teams_lijst[0]["elo"] = 1001.0
+check(tm.potten_verdelen(teams_lijst, 4, random.Random(1))[0] == 1,
+      "de team-Aura gaat voor op de spelers-Aura")
+
 
 # ---------------------------------------------- shootouts die in een kring draaien --
 print("\n== Kringetje bij shootouts ==")
