@@ -2608,3 +2608,77 @@ input.ww-anders { border-color: var(--rood) !important; box-shadow: 0 0 0 3px rg
   .samen-pijl { transform: rotate(90deg); justify-self: center; }
   .dubbel-lijst .knop { margin-left: 0; width: 100%; }
 }
+
+/* ================================================================
+   Beamergeluiden: de knop op het beamerscherm en de editor
+   ================================================================ */
+.bm-geluid-knop.uit { color: #64748b; border-style: dashed; }
+/* Zolang de browser het geluid tegenhoudt, blijft de knop zichtbaar en vraagt
+   hij om een klik, ook in volledig scherm. */
+.bm-geluid-knop.vraagt {
+  color: var(--navy-donker); background: var(--amber); border-color: var(--amber);
+  animation: bm-vraagt 1.6s ease-in-out infinite;
+}
+body.volledig .bm-geluid-knop.vraagt { opacity: 1; }
+@keyframes bm-vraagt { 50% { box-shadow: 0 0 0 .8vh rgba(245, 158, 11, .25); } }
+
+.gl-indeling { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+.gl-proef { position: sticky; top: 14px; grid-column: 2; grid-row: 1; }
+.gl-lijst { grid-column: 1; grid-row: 1; }
+.gl-scherm { aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--navy-donker); }
+.gl-scherm iframe { width: 100%; height: 100%; border: 0; display: block; }
+.gl-scene { min-height: 2.6em; margin: 10px 0 6px; }
+.gl-proef-rij { align-items: center; margin-bottom: 4px; }
+.gl-volume { flex: 1 1 160px; margin: 0; }
+.gl-volume input { width: 100%; }
+
+.gl-kaart { margin-bottom: 14px; }
+.gl-kaart.gewijzigd { border-color: var(--amber); }
+.gl-kop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.gl-kop p { margin: 4px 0 10px; }
+.gl-aan { margin: 4px 0 0; }
+.gl-bestand { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.gl-naam { overflow-wrap: anywhere; }
+.gl-kies { margin: 0; cursor: pointer; }
+.gl-kaart:not(.heeft-geluid) .gl-kies { background: var(--amber); border-color: var(--amber-donker); color: var(--navy-donker); }
+
+.gl-golf {
+  --golf: #334155; --start: 0%; --eind: 100%;
+  position: relative; height: 84px; margin: 12px 0 4px; border-radius: 8px;
+  background: #f1f5f9; cursor: ew-resize; touch-action: none; user-select: none; overflow: hidden;
+}
+.gl-golf canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* Wat buiten het gekozen stuk valt, ligt onder een grijze waas. */
+.gl-golf::before, .gl-golf::after {
+  content: ""; position: absolute; top: 0; bottom: 0; background: rgba(241, 245, 249, .78); pointer-events: none;
+}
+.gl-golf::before { left: 0; width: var(--start); }
+.gl-golf::after { left: var(--eind); right: 0; }
+.gl-greep {
+  position: absolute; top: 0; bottom: 0; width: 14px; margin-left: -7px; z-index: 2; cursor: ew-resize;
+}
+.gl-greep::before { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: var(--amber-donker); }
+.gl-greep::after {
+  content: ""; position: absolute; left: 1px; top: 0; width: 12px; height: 12px; border-radius: 0 0 6px 6px;
+  background: var(--amber-donker);
+}
+.gl-greep[data-greep="start"] { left: var(--start); }
+.gl-greep[data-greep="eind"] { left: var(--eind); }
+.gl-speelkop { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--rood); z-index: 3; pointer-events: none; }
+.gl-speelkop.wacht { opacity: .35; }
+
+.gl-velden { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0 10px; }
+.gl-velden label { margin: 6px 0; }
+.gl-velden input { width: 100%; }
+.gl-velden input[type="range"] { margin-top: 14px; }
+.gl-knoppen { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.gl-status.ok { color: var(--groen); }
+.gl-status.fout { color: var(--rood); }
+.gl-status.let-op { color: var(--amber-donker); font-weight: 600; }
+
+@media (max-width: 900px) {
+  .gl-indeling { grid-template-columns: 1fr; }
+  .gl-proef { position: static; grid-column: 1; grid-row: auto; }
+  .gl-lijst { grid-column: 1; grid-row: auto; }
+  .gl-velden { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

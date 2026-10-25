@@ -13,6 +13,11 @@
  *
  * Het scherm volgt de fase van het toernooi (stand → knockout), tenzij je
  * zelf op een van de knoppen klikt. Met ?demo=1 verzint het zelf uitslagen.
+ *
+ * Geluiden: bij elke gebeurtenis roepen we geluid("sleutel") aan (zie
+ * geluid.js en de geluidseditor). In de proefweergave van die editor
+ * (cfg.proef) speelt het scherm één scène met verzonnen teams, en speelt de
+ * editor eromheen het geluid af.
  */
 (function () {
   "use strict";
@@ -80,6 +85,14 @@
       if (p < 1) requestAnimationFrame(stap);
     }
     requestAnimationFrame(stap);
+  }
+  /* Het geluid bij een gebeurtenis. In de proefweergave zit het scherm in de
+     editor, die het geluid speelt met zijn nog niet bewaarde instellingen. */
+  var geluidMotor = null;
+  try { geluidMotor = cfg.proef && window.parent !== window ? window.parent.Geluid : window.Geluid; } catch (e) {}
+  function geluid(sleutel) {
+    if (!geluidMotor) return;
+    try { geluidMotor.speel(sleutel); } catch (e) {}
   }
   function opnieuw(e, klasse) {          // een CSS-animatie opnieuw laten afspelen
     e.classList.remove(klasse);
@@ -363,6 +376,7 @@
       var van = Math.min.apply(null, plaatsen), tot = Math.max.apply(null, plaatsen);
       if (tot - van >= zichtbareRijen()) van = tot = plek[winnaar.id];
       await kijkNaar(van, tot);
+      geluid("uitslag");
       duel.forEach(toonUitslag);
       lichtslag(rijen[winnaar.id], GOUD, 1);
       duel.forEach(function (r) { huidig[r.id] = r; });
@@ -590,6 +604,7 @@
   }
 
   function sprongInBeker(bron, beker, team) {
+    geluid("sprong");
     return new Promise(function (klaar) {
       function vulBeker() {
         beker.classList.add("heeft");
@@ -597,7 +612,7 @@
         var klein = beker.querySelector("small") || beker.appendChild(el("small"));
         klein.textContent = team.spelers || "";
       }
-      if (!bron || rustig) { vulBeker(); klaar(); return; }
+      if (!bron || rustig) { geluid("beker"); vulBeker(); klaar(); return; }
       var a = bron.getBoundingClientRect(), b = beker.getBoundingClientRect();
       /* Het doek voor de vonken nu al klaarzetten (tijdens de sprong), zodat
          er op het moment van de ontploffing niets meer aangemaakt moet worden. */
@@ -621,6 +636,7 @@
       }).then(function () { if (anim.onfinish) anim.onfinish(); });
       anim.onfinish = function () {
         kaartje.remove();
+        geluid("beker");
         vulBeker();
         opnieuw(beker, "plof");
         ontploffing(b.left + b.width / 2, b.top + b.height * .42, vonkDoek);
@@ -749,6 +765,7 @@
       vulKant(kaart.querySelector('[data-slot="2"]'), g.team2);
       zetUitslag(kaart, g);
       opnieuw(kaart, "net-gespeeld");
+      geluid(g.ronde === 2 ? "finale_winst" : "ko_winst");
       var winnaar = g.winnaar === (g.team1 && g.team1.id) ? g.team1 : g.team2;
       var verliezer = winnaar === g.team1 ? g.team2 : g.team1;
       var bronW = kaart.querySelector('.bm-kant[data-team="' + winnaar.id + '"]');
@@ -763,6 +780,7 @@
       var bronV = verliezer && kaart.querySelector('.bm-kant[data-team="' + verliezer.id + '"]');
       var reizen = [];
       if (g.volgende && kaarten[g.volgende]) {
+        geluid("doorstoten");
         reizen.push(vlieg(bronW, kaarten[g.volgende].querySelector('[data-slot="' + g.slot + '"]'),
                           winnaar, "winnaar"));
       }
@@ -790,6 +808,7 @@
   /* ---------------------------------------------------- feestscherm -- */
   var feestBlok = document.querySelector("[data-feest]");
   function feest(team) {
+    geluid("kampioen");
     return new Promise(function (klaar) {
       feestBlok.querySelector("[data-feest-naam]").textContent = team.naam;
       feestBlok.querySelector("[data-feest-spelers]").textContent = team.spelers || "";
@@ -922,6 +941,7 @@
       /* De bracketfase is net voorbij: na de laatste stand naar het schema. */
       if (naarKnockout) {
         await wacht(2500);
+        geluid("knockout_start");
         await grooteMelding("Knockout");
         var begin = koBegin(nieuw);
         data = begin;
@@ -1041,6 +1061,7 @@
     if (e.key === "f" || e.key === "F") wisselVolledig();
     if (e.key === "s" || e.key === "S") { handmatig = true; toon("stand"); }
     if (e.key === "k" || e.key === "K") { handmatig = true; toon("knockout"); }
+    if ((e.key === "g" || e.key === "G") && geluidKnop) wisselGeluid();
   });
 
   /* De muisaanwijzer verdwijnt na een paar seconden stilstand. */
@@ -1098,9 +1119,80 @@
     })(performance.now());
   }
 
+  /* -------------------------------------------------------- geluid -- */
+  /* De knop toont of er geluid is. Zolang de browser het nog tegenhoudt
+     (er is nog niet geklikt), vraagt hij om een klik. */
+  var geluidKnop = document.querySelector("[data-geluid]");
+  function toonGeluid() {
+    if (!geluidKnop) return;
+    var geblokkeerd = Geluid.geblokkeerd(), stil = Geluid.stil();
+    geluidKnop.textContent = stil ? "Geluid uit" : (geblokkeerd ? "Klik voor geluid" : "Geluid aan");
+    geluidKnop.classList.toggle("vraagt", !stil && geblokkeerd);
+    geluidKnop.classList.toggle("uit", stil);
+  }
+  function wisselGeluid() {
+    if (Geluid.geblokkeerd() && !Geluid.stil()) Geluid.ontgrendel();
+    else Geluid.stil(!Geluid.stil());
+    toonGeluid();
+  }
+  if (geluidKnop && window.Geluid) {
+    Geluid.laad(cfg.geluiden, cfg.volume);
+    Geluid.bijWijziging(toonGeluid);
+    geluidKnop.addEventListener("click", wisselGeluid);
+    toonGeluid();
+  } else {
+    geluidKnop = null;
+  }
+
+  /* ---------------------------------------------------------- proef -- */
+  /* Eén scène met verzonnen teams (?scene=...): de editor laadt het scherm
+     voor elke scène opnieuw, zodat het altijd van een schone lei vertrekt. */
+  function koStart() { return JSON.parse(JSON.stringify(cfg.proef)); }
+  function speelTot(d, nogNiet) {          // stil vooruitspelen, zonder animatie
+    for (var i = 0; i < 20 && nogNiet(d); i++) d = demoStap(d);
+    return d;
+  }
+  function enkelFinaleOver(d) {
+    return !alleGames(d).some(function (g) { return !g.gespeeld && g.ronde !== 2; });
+  }
+  async function naarSchema(d) {
+    data = d;
+    werkFeedBij(d, false);
+    toon("knockout");
+    await wacht(1500);
+  }
+  async function proefScene(scene) {
+    await wacht(1200);
+    if (scene === "uitslag") {
+      await verwerk(demoStap(data));
+    } else if (scene === "knockout_start") {
+      await verwerk(koStart());
+    } else if (scene === "ko_winst" || scene === "doorstoten") {
+      await naarSchema(koStart());
+      await verwerk(demoStap(data));
+    } else if (["finale_winst", "sprong", "beker", "kampioen"].indexOf(scene) >= 0) {
+      await naarSchema(speelTot(koStart(), function (d) { return !enkelFinaleOver(d); }));
+      await verwerk(demoStap(data));
+    } else if (scene === "alles") {
+      await verwerk(demoStap(data));
+      await verwerk(koStart());
+      while (!data.knockout.kampioen) {
+        var volgende = demoStap(data);
+        if (volgende === data) break;
+        await verwerk(volgende);
+      }
+    }
+    try { window.parent.postMessage({ beamerProef: "klaar", scene: scene }, location.origin); } catch (e) {}
+  }
+
   /* ---------------------------------------------------------- start -- */
   werkFeedBij(data, false);
   toon(weergave);
-  startRing(interval);
-  setTimeout(haal, interval * 1000);
+  if (cfg.proef) {
+    var scene = new URLSearchParams(location.search).get("scene");
+    if (scene) proefScene(scene);
+  } else {
+    startRing(interval);
+    setTimeout(haal, interval * 1000);
+  }
 })();

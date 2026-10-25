@@ -391,6 +391,14 @@ opent dezelfde pagina met `?beamer=1` erachter en:
 Zet het venster op volledig scherm (F11) en laat het gerust openstaan. Staat het
 tabblad op de achtergrond, dan ververst het niet — zo verspil je niets.
 
+**Geluid erbij:** hangt de beamerlaptop ook aan de boxen, stel dan bij
+*Organisatie → Instellingen → Beamergeluiden* per gebeurtenis een geluid in
+(uitslag, knockout begint, finale, sprong naar de beker, ontploffing, feestscherm…).
+Je knipt er het juiste stuk uit met twee grepen op de golfvorm, en een
+proefweergave met verzonnen teams speelt de animatie met jouw geluid erbij.
+Op de beamer zelf moet je één keer klikken (bv. op *Volledig scherm*) voor de
+browser geluid toelaat; met de toets **G** zet je het aan en uit.
+
 ## Op je startscherm zetten
 
 De site heeft een manifest, een service worker en app-iconen, dus je kan ze op je

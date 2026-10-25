@@ -109,6 +109,7 @@ _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png", "dop.js", "
                       "manifest.webmanifest", "icon-192.png", "icon-512.png",
                       "icon-maskable-512.png", "apple-touch-icon.png", "thuis.js",
                       "rook.js", "beamer.js", "viering.js", "jsQR.js",
+                      "geluid.js", "geluid_editor.js",
                       # lettertypes (Barlow), zelf gehost zodat ze ook offline werken
                       "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2",
                       "barlow-latin-600-normal.woff2", "barlow-latin-700-normal.woff2",
@@ -117,6 +118,10 @@ _TOEGELATEN_STATIC = {"style.css", "app.js", "logo.svg", "logo.png", "dop.js", "
                       "barlow-condensed-latin-800-normal.woff2"}
 _AVATAR_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
 _AVATAR_RE = re.compile(r"^avatar_[pt]\d+_[0-9a-f]{8}\.(png|jpg|jpeg|webp|gif)$")
+# Geluiden voor het beamerscherm (zie "beamergeluiden" verderop).
+_GELUID_EXT = {"mp3", "ogg", "wav", "m4a"}
+_GELUID_RE = re.compile(r"^geluid_[a-z_]+_[0-9a-f]{8}\.(mp3|ogg|wav|m4a)$")
+MAX_GELUID = 8 * 1024 * 1024
 
 # SQL-fragment: weergavenaam = bijnaam als die er is, anders de accountnaam.
 WEERGAVE = "COALESCE(NULLIF(p.nickname, ''), p.name)"
@@ -1092,6 +1097,35 @@ def bewaar_avatar(bestand, prefix, oud=None):
     return naam
 
 
+def wis_geluid(bestandsnaam):
+    """Verwijder een beamergeluid van de schijf (als het er echt eentje is)."""
+    if bestandsnaam and _GELUID_RE.match(bestandsnaam):
+        try:
+            os.remove(os.path.join(UPLOAD_MAP, bestandsnaam))
+        except OSError:
+            pass
+
+
+def bewaar_geluid(bestand, sleutel, oud=None):
+    """Sla een geüpload beamergeluid op; geeft de bestandsnaam terug (of None)."""
+    if not bestand or not bestand.filename or "." not in bestand.filename:
+        return None
+    ext = bestand.filename.rsplit(".", 1)[-1].lower()
+    if ext not in _GELUID_EXT:
+        return None
+    bestand.stream.seek(0, os.SEEK_END)
+    if bestand.stream.tell() > MAX_GELUID:
+        bestand.stream.seek(0)
+        return None
+    bestand.stream.seek(0)
+    os.makedirs(UPLOAD_MAP, exist_ok=True)
+    naam = f"geluid_{sleutel}_{secrets.token_hex(4)}.{ext}"
+    bestand.save(os.path.join(UPLOAD_MAP, naam))
+    if oud != naam:
+        wis_geluid(oud)
+    return naam
+
+
 # ---------------------------------------------------------------- filters --
 
 @app.template_filter("elo")
@@ -1250,6 +1284,7 @@ _PAGINA_NAMEN = [
     (re.compile(r"^/admin/spelers"), "Spelers & teams"),
     (re.compile(r"^/admin/klassement"), "Rangen & statistieken"),
     (re.compile(r"^/admin/instellingen"), "Instellingen"),
+    (re.compile(r"^/admin/beamergeluiden"), "Beamergeluiden"),
     (re.compile(r"^/admin"), "Organisatie"),
 ]
 
@@ -1618,6 +1653,13 @@ def dop_kiezen(plek):
 @app.route("/media/<bestand>")
 def media(bestand):
     if not _AVATAR_RE.match(bestand):
+        abort(404)
+    return send_from_directory(UPLOAD_MAP, bestand)
+
+
+@app.route("/geluid/<bestand>")
+def geluid(bestand):
+    if not _GELUID_RE.match(bestand):
         abort(404)
     return send_from_directory(UPLOAD_MAP, bestand)
 
@@ -5197,7 +5239,9 @@ def toernooi_beamer(toernooi_id):
     except ValueError:
         elke = 20
     return render_template("beamer.html", gegevens=gegevens, toernooi_id=toernooi_id,
-                           adres=adres, qr=qr_svg(adres), elke=elke)
+                           adres=adres, qr=qr_svg(adres), elke=elke,
+                           geluiden=beamer_geluiden(db),
+                           geluid_volume=beamer_geluid_volume(db))
 
 
 @app.route("/toernooi/<int:toernooi_id>/beamer.json")
@@ -5210,6 +5254,216 @@ def toernooi_beamer_json(toernooi_id):
                                   mimetype="application/json")
     antwoord.headers["Cache-Control"] = "no-store"
     return antwoord
+
+
+# -------------------------------------------------------- beamergeluiden --
+#
+# De beamerlaptop hangt tijdens een toernooi ook aan de geluidsinstallatie.
+# Per gebeurtenis op het scherm kan je een geluid opladen, en er een stuk uit
+# knippen (start/einde) zodat het samenvalt met de animatie. De instellingen
+# gelden voor elk toernooi en staan als JSON in de tabel settings; de
+# bestanden staan bij de uploads (geluid_<sleutel>_<code>.mp3).
+
+BEAMER_GEBEURTENISSEN = [
+    ("uitslag", "Uitslag in de stand",
+     "Bracketfase: een nieuwe uitslag licht op in de stand (winst en verlies)."),
+    ("knockout_start", "Knockout begint",
+     "De grote melding “Knockout” wanneer de bracketfase voorbij is."),
+    ("ko_winst", "Knockoutwedstrijd beslist",
+     "Een wedstrijd in de knockout is gespeeld (niet de finale)."),
+    ("doorstoten", "Naar de volgende ronde",
+     "De winnaar vliegt naar zijn plaats in de volgende ronde."),
+    ("finale_winst", "Finale beslist",
+     "De finale is gespeeld: de winnaar licht op."),
+    ("sprong", "Sprong naar de beker",
+     "De kampioen springt uit de finale naar de beker (± 2,4 s): goed voor een aanloop."),
+    ("beker", "Ontploffing in de beker",
+     "Het moment dat de kampioen in de beker landt en de vonken wegspatten."),
+    ("kampioen", "Feestscherm",
+     "Het grote feestscherm met confetti voor de kampioen (± 11 s)."),
+]
+_GEBEURTENIS_SLEUTELS = {s for s, _, _ in BEAMER_GEBEURTENISSEN}
+
+
+def _getal(waarde, laag, hoog, standaard):
+    try:
+        x = float(waarde)
+    except (TypeError, ValueError):
+        return standaard
+    if x != x:                                  # NaN
+        return standaard
+    return max(laag, min(hoog, x))
+
+
+def _geluid_instellingen(ruw):
+    """Nette, begrensde instellingen voor één geluid. eind 0 = tot het einde."""
+    start = round(_getal(ruw.get("start"), 0, 3600, 0), 3)
+    eind = round(_getal(ruw.get("eind"), 0, 3600, 0), 3)
+    if eind and eind <= start:
+        eind = 0
+    return {"start": start, "eind": eind,
+            "vertraging": int(_getal(ruw.get("vertraging"), 0, 10000, 0)),
+            "volume": round(_getal(ruw.get("volume"), 0, 1, 1), 2),
+            "uitfaden": int(_getal(ruw.get("uitfaden"), 0, 10000, 0)),
+            "aan": ruw.get("aan", True) not in (False, 0, "0", "false")}
+
+
+def _geluiden_ruw(db):
+    try:
+        lijst = json.loads(instelling(db, "beamer_geluiden", "{}") or "{}")
+    except ValueError:
+        return {}
+    return lijst if isinstance(lijst, dict) else {}
+
+
+def beamer_geluiden(db):
+    """Per gebeurtenis het geluid (met adres), enkel als het bestand er nog is."""
+    uit = {}
+    for sleutel, ruw in _geluiden_ruw(db).items():
+        if sleutel not in _GEBEURTENIS_SLEUTELS or not isinstance(ruw, dict):
+            continue
+        bestand = ruw.get("bestand")
+        if not bestand or not _GELUID_RE.match(bestand) \
+                or not os.path.exists(os.path.join(UPLOAD_MAP, bestand)):
+            continue
+        uit[sleutel] = dict(_geluid_instellingen(ruw), bestand=bestand,
+                            naam=str(ruw.get("naam") or bestand)[:120],
+                            url=url_for("geluid", bestand=bestand))
+    return uit
+
+
+def beamer_geluid_volume(db):
+    return round(_getal(instelling(db, "beamer_geluid_volume", "0.8"), 0, 1, 0.8), 2)
+
+
+def _bewaar_geluiden(db, geluiden):
+    bewaard = {s: {k: v for k, v in g.items() if k != "url"} for s, g in geluiden.items()}
+    zet_instelling(db, "beamer_geluiden", json.dumps(bewaard))
+    db.commit()
+
+
+@app.route("/admin/beamergeluiden")
+@login_vereist
+def admin_beamergeluiden():
+    db = get_db()
+    return render_template("admin_beamergeluiden.html",
+                           gebeurtenissen=BEAMER_GEBEURTENISSEN,
+                           geluiden=beamer_geluiden(db),
+                           volume=beamer_geluid_volume(db), max_mb=MAX_GELUID // (1024 * 1024))
+
+
+@app.route("/admin/beamergeluiden/volume", methods=["POST"])
+@login_vereist
+def beamergeluid_volume():
+    db = get_db()
+    gegevens = request.get_json(silent=True) or {}
+    zet_instelling(db, "beamer_geluid_volume", _getal(gegevens.get("volume"), 0, 1, 0.8))
+    db.commit()
+    return jsonify({"ok": True, "volume": beamer_geluid_volume(db)})
+
+
+@app.route("/admin/beamergeluiden/<sleutel>/bestand", methods=["POST"])
+@login_vereist
+def beamergeluid_bestand(sleutel):
+    if sleutel not in _GEBEURTENIS_SLEUTELS:
+        abort(404)
+    db = get_db()
+    geluiden = beamer_geluiden(db)
+    oud = geluiden.get(sleutel, {})
+    bestand = request.files.get("bestand")
+    naam = bewaar_geluid(bestand, sleutel, oud.get("bestand"))
+    if not naam:
+        return jsonify({"ok": False, "fout": "Kies een mp3-, ogg-, wav- of m4a-bestand van "
+                        f"hoogstens {MAX_GELUID // (1024 * 1024)} MB."}), 400
+    # Nieuw bestand: het knippen begint opnieuw, de rest blijft zoals het was.
+    nieuw = dict(_geluid_instellingen(oud), start=0, eind=0, bestand=naam,
+                 naam=os.path.basename(bestand.filename)[:120])
+    geluiden[sleutel] = nieuw
+    _bewaar_geluiden(db, geluiden)
+    return jsonify({"ok": True, "geluid": beamer_geluiden(db)[sleutel]})
+
+
+@app.route("/admin/beamergeluiden/<sleutel>", methods=["POST"])
+@login_vereist
+def beamergeluid_opslaan(sleutel):
+    if sleutel not in _GEBEURTENIS_SLEUTELS:
+        abort(404)
+    db = get_db()
+    geluiden = beamer_geluiden(db)
+    if sleutel not in geluiden:
+        return jsonify({"ok": False, "fout": "Laad eerst een geluid op."}), 400
+    geluiden[sleutel].update(_geluid_instellingen(request.get_json(silent=True) or {}))
+    _bewaar_geluiden(db, geluiden)
+    return jsonify({"ok": True, "geluid": beamer_geluiden(db)[sleutel]})
+
+
+@app.route("/admin/beamergeluiden/<sleutel>/wissen", methods=["POST"])
+@login_vereist
+def beamergeluid_wissen(sleutel):
+    if sleutel not in _GEBEURTENIS_SLEUTELS:
+        abort(404)
+    db = get_db()
+    geluiden = beamer_geluiden(db)
+    weg = geluiden.pop(sleutel, None)
+    if weg:
+        wis_geluid(weg.get("bestand"))
+    _bewaar_geluiden(db, geluiden)
+    return jsonify({"ok": True})
+
+
+def _proef_gegevens():
+    """Verzonnen toernooi voor de proefweergave: tien teams halfweg de
+    bracketfase, en het knockoutschema (kwart, halve, finale) voor later."""
+    namen = [("De Kurkentrekkers", "Jens & Lotte"), ("Schuss Happens", "Wout & Fien"),
+             ("Dop Gun", "Arne & Noor"), ("Kroonjuwelen", "Lars & Emma"),
+             ("De Tapkranen", "Seppe & Lien"), ("Flipperkast", "Bram & Hanne"),
+             ("Bierviltjes", "Milan & Julie"), ("Schuimkoppen", "Tibo & Marie"),
+             ("De Opener", "Ruben & Ella"), ("Last Call", "Kobe & Sara")]
+    teams = [{"id": 9000 + i, "naam": n, "spelers": s, "foto": None}
+             for i, (n, s) in enumerate(namen, 1)]
+    winsten = [3, 3, 2, 2, 2, 1, 1, 1, 1, 0]
+    vormen = [["W", "W", "W"], ["W", "V", "W"], ["V", "W", "W"], ["W", "W", "V"],
+              ["W", "V", "W"], ["V", "V", "W"], ["V", "W", "V"], ["W", "V", "V"],
+              ["V", "V", "W"], ["V", "V", "V"]]
+    stand = [dict(t, positie=i + 1, gespeeld=3, winst=winsten[i], verlies=3 - winsten[i],
+                  punten=3 * winsten[i], vorm=vormen[i], doorstoot=i < 8, onbeslist=False,
+                  gedeeld=False) for i, t in enumerate(teams)]
+
+    def wedstrijd(gid, ronde, positie, volgende, slot, t1=None, t2=None):
+        return {"id": gid, "ronde": ronde, "positie": positie, "volgende": volgende,
+                "slot": slot, "team1": t1, "team2": t2, "winnaar": None,
+                "gespeeld": False, "tijd": None}
+
+    # Kwartfinale: 1-8, 4-5, 2-7, 3-6; de winnaars schuiven door naar de halve.
+    kwart = [wedstrijd(9101, 8, 1, 9201, 1, teams[0], teams[7]),
+             wedstrijd(9102, 8, 2, 9201, 2, teams[3], teams[4]),
+             wedstrijd(9103, 8, 3, 9202, 1, teams[1], teams[6]),
+             wedstrijd(9104, 8, 4, 9202, 2, teams[2], teams[5])]
+    halve = [wedstrijd(9201, 4, 1, 9301, 1), wedstrijd(9202, 4, 2, 9301, 2)]
+    finale = [wedstrijd(9301, 2, 1, None, None)]
+    basis = {"naam": "Proeftoernooi", "cut": 8, "stand": stand, "laatste": []}
+    bracket = dict(basis, versie="proef-stand", status="bracket", fase="stand",
+                   status_label=TOERNOOI_STATUS["bracket"][0],
+                   knockout={"kolommen": [], "kleine_finale": None, "kampioen": None})
+    knockout = dict(basis, versie="proef-ko", status="knockout", fase="knockout",
+                    status_label=TOERNOOI_STATUS["knockout"][0],
+                    knockout={"kolommen": [
+                        {"titel": "Kwartfinale", "ronde": 8, "games": kwart},
+                        {"titel": "Halve finale", "ronde": 4, "games": halve},
+                        {"titel": "Finale", "ronde": 2, "games": finale}],
+                        "kleine_finale": wedstrijd(9401, 3, 1, None, None),
+                        "kampioen": None})
+    return bracket, knockout
+
+
+@app.route("/admin/beamergeluiden/proef")
+@login_vereist
+def beamergeluid_proef():
+    """Het beamerscherm met verzonnen teams, voor in de geluidseditor."""
+    bracket, knockout = _proef_gegevens()
+    return render_template("beamer.html", gegevens=bracket, toernooi_id=None,
+                           adres="", qr=None, elke=20, proef=knockout,
+                           geluiden={}, geluid_volume=1)
 
 
 @app.route("/toernooi/<int:toernooi_id>/loting")

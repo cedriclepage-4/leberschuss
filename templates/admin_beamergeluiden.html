@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block titel %}Beamergeluiden{% endblock %}
+{% block inhoud %}
+
+<section class="held">
+  <h1>Beamergeluiden</h1>
+  <p>Hangt de beamerlaptop ook aan de geluidsinstallatie? Dan kan het beamerscherm
+     bij elke gebeurtenis een geluid spelen. Laad per gebeurtenis een bestand op,
+     knip er het juiste stuk uit en kijk in de proefweergave of het samenvalt met
+     de animatie.</p>
+</section>
+
+{% include "_admin_nav.html" %}
+
+<div class="gl-indeling" data-editor
+     data-proef="{{ url_for('beamergeluid_proef') }}"
+     data-basis="{{ url_for('admin_beamergeluiden') }}">
+
+  <aside class="gl-proef">
+    <div class="kaart">
+      <h3>Proefweergave</h3>
+      <div class="gl-scherm"><iframe data-proef-scherm title="Proefweergave van het beamerscherm"
+           src="{{ url_for('beamergeluid_proef') }}"></iframe></div>
+      <p class="gl-scene stil klein-tekst" data-scene>Kies bij een gebeurtenis <strong>Bekijk in
+         actie</strong>: het scherm speelt die scène met verzonnen teams, en jij hoort je geluid
+         erbij, ook zonder op te slaan.</p>
+      <div class="rij-form gl-proef-rij">
+        <button type="button" class="knop" data-alles>Heel het toernooi afspelen</button>
+        <label class="gl-volume">Hoofdvolume
+          <input type="range" min="0" max="1" step="0.05" value="{{ volume }}" data-hoofdvolume></label>
+      </div>
+      <p class="stil klein-tekst">Op de beamer zelf moet je één keer klikken (bv. op
+         <em>Volledig scherm</em>) voor er geluid mag komen: dat beslist de browser. Met de toets
+         <kbd>G</kbd> of de knop <em>Geluid</em> zet je het daar aan en uit.</p>
+    </div>
+  </aside>
+
+  <div class="gl-lijst">
+    {% for sleutel, titel, uitleg in gebeurtenissen %}
+    <div class="kaart gl-kaart" data-sleutel="{{ sleutel }}">
+      <div class="gl-kop">
+        <div>
+          <h3>{{ titel }}</h3>
+          <p class="stil klein-tekst">{{ uitleg }}</p>
+        </div>
+        <label class="schakel gl-aan" data-heeft hidden>
+          <input type="checkbox" data-veld="aan">
+          <span>Aan</span>
+        </label>
+      </div>
+
+      <div class="gl-bestand">
+        <span class="gl-naam stil klein-tekst" data-naam>Nog geen geluid.</span>
+        <label class="knop klein gl-kies">
+          <span data-kies-tekst>Kies een bestand</span>
+          <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a" data-bestand hidden>
+        </label>
+      </div>
+
+      <div class="gl-golf" data-golf hidden>
+        <canvas></canvas>
+        <div class="gl-greep" data-greep="start" title="Start: sleep me"></div>
+        <div class="gl-greep" data-greep="eind" title="Einde: sleep me"></div>
+        <div class="gl-speelkop" data-speelkop hidden></div>
+      </div>
+
+      <div class="gl-velden" data-heeft hidden>
+        <label>Start (s)<input type="number" step="0.01" min="0" data-veld="start"></label>
+        <label>Einde (s)<input type="number" step="0.01" min="0" data-veld="eind"></label>
+        <label title="Hoe lang na de gebeurtenis het geluid begint">Vertraging (ms)
+          <input type="number" step="10" min="0" max="10000" data-veld="vertraging"></label>
+        <label>Uitfaden (ms)<input type="number" step="50" min="0" max="10000" data-veld="uitfaden"></label>
+        <label>Volume<input type="range" min="0" max="1" step="0.05" data-veld="volume"></label>
+      </div>
+
+      <div class="gl-knoppen" data-heeft hidden>
+        <button type="button" class="knop klein" data-actie="fragment">&#9654; Fragment</button>
+        <button type="button" class="knop klein primair" data-actie="actie">Bekijk in actie</button>
+        <button type="button" class="knop klein" data-actie="opslaan">Opslaan</button>
+        <button type="button" class="knop klein gevaar" data-actie="wissen">Verwijderen</button>
+        <span class="gl-status klein-tekst" data-status></span>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="stil klein-tekst">mp3, ogg, wav of m4a, hoogstens {{ max_mb }} MB per bestand. Deze
+       geluiden gelden voor elk toernooi.</p>
+  </div>
+</div>
+
+<script id="geluiden-gegevens" type="application/json">{{ {'geluiden': geluiden, 'volume': volume}|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script>window.GELUID_EDITOR = true;</script>
+<script src="{{ url_for('statisch', bestand='geluid.js') }}"></script>
+<script src="{{ url_for('statisch', bestand='geluid_editor.js') }}"></script>
+{% endblock %}

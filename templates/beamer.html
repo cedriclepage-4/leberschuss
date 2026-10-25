@@ -14,12 +14,14 @@
    {{ elke }} seconden de nieuwe stand op (zie beamer.js). Zo blijft het
    ook in volledig scherm staan. Met ?demo=1 verzint het scherm zelf
    uitslagen, om de animaties te bekijken zonder iets in te vullen.
+   Met `proef` (de geluidseditor) toont het een verzonnen toernooi en
+   speelt het de geluiden van de editor rondom af.
    --------------------------------------------------------------------- #}
 <body class="bm">
   <canvas class="bm-rook" aria-hidden="true"></canvas>
 
   <header class="bm-kop">
-    <a class="bm-logo" href="{{ url_for('toernooi_detail', toernooi_id=toernooi_id) }}" title="Terug naar de toernooipagina">
+    <a class="bm-logo" href="{{ url_for('toernooi_detail', toernooi_id=toernooi_id) if toernooi_id else url_for('admin_beamergeluiden') }}" title="Terug naar de toernooipagina"{% if proef %} target="_top"{% endif %}>
       <img src="{{ url_for('statisch', bestand=logo_bestand) }}" alt="Leberschuss Tonzent">
     </a>
     <div class="bm-titel">
@@ -35,6 +37,9 @@
         <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="bm-ring-bg" cx="18" cy="18" r="15"/><circle class="bm-ring" cx="18" cy="18" r="15"/></svg>
         <span>Live</span>
       </div>
+      {% if geluiden %}
+      <button type="button" class="bm-scherm-knop bm-geluid-knop" data-geluid title="Geluid aan of uit (toets G)">Geluid</button>
+      {% endif %}
       <button type="button" class="bm-scherm-knop" data-volledig>Volledig scherm</button>
     </div>
   </header>
@@ -71,11 +76,15 @@
   <script id="beamer-gegevens" type="application/json">{{ gegevens|tojson }}</script>
   <script>
     window.BEAMER = {
-      bron: "{{ url_for('toernooi_beamer_json', toernooi_id=toernooi_id) }}",
+      bron: {{ url_for('toernooi_beamer_json', toernooi_id=toernooi_id)|tojson if toernooi_id else '""'|safe }},
       elke: {{ elke }},
-      demo: {{ 'true' if request.args.get('demo') == '1' else 'false' }}
+      demo: {{ 'true' if request.args.get('demo') == '1' else 'false' }},
+      geluiden: {{ (geluiden or {})|tojson }},
+      volume: {{ geluid_volume|tojson }},
+      proef: {{ (proef or none)|tojson }}
     };
   </script>
+  {% if geluiden %}<script src="{{ url_for('statisch', bestand='geluid.js') }}"></script>{% endif %}
   <script src="{{ url_for('statisch', bestand='rook.js') }}"></script>
   <script src="{{ url_for('statisch', bestand='beamer.js') }}"></script>
 </body>

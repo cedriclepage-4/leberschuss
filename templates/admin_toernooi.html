@@ -13,6 +13,8 @@
     <a class="knop" href="{{ url_for('toernooi_beamer', toernooi_id=t['id']) }}"
        title="Groot scherm met de stand of het knockoutschema. Zet het op de beamer en laat het openstaan: het werkt zichzelf bij.">Beamerscherm</a>
     {% endif %}
+    <a class="knop" href="{{ url_for('admin_beamergeluiden') }}"
+       title="Geluiden bij de gebeurtenissen op het beamerscherm instellen">Beamergeluiden</a>
     <a class="knop" href="{{ url_for('admin_toernooien') }}">Terug naar alle toernooien</a>
   </div>
 </section>
