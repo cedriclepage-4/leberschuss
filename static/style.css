@@ -1666,14 +1666,20 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
 
 /* ---- knockout ---- */
 .bm-bracket { height: 100%; position: relative; }
-.bm-kolommen { display: flex; gap: 5vh; height: 100%; position: relative; z-index: 1; }
+.bm-kolommen { display: flex; gap: min(5vh, 24vh / var(--ko-n, 4)); height: 100%; position: relative; z-index: 1; }
 .bm-kolom { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .bm-kolom-kampioen { flex: .8 1 0; }
 .bm-kolom-titel {
   font-family: var(--kop); font-weight: 700; font-size: 2.4vh; color: #fcd34d;
   text-align: center; margin-bottom: 1vh;
 }
-.bm-kolom-vak { flex: 1; display: flex; flex-direction: column; justify-content: space-around; position: relative; }
+/* Elk vak is een container: de kaartjes rekenen hun hoogte uit het vak en
+   het aantal wedstrijden in de eerste ronde (--ko-n), zodat ook een
+   achtste finale (of meer) op één scherm past. */
+.bm-kolom-vak {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-around;
+  position: relative; container-type: size;
+}
 .bm-kolom-finale .bm-kolom-vak, .bm-kolom-kampioen .bm-kolom-vak { justify-content: center; }
 .bm-klein { position: absolute; left: 0; right: 0; bottom: 0; }
 .bm-klein .bm-kolom-titel { font-size: 1.9vh; color: #cbd5e1; }
@@ -1685,17 +1691,19 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
 .bm-finale { border: .3vh solid var(--amber); box-shadow: 0 0 5vh rgba(245, 158, 11, .25), 0 1vh 3vh rgba(0, 0, 0, .35); }
 .bm-kleine-finale { border-color: rgba(213, 138, 78, .7); }
 .bm-kant {
-  display: flex; align-items: center; gap: 1.1vh; padding: 1vh 1.4vh; min-height: 6.2vh;
+  --kh: min(6.2vh, 100cqh / (var(--ko-n, 4) * 2.4));
+  display: flex; align-items: center; gap: calc(var(--kh) * .18);
+  padding: calc(var(--kh) * .1) calc(var(--kh) * .22); min-height: var(--kh);
   border-bottom: 1px solid rgba(255, 255, 255, .08); transition: background .4s, opacity .6s;
   --h: 7vh;
 }
 .bm-kant:last-child { border-bottom: 0; }
-.bm-foto.klein { width: 4vh; height: 4vh; }
-.bm-letter.klein { font-size: 2vh; }
+.bm-foto.klein { width: calc(var(--kh, 6.2vh) * .65); height: calc(var(--kh, 6.2vh) * .65); }
+.bm-letter.klein { font-size: calc(var(--kh, 6.2vh) * .32); }
 .bm-kant-namen { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
-.bm-kant-naam { font-size: 2.3vh; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bm-kant-namen small { font-size: 1.4vh; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bm-kant.leeg .bm-kant-naam { color: #64748b; font-weight: 500; font-style: italic; font-size: 1.8vh; }
+.bm-kant-naam { font-size: calc(var(--kh) * .37); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kant-namen small { font-size: calc(var(--kh) * .23); color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kant.leeg .bm-kant-naam { color: #64748b; font-weight: 500; font-style: italic; font-size: calc(var(--kh) * .29); }
 .bm-kant.winnaar { background: linear-gradient(90deg, rgba(245, 158, 11, .32), rgba(245, 158, 11, .06)); box-shadow: inset .5vh 0 0 var(--amber); }
 .bm-kant.verliezer { opacity: .4; }
 .bm-kant.verliezer .bm-kant-naam { text-decoration: line-through; text-decoration-color: var(--rood); text-decoration-thickness: .25vh; }
@@ -1760,20 +1768,35 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
 /* ---- zijkolom ---- */
 .bm-zij { display: flex; flex-direction: column; min-height: 0; gap: 1.6vh; }
 .bm-zij h2 { margin: 0; font-family: var(--kop); font-weight: 800; font-size: 3vh; }
-.bm-feed { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: hidden;
-           display: flex; flex-direction: column; gap: 1vh; }
-.bm-feed-item {
+/* Kans op de beker: de tien grootste kanshebbers (zie beamer.js). */
+.bm-kansen { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: hidden;
+             display: flex; flex-direction: column; gap: .8vh; }
+.bm-kans-item {
+  display: flex; align-items: center; gap: 1.2vh; padding: .9vh 1.3vh;
   background: rgba(255, 255, 255, .055); border: 1px solid rgba(255, 255, 255, .07);
-  border-radius: 1.2vh; padding: 1.1vh 1.5vh; display: flex; flex-direction: column; gap: .3vh;
+  border-radius: 1.2vh; position: relative;
 }
-.bm-feed-item.nieuw { animation: bm-feed-in 1s cubic-bezier(.2, .9, .3, 1.1) both, bm-feed-gloed 4s ease 1s; }
+.bm-kans-item:first-child { border-color: rgba(245, 158, 11, .45); background: rgba(245, 158, 11, .1); }
+.bm-kans-plaats { width: 2.6vh; text-align: center; font-family: var(--kop); font-weight: 800;
+                  font-size: 2.2vh; color: #fcd34d; flex: none; }
+.bm-kans-item .bm-foto { flex: none; }
+.bm-kans-tekst { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .35vh; }
+.bm-kans-naam { font-size: 1.9vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kans-sub { font-size: 1.3vh; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bm-kans-balk { display: block; height: .7vh; border-radius: 1vh; background: rgba(255, 255, 255, .09); overflow: hidden; }
+.bm-kans-vul { display: block; height: 100%; border-radius: 1vh;
+               background: linear-gradient(90deg, var(--amber), #fcd34d);
+               transition: width 1.2s cubic-bezier(.2, .9, .3, 1); }
+.bm-kans-pct { font-family: var(--kop); font-weight: 800; font-size: 2.6vh; flex: none;
+               min-width: 6.5vh; text-align: right; font-variant-numeric: tabular-nums; }
+.bm-kans-item.nieuw { animation: bm-feed-in 1s cubic-bezier(.2, .9, .3, 1.1) both; }
+.bm-kans-item.omhoog { animation: bm-kans-omhoog 3s ease; }
+.bm-kans-item.omlaag { animation: bm-kans-omlaag 3s ease; }
+.bm-kans-item.omhoog .bm-kans-pct::before { content: "▲ "; color: #4ade80; font-size: 1.5vh; vertical-align: middle; }
+.bm-kans-item.omlaag .bm-kans-pct::before { content: "▼ "; color: #f87171; font-size: 1.5vh; vertical-align: middle; }
 @keyframes bm-feed-in { from { opacity: 0; transform: translateX(6vh); } }
-@keyframes bm-feed-gloed { 0% { border-color: var(--amber); background: rgba(245, 158, 11, .2); } }
-.bm-feed-label { font-size: 1.3vh; color: #fcd34d; font-weight: 700; }
-.bm-feed-regel { display: flex; align-items: baseline; gap: .8vh; flex-wrap: wrap; font-size: 1.9vh; }
-.bm-feed-winnaar { font-weight: 700; }
-.bm-feed-tegen { color: #94a3b8; font-size: 1.5vh; }
-.bm-feed-verliezer { color: #cbd5e1; }
+@keyframes bm-kans-omhoog { 0%, 30% { border-color: #4ade80; background: rgba(74, 222, 128, .16); } }
+@keyframes bm-kans-omlaag { 0%, 30% { border-color: #f87171; background: rgba(248, 113, 113, .14); } }
 .bm-feed-leeg { color: #94a3b8; }
 
 .bm-qr {
@@ -2681,4 +2704,61 @@ body.volledig .bm-geluid-knop.vraagt { opacity: 1; }
   .gl-proef { position: static; grid-column: 1; grid-row: auto; }
   .gl-lijst { grid-column: 1; grid-row: auto; }
   .gl-velden { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ------------------------------------------------------------ kansen -- */
+/* Kansberekening op de toernooipagina (zie kansen.py). */
+.kans-top { list-style: none; margin: 0; padding: 0; }
+.kans-top li {
+  display: grid; grid-template-columns: 26px 28px minmax(0, 1fr) minmax(60px, 34%) 48px;
+  align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--lijn);
+}
+.kans-top li:last-child { border-bottom: 0; }
+.kans-plaats { font-weight: 800; color: var(--amber-donker); text-align: center; }
+.kans-naam { min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.kans-naam a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.kans-naam small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .78rem; }
+.kans-balk, .kans-meter-balk {
+  display: block; height: 10px; border-radius: 999px; background: var(--lijn); overflow: hidden;
+}
+.kans-balk > span, .kans-meter-balk > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--amber), var(--amber-donker));
+}
+.kans-pct { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .kans-top li { grid-template-columns: 22px 24px minmax(0, 1fr) 46px; }
+  .kans-top .kans-balk { grid-column: 3 / 5; grid-row: 2; }
+}
+
+.kans-tabel td.kans-cel {
+  font-variant-numeric: tabular-nums; font-weight: 600;
+  background: rgba(245, 158, 11, calc(var(--kans) * .5));
+}
+.kans-tabel td.kans-zeker { background: #dcfce7; color: var(--groen); }
+.kans-tabel td.kans-nul { background: transparent; color: #cbd5e1; font-weight: 400; }
+
+.kans-duel { font-variant-numeric: tabular-nums; }
+
+/* Winstkans op de kaart van een eigen wedstrijd. */
+.kans-meter { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: .88rem; }
+.kans-meter-tekst { white-space: nowrap; color: var(--stil); }
+.kans-meter-tekst strong { color: var(--inkt); }
+.kans-meter-balk { flex: 1; max-width: 220px; height: 8px; }
+
+/* Jouw kansen bovenaan de toernooipagina: een ring die zich vult. */
+.kans-ring {
+  flex: none; width: 52px; height: 52px; border-radius: 50%;
+  background: conic-gradient(var(--amber-donker) calc(var(--kans) * 360deg), var(--lijn) 0);
+  -webkit-mask: radial-gradient(circle, transparent 15px, #000 16px);
+          mask: radial-gradient(circle, transparent 15px, #000 16px);
+}
+
+/* Voorspelling vóór de aftrap tegenover wat er echt gebeurde. */
+.voorspel-uitkomst { display: inline-block; width: 1.2em; text-align: center; font-weight: 700; }
+.voorspel-uitkomst.beter { color: var(--groen); }
+.voorspel-uitkomst.slechter { color: var(--rood); }
+.voorspel-uitkomst.raak { color: var(--stil); }
+.gok-melding {
+  background: #fef3c7; color: #92400e; border-radius: 10px; padding: 8px 12px;
 }

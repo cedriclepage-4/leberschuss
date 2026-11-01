@@ -1013,12 +1013,16 @@ def winstkwaliteit(db, tid, punten_van):
     moment waarop je iemand versloeg speelt dus geen rol — anders zou je
     benadeeld worden omdat je de latere winnaar toevallig vroeg trof.
     """
+    return _winstkwaliteit(games_van(db, tid, "bracket"), punten_van)
+
+
+def _winstkwaliteit(bracket, punten_van):
+    """`winstkwaliteit` op een lijst bracketwedstrijden, zonder database."""
     kwaliteit = {t: 0 for t in punten_van}
     programma = {t: 0 for t in punten_van}
-    for g in db.execute("""
-        SELECT team1_id, team2_id, winner_team_id FROM games
-        WHERE tournament_id = ? AND fase = 'bracket' AND status = 'gespeeld'
-    """, (tid,)):
+    for g in bracket:
+        if g["status"] != "gespeeld":
+            continue
         w = g["winner_team_id"]
         v = g["team2_id"] if w == g["team1_id"] else g["team1_id"]
         if w in kwaliteit and v in punten_van:
@@ -1109,9 +1113,19 @@ def stand(db, tid, hypothese=None):
     if hypothese:
         shootouts = [dict(g, status="gespeeld", winner_team_id=hypothese[g["id"]])
                      if g["id"] in hypothese else g for g in shootouts]
+    return stand_uit(tid, t["ko_teams"], teams, bracket, shootouts,
+                     elo_na_bracketfase(db, tid))
 
-    kracht_van = elo_na_bracketfase(db, tid)
 
+def stand_uit(tid, cut, teams, bracket, shootouts, kracht_van):
+    """Het rekenwerk van `stand`, zonder database.
+
+    Krijgt alles mee wat `stand` uit de database haalt: de deelnemers, de
+    bracketwedstrijden, de shootouts en de toernooikracht per team. Zo kan de
+    kansberekening (kansen.py) duizenden verzonnen afloopjes door precies
+    dezelfde regels halen als de echte stand, zonder ook maar iets weg te
+    schrijven.
+    """
     rijen = {}
     for tid_, team in teams.items():
         # start_elo = de permanente Aura op het moment van de loting (voor de potten).
@@ -1147,7 +1161,7 @@ def stand(db, tid, hypothese=None):
     # vóór de Aura, omdat ze uit de eindstand komen en dus niet afhangen van het
     # moment waarop je iemand trof.
     punten_van = {team_id: r["punten"] for team_id, r in rijen.items()}
-    kwaliteit, programma = winstkwaliteit(db, tid, punten_van)
+    kwaliteit, programma = _winstkwaliteit(bracket, punten_van)
     for team_id, r in rijen.items():
         r["kwaliteit"] = kwaliteit.get(team_id, 0)
         r["programma"] = programma.get(team_id, 0)
@@ -1172,7 +1186,6 @@ def stand(db, tid, hypothese=None):
                                         onbesliste_groepen, tid))
         i = j + 1
 
-    cut = t["ko_teams"]
     for plaats, r in enumerate(geordend, start=1):
         r["positie"] = plaats
         r["doorstoot"] = plaats <= cut
@@ -1182,7 +1195,7 @@ def stand(db, tid, hypothese=None):
     # Zolang de bracketfase loopt, heeft het geen zin om over gelijke standen of
     # shootouts te spreken: dan staat de halve tabel nog gelijk. Geplande shootouts
     # tellen hier NIET mee — die zijn er net omdát er nog beslist moet worden.
-    if not _bracketfase_gespeeld(db, tid):
+    if any(g["status"] == "gepland" for g in bracket):
         for r in geordend:
             r["gedeeld"] = False
         return geordend, []

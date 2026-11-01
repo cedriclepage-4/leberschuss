@@ -45,6 +45,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import league as liga_motor
 import tournament as toernooi_motor
+import kansen as kansmotor
 import dop as kroonkurk
 import samenvoegen
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
@@ -1143,6 +1144,23 @@ def filter_kracht(waarde):
     """
     afgerond = round(waarde or 0.0, 2) or 0.0
     return f"{afgerond:+.2f}".replace(".", ",")
+
+
+@app.template_filter("kans")
+def filter_kans(waarde):
+    """Een kans als percentage. Enkel echte zekerheid staat er als 0% of 100%:
+    een kans van 99,7% is nog geen ticket, dus die heet ">99%"."""
+    if waarde is None:
+        return ""
+    if waarde <= 0:
+        return "0%"
+    if waarde >= 1:
+        return "100%"
+    if waarde < 0.005:
+        return "<1%"
+    if waarde > 0.995:
+        return ">99%"
+    return f"{round(waarde * 100)}%"
 
 
 @app.template_filter("datum")
@@ -4535,6 +4553,77 @@ def toernooi_detail(toernooi_id):
     actieve_types = db.execute("SELECT * FROM stat_types WHERE active = 1 "
                                "ORDER BY name").fetchall()
 
+    # Kansen: per geplande wedstrijd wie de favoriet is, en per team hoe ver het
+    # (waarschijnlijk) geraakt. Zie kansen.py.
+    kans_uitkomst = kansmotor.bereken(db, toernooi_id)
+    sterkte = kansmotor.sterktes(db, toernooi_id)
+    game_kans = {g["id"]: kansmotor.winstkans(sterkte, g["team1_id"], g["team2_id"])
+                 for groep in groepen for g in groep["games"]
+                 if g["status"] == "gepland" and g["team1_id"] and g["team2_id"]}
+    for m in mijn_wedstrijden:
+        m["kans"] = kansmotor.winstkans(sterkte, m["eigen_team"], m["tegen_team"])
+    kans_rijen = []
+    if kans_uitkomst:
+        per_team = {x["id"]: x for x in teams}
+        for team_id in kans_uitkomst["ranglijst"]:
+            if team_id not in per_team:
+                continue
+            kans_rijen.append({"team_id": team_id, "naam": per_team[team_id]["naam"],
+                               "spelers": per_team[team_id]["spelers"],
+                               "sterkte": kans_uitkomst["sterkte"].get(team_id),
+                               "kansen": kansmotor.team_kansen(kans_uitkomst, team_id)})
+    # De voorspelling van vóór de aftrap naast wat er (tot nu toe) gebeurde.
+    vergelijking = None
+    al_gespeeld = db.execute("SELECT 1 FROM games WHERE tournament_id = ? AND "
+                             "status = 'gespeeld' LIMIT 1", (toernooi_id,)).fetchone()
+    vooraf = kansmotor.bereken_vooraf(db, toernooi_id) if kans_uitkomst and al_gespeeld else None
+    if vooraf:
+        voorspeld = kansmotor.voorspellingen(vooraf)
+        afgelopen = t["status"] == "afgelopen"
+        eerste = vooraf["rondes"][0]["grootte"]
+        rijen = []
+        for x in teams:
+            if x["id"] not in voorspeld:
+                continue
+            rij = {"team_id": x["id"], "naam": x["naam"], "voorspeld": voorspeld[x["id"]],
+                   "titel_vooraf": vooraf["kansen"][x["id"]][1],
+                   "titel_nu": kans_uitkomst["kansen"].get(x["id"], {}).get(1, 0.0)}
+            if afgelopen:
+                eind = kansmotor.eindfase(kans_uitkomst, x["id"])
+                rij["werkelijk"] = eind
+                rij["verschil"] = kansmotor.diepte(eind) - kansmotor.diepte(rij["voorspeld"])
+                # Hoeveel kans gaf de motor vooraf op precies dit (of beter)?
+                rij["kans_vooraf"] = (vooraf["kansen"][x["id"]][eind["grootte"]] if eind["grootte"]
+                                      else 1 - vooraf["kansen"][x["id"]][eerste])
+            rijen.append(rij)
+        if afgelopen:
+            rijen.sort(key=lambda r: (-kansmotor.diepte(r["werkelijk"]), r["voorspeld"]["plaats"]))
+        else:
+            rijen.sort(key=lambda r: r["voorspeld"]["plaats"])
+        favoriet = min(rijen, key=lambda r: r["voorspeld"]["plaats"]) if rijen else None
+        # De kampioen wordt apart vermeld; de verrassing is de volgende in de rij.
+        beter = [r for r in rijen if afgelopen and r["verschil"] > 0
+                 and r["werkelijk"]["grootte"] != 1]
+        sterktes_vooraf = list(vooraf["sterkte"].values())
+        vergelijking = {
+            "rijen": rijen, "favoriet": favoriet, "afgelopen": afgelopen,
+            "kampioen": next((r for r in rijen if afgelopen and r["werkelijk"]["grootte"] == 1), None),
+            "verrassing": min(beter, key=lambda r: r["kans_vooraf"]) if beter else None,
+            "raak": sum(1 for r in rijen if afgelopen and r["verschil"] == 0),
+            # Stond iedereen vooraf even sterk (bv. op het allereerste toernooi),
+            # dan was de voorspelling niet meer dan een gok.
+            "gok": max(sterktes_vooraf) - min(sterktes_vooraf) < 1,
+            "afloopjes": vooraf["afloopjes"],
+        }
+
+    mijn_kansen = None
+    ik = session.get("speler_id")
+    mijn_team = next((x for x in teams if ik and ik in (x["player1_id"], x["player2_id"])), None)
+    if mijn_team and kans_uitkomst and t["status"] != "afgelopen":
+        mijn_kansen = {"team": mijn_team,
+                       "stap": kansmotor.volgende_stap(kans_uitkomst, mijn_team["id"]),
+                       "titel": kans_uitkomst["kansen"].get(mijn_team["id"], {}).get(1, 0.0)}
+
     mijn_coupon = 0                     # aantal geldige coupons van wie kijkt
     if session.get("speler_id") and t["status"] != "opzet":
         mijn_coupon = sum(1 for v in uitgenodigd_door_speler(db, toernooi_id, session["speler_id"])
@@ -4545,6 +4634,9 @@ def toernooi_detail(toernooi_id):
                            mijn_wedstrijden=mijn_wedstrijden,
                            mijn_gespeeld=mijn_gespeeld,
                            actieve_types=actieve_types,
+                           kans_uitkomst=kans_uitkomst, kans_rijen=kans_rijen,
+                           game_kans=game_kans, mijn_kansen=mijn_kansen,
+                           vergelijking=vergelijking,
                            namen=namen, loc_namen=loc_namen, kolommen=kolommen,
                            stand=rangschikking, beslissend=beslissend, deltas=deltas,
                            tiebreaks=(toernooi_motor.tiebreak_groepen(db, toernooi_id)
@@ -5213,9 +5305,20 @@ def _beamer_gegevens(db, toernooi_id):
                         "team2": team(g["team2_id"]), "winnaar": g["winner_team_id"],
                         "fase": g["fase"]})
 
+    # De tien grootste kanshebbers op de titel, voor de zijkolom (kansen.py).
+    kansen = []
+    uitkomst = kansmotor.bereken(db, toernooi_id)
+    if uitkomst:
+        for team_id in uitkomst["ranglijst"][:10]:
+            x = team(team_id)
+            if x:
+                per = uitkomst["kansen"][team_id]
+                x.update(kans=round(per[1], 4), ko=round(per[t["ko_teams"]], 4))
+                kansen.append(x)
+
     # Een vingerafdruk van alles wat op het scherm kan veranderen: is die gelijk,
     # dan hoeft de pagina niets te doen.
-    afdruk = hashlib.sha1(json.dumps([t["status"], stand, kolommen, kleine, laatste],
+    afdruk = hashlib.sha1(json.dumps([t["status"], stand, kolommen, kleine, laatste, kansen],
                                      sort_keys=True, default=str).encode()).hexdigest()[:12]
     fase = "knockout" if t["status"] in ("knockout", "afgelopen") else "stand"
     return {"versie": afdruk, "naam": t["name"], "status": t["status"],
@@ -5223,7 +5326,7 @@ def _beamer_gegevens(db, toernooi_id):
             "fase": fase, "cut": t["ko_teams"], "stand": stand,
             "knockout": {"kolommen": kolommen, "kleine_finale": kleine,
                          "kampioen": kampioen},
-            "laatste": laatste}
+            "laatste": laatste, "kansen": kansen}
 
 
 @app.route("/toernooi/<int:toernooi_id>/beamer")

@@ -53,6 +53,26 @@
 </div>
 {% endif %}
 
+{% if mijn_kansen %}
+<div class="kaart lopend-kaart kans-kaart">
+  <span class="lopend-tekst">
+    <span class="lopend-label">Jouw kansen · {{ mijn_kansen.team.naam }}</span>
+    {% if mijn_kansen.stap %}
+    <strong>{{ mijn_kansen.stap.kans|kans }} kans op {{ 'de titel' if mijn_kansen.stap.grootte == 1
+             else ('de knockout' if mijn_kansen.stap.grootte == t['ko_teams'] and t['status'] == 'bracket'
+                   else 'de ' ~ mijn_kansen.stap.label|lower) }}</strong>
+    <small>{% if t['status'] == 'bracket' and mijn_kansen.stap.grootte != t['ko_teams'] %}Jullie zitten zo goed als zeker in de knockout. {% endif %}
+      {%- if mijn_kansen.stap.grootte != 1 %}Kans op de titel: {{ mijn_kansen.titel|kans }}{% endif %}</small>
+    {% else %}
+    <strong>Uitgeschakeld</strong>
+    <small>Er valt voor jullie niets meer te winnen in dit toernooi.</small>
+    {% endif %}
+  </span>
+  {% if mijn_kansen.stap %}
+  <span class="kans-ring" style="--kans: {{ mijn_kansen.stap.kans }}" aria-hidden="true"></span>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="tabs" data-tabs>
   {% if session.get('speler_id') %}
@@ -61,9 +81,11 @@
   {% else %}
   <button class="tab actief" data-tab="stand">Stand</button>
   {% endif %}
+  {# Zodra de knockout loopt, is dat het schema waar iedereen naar kijkt. #}
+  {% if kolommen %}<button class="tab" data-tab="knockout">Knockout</button>{% endif %}
+  {% if kans_rijen %}<button class="tab" data-tab="kansen">Kansen</button>{% endif %}
   {% if tiebreaks %}<button class="tab" data-tab="gelijk">Gelijke standen ({{ tiebreaks|length }})</button>{% endif %}
   <button class="tab" data-tab="kalender">Kalender</button>
-  {% if kolommen %}<button class="tab" data-tab="knockout">Knockout</button>{% endif %}
   <button class="tab" data-tab="teams">Teams</button>
 </div>
 
@@ -162,6 +184,133 @@
     {% endif %}
   </div>
 </div>
+
+{% macro voorspelling_kaart(v) %}
+<div class="kaart">
+  <h3>Voorspelling vóór de aftrap</h3>
+  <p class="klein-tekst">
+    {% if v.afgelopen and v.kampioen %}
+      {% if v.gok %}
+      Het werd <strong>{{ v.kampioen.naam }}</strong>, met vooraf {{ v.kampioen.titel_vooraf|kans }}
+      kans op de titel.
+      {% elif v.favoriet.team_id == v.kampioen.team_id %}
+      De computer had het goed: <strong>{{ v.kampioen.naam }}</strong> was vooraf de favoriet
+      ({{ v.kampioen.titel_vooraf|kans }} kans op de titel) en won ook echt de beker.
+      {% else %}
+      Vooraf was <strong>{{ v.favoriet.naam }}</strong> de favoriet ({{ v.favoriet.titel_vooraf|kans }}
+      kans op de titel). Het werd <strong>{{ v.kampioen.naam }}</strong>, met vooraf
+      {{ v.kampioen.titel_vooraf|kans }} kans.
+      {% endif %}
+      {% if v.verrassing %}
+      Grootste verrassing: <strong>{{ v.verrassing.naam }}</strong> haalde
+      {{ 'de ' ~ v.verrassing.werkelijk.label|lower }}, terwijl de computer daar vooraf
+      {{ v.verrassing.kans_vooraf|kans }} kans op gaf.
+      {% endif %}
+      Voor {{ v.raak }} van de {{ v.rijen|length }} teams klopte de voorspelling precies.
+    {% elif not v.gok %}
+      Vooraf was <strong>{{ v.favoriet.naam }}</strong> de favoriet, met
+      {{ v.favoriet.titel_vooraf|kans }} kans op de titel. Zo zag het schema eruit dat de
+      computer bij de aftrap zou invullen.
+    {% endif %}
+  </p>
+  {% if v.gok %}
+  <p class="klein-tekst gok-melding">Alle teams stonden vooraf even sterk, bijvoorbeeld omdat
+     het hun eerste toernooi was. De voorspelling was dus niet meer dan een gok.</p>
+  {% endif %}
+  <table class="tabel compact voorspel-tabel">
+    <thead>
+      <tr><th>Team</th><th>Voorspeld</th>
+        {% if v.afgelopen %}<th>Werkelijk</th><th class="kol-num" title="De kans die de computer vooraf gaf op wat het team echt haalde">Kans vooraf</th>
+        {% else %}<th class="kol-num">Titel vooraf</th><th class="kol-num">Titel nu</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in v.rijen %}
+      <tr>
+        <td class="naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=r.team_id) }}">{{ r.naam }}</a></td>
+        <td class="stil">{{ r.voorspeld.label }}</td>
+        {% if v.afgelopen %}
+        <td><span class="voorspel-uitkomst {{ 'beter' if r.verschil > 0 else ('slechter' if r.verschil < 0 else 'raak') }}"
+                  title="{{ 'Beter dan voorspeld' if r.verschil > 0 else ('Minder ver dan voorspeld' if r.verschil < 0 else 'Precies zoals voorspeld') }}">
+              {{ '▲' if r.verschil > 0 else ('▼' if r.verschil < 0 else '=') }}</span>
+            {{ r.werkelijk.label }}</td>
+        <td class="kol-num">{{ r.kans_vooraf|kans }}</td>
+        {% else %}
+        <td class="kol-num">{{ r.titel_vooraf|kans }}</td>
+        <td class="kol-num">{{ r.titel_nu|kans }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="klein-tekst stil ruimte-boven">Achteraf berekend met de Aura van elk team en
+    elke speler bij de start van dit toernooi, alsof er nog
+    niets gespeeld was. 'Kans voorraf' toont de vooraf berekende kans dat een team op 
+    haar werkelijke plaats zou eindigen.</p>
+</div>
+{% endmacro %}
+
+<!-- ------------------------------------------------------------ kansen -- -->
+{% if kans_rijen %}
+{% set rondes = kans_uitkomst.rondes %}
+<div data-paneel="kansen" class="paneel verborgen">
+  {% if vergelijking and vergelijking.afgelopen %}{{ voorspelling_kaart(vergelijking) }}{% endif %}
+  {% set kanshebbers = kans_rijen | selectattr('kansen') | list %}
+  {% set beste = (kanshebbers[0].kansen[-1].kans if kanshebbers else 0) or 1 %}
+  <div class="kaart">
+    <h3>{{ 'Wie won de beker?' if t['status'] == 'afgelopen' else 'Wie wint de beker?' }}</h3>
+    <ol class="kans-top">
+      {% for r in kanshebbers[:10] if r.kansen[-1].kans > 0 %}
+      <li>
+        <span class="kans-plaats">{{ loop.index }}</span>
+        <img class="avatar-mini dop-img" src="{{ dop_team(r.team_id) }}" alt="" loading="lazy">
+        <span class="kans-naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=r.team_id) }}">{{ r.naam }}</a>
+          <small class="stil">{{ r.spelers }}</small></span>
+        <span class="kans-balk"><span style="width: {{ (100 * r.kansen[-1].kans / beste)|round(1) }}%"></span></span>
+        <strong class="kans-pct">{{ r.kansen[-1].kans|kans }}</strong>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <div class="kaart">
+    <h3>Hoe ver geraakt elk team?</h3>
+    <table class="tabel compact kans-tabel">
+      <thead>
+        <tr><th>Team</th>
+          {% for r in rondes %}
+          <th class="kol-num">{{ 'Knockout' if loop.first and t['status'] == 'bracket' else r.label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in kans_rijen %}
+        <tr>
+          <td class="naam"><a class="profiel-link" href="{{ url_for('team_profiel', team_id=r.team_id) }}">{{ r.naam }}</a></td>
+          {% for k in r.kansen %}
+          <td class="kol-num kans-cel {{ 'kans-zeker' if k.kans >= 1 }}{{ 'kans-nul' if k.kans <= 0 }}"
+              style="--kans: {{ k.kans }}">{{ '✓' if k.kans >= 1 else ('–' if k.kans <= 0 else k.kans|kans) }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="klein-tekst stil ruimte-boven">
+      {% if t['status'] == 'afgelopen' %}
+      Het toernooi zit erop: hier staat enkel nog wie hoe ver geraakte.
+      {% else %}
+      De computer speelde dit toernooi {{ '{:,}'.format(kans_uitkomst.afloopjes).replace(',', '.') }} keer na,
+      telkens met dezelfde regels als het echte toernooi (tiebreaks, shootouts, knockoutschema).
+      Wie een open wedstrijd wint, hangt af van de Aura: de helft die van het team, de helft
+      het gemiddelde van de twee spelers. Wat al gespeeld is, ligt vast: ✓ betekent zeker
+      (of zo goed als), – betekent uitgeschakeld (of zo goed als kansloos). Na elke uitslag
+      wordt alles opnieuw berekend.
+      {% endif %}
+    </p>
+  </div>
+  {% if vergelijking and not vergelijking.afgelopen %}{{ voorspelling_kaart(vergelijking) }}{% endif %}
+</div>
+{% endif %}
 
 <!-- ---------------------------------------------------------- kalender -- -->
 <!-- ------------------------------------------------------- gelijke standen -- -->
@@ -305,6 +454,7 @@
       </div>
       <div class="wedstrijd-meta">
         {% if g['status'] == 'gespeeld' %}{{ namen[g['winner_team_id']] }} wint · {{ g['played_at']|datum }} · {% endif %}
+        {%- if g['id'] in game_kans %}<span class="kans-duel" title="Winstkans volgens de Aura">{{ game_kans[g['id']]|kans }} – {{ (1 - game_kans[g['id']])|kans }}</span> · {% endif %}
         {%- if g['location_id'] and loc_namen.get(g['location_id']) %}{{ loc_namen[g['location_id']] }} · {% endif %}
         <span class="pil">{{ g|fase }}</span>
       </div>

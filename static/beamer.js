@@ -31,7 +31,7 @@
 
   var paneelStand = document.querySelector('[data-paneel="stand"]');
   var paneelKo = document.querySelector('[data-paneel="knockout"]');
-  var feed = document.querySelector("[data-feed]");
+  var kansLijst = document.querySelector("[data-kansen]");
   var faseLabel = document.querySelector("[data-fase-label]");
   var melding = document.querySelector("[data-melding]");
 
@@ -479,6 +479,8 @@
         "Het knockoutschema verschijnt zodra de bracketfase gespeeld is."));
       return;
     }
+    /* Het aantal wedstrijden in de eerste ronde bepaalt hoe groot de kaartjes zijn. */
+    paneelKo.style.setProperty("--ko-n", Math.max(4, ko.kolommen[0].games.length));
     var rij = el("div", "bm-kolommen");
     ko.kolommen.forEach(function (kolom, i) {
       var laatste = i === ko.kolommen.length - 1;
@@ -725,11 +727,6 @@
     s.laatste = (s.laatste || []).filter(function (w) { return w.fase !== "knockout"; });
     return s;
   }
-  function zonderKnockoutUitslagen(d) {
-    var s = Object.assign({}, d);
-    s.laatste = (d.laatste || []).filter(function (w) { return w.fase !== "knockout"; });
-    return s;
-  }
 
   function alleGames(d) {
     var lijst = [];
@@ -863,32 +860,75 @@
     return function () { actief = false; clearTimeout(tweede); ctx.clearRect(0, 0, B, H); };
   }
 
-  /* ============================================== LAATSTE UITSLAGEN == */
-  function maakFeedItem(u) {
-    var li = el("li", "bm-feed-item");
-    li.dataset.id = u.id;
-    li.appendChild(el("span", "bm-feed-label", u.label));
-    var w = u.winnaar === (u.team1 && u.team1.id) ? u.team1 : u.team2;
-    var v = w === u.team1 ? u.team2 : u.team1;
-    var regel = el("span", "bm-feed-regel");
-    regel.appendChild(el("strong", "bm-feed-winnaar", w ? w.naam : "?"));
-    regel.appendChild(el("span", "bm-feed-tegen", "wint van"));
-    regel.appendChild(el("span", "bm-feed-verliezer", v ? v.naam : "?"));
-    li.appendChild(regel);
+  /* =========================================== KANS OP DE BEKER == */
+  /* De tien teams met de grootste kans op de titel (zie kansen.py). Na een
+     uitslag schuiven ze naar hun nieuwe plaats en loopt hun balk bij; een
+     pijltje toont kort of de kans steeg of daalde. */
+  function kansTekst(p) {
+    if (p <= 0) return "0%";
+    if (p >= 1) return "100%";
+    if (p < .005) return "<1%";
+    if (p > .995) return ">99%";
+    return Math.round(p * 100) + "%";
+  }
+  function maakKansItem(k) {
+    var li = el("li", "bm-kans-item");
+    li.dataset.id = k.id;
+    li.appendChild(el("span", "bm-kans-plaats"));
+    li.appendChild(foto(k, "klein"));
+    var tekst = el("span", "bm-kans-tekst");
+    tekst.appendChild(el("strong", "bm-kans-naam", k.naam));
+    tekst.appendChild(el("span", "bm-kans-sub"));
+    var balk = el("span", "bm-kans-balk");
+    balk.appendChild(el("span", "bm-kans-vul"));
+    tekst.appendChild(balk);
+    li.appendChild(tekst);
+    li.appendChild(el("span", "bm-kans-pct"));
+    li.dataset.kans = "-1";
     return li;
   }
-  function werkFeedBij(d, animeer) {
-    var bestaand = {};
-    feed.querySelectorAll(".bm-feed-item").forEach(function (li) { bestaand[li.dataset.id] = li; });
-    var nieuw = document.createDocumentFragment();
-    d.laatste.forEach(function (u) {
-      var li = bestaand[u.id] || maakFeedItem(u);
-      if (!bestaand[u.id] && animeer) li.classList.add("nieuw");
-      nieuw.appendChild(li);
+  function werkKansenBij(d, animeer) {
+    if (!kansLijst) return;
+    var lijst = (d.kansen || []).filter(function (k) { return k.kans > 0; });
+    var bestaand = {}, voor = {};
+    kansLijst.querySelectorAll(".bm-kans-item").forEach(function (li) {
+      bestaand[li.dataset.id] = li;
+      voor[li.dataset.id] = li.getBoundingClientRect().top;
     });
-    feed.textContent = "";
-    feed.appendChild(nieuw);
-    if (!d.laatste.length) feed.appendChild(el("li", "bm-feed-leeg", "Nog geen uitslagen."));
+    var beste = lijst.length ? lijst[0].kans : 1;
+    var frag = document.createDocumentFragment();
+    lijst.forEach(function (k, i) {
+      var li = bestaand[k.id] || maakKansItem(k);
+      var oud = parseFloat(li.dataset.kans);
+      li.querySelector(".bm-kans-plaats").textContent = i + 1;
+      li.querySelector(".bm-kans-pct").textContent = kansTekst(k.kans);
+      li.querySelector(".bm-kans-sub").textContent =
+        d.fase === "stand" && k.ko != null && k.ko < 1 ? "Knockout " + kansTekst(k.ko) : k.spelers || "";
+      li.querySelector(".bm-kans-vul").style.width = (100 * k.kans / (beste || 1)).toFixed(1) + "%";
+      werkFotoBij(li, k);
+      li.classList.remove("omhoog", "omlaag", "nieuw");
+      if (animeer && oud >= 0 && Math.abs(k.kans - oud) >= .005) {
+        void li.offsetWidth;
+        li.classList.add(k.kans > oud ? "omhoog" : "omlaag");
+      } else if (animeer && !bestaand[k.id]) {
+        li.classList.add("nieuw");
+      }
+      li.dataset.kans = k.kans;
+      frag.appendChild(li);
+    });
+    kansLijst.textContent = "";
+    kansLijst.appendChild(frag);
+    if (!lijst.length) kansLijst.appendChild(el("li", "bm-feed-leeg", "Nog geen kansen berekend."));
+    /* Wie van plaats wisselde, glijdt van zijn oude plek naar de nieuwe. */
+    if (animeer && !rustig) {
+      kansLijst.querySelectorAll(".bm-kans-item").forEach(function (li) {
+        if (voor[li.dataset.id] == null) return;
+        var dy = voor[li.dataset.id] - li.getBoundingClientRect().top;
+        if (Math.abs(dy) < 1 || !li.animate) return;
+        li.animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }],
+                   { duration: 900, easing: "cubic-bezier(.2, .9, .3, 1)" });
+      });
+    }
   }
 
   /* ======================================================= WEERGAVE == */
@@ -925,7 +965,6 @@
          knockoutwedstrijden erbij)? Dan eerst enkel de bracketfase afwerken,
          daarna het schema vanaf het begin, één wedstrijd na de andere. */
       var naarKnockout = !handmatig && weergave === "stand" && nieuw.fase === "knockout";
-      werkFeedBij(naarKnockout ? zonderKnockoutUitslagen(nieuw) : nieuw, true);
       /* Een animatie mag het scherm nooit laten vastlopen: duurt het langer
          dan een minuut, dan bouwen we gewoon opnieuw op met de nieuwe stand. */
       function hoogstensEenMinuut(belofte) {
@@ -947,16 +986,17 @@
         data = begin;
         toon("knockout");
         await wacht(1200);
-        werkFeedBij(nieuw, true);
         if (!(await hoogstensEenMinuut(werkBracketBij(begin, nieuw)))) { data = nieuw; toon("knockout"); }
         data = nieuw;
       } else if (!handmatig && nieuw.fase !== weergave) {
         await wacht(2500);
         toon(nieuw.fase);
       }
+      /* Pas als de uitslagen op het scherm staan, schuiven de kansen mee. */
+      werkKansenBij(nieuw, true);
     } catch (e) {
       data = nieuw;                         // bij een fout: gewoon opnieuw opbouwen
-      try { toon(weergave); } catch (e2) {}
+      try { toon(weergave); werkKansenBij(nieuw, false); } catch (e2) {}
     } finally {
       bezig = false;
     }
@@ -1157,7 +1197,7 @@
   }
   async function naarSchema(d) {
     data = d;
-    werkFeedBij(d, false);
+    werkKansenBij(d, false);
     toon("knockout");
     await wacht(1500);
   }
@@ -1186,7 +1226,7 @@
   }
 
   /* ---------------------------------------------------------- start -- */
-  werkFeedBij(data, false);
+  werkKansenBij(data, false);
   toon(weergave);
   if (cfg.proef) {
     var scene = new URLSearchParams(location.search).get("scene");

@@ -154,6 +154,24 @@ De site heeft drie delen, elk met een eigen tabblad bovenaan.
 
 - *Alle toernooien*, en per toernooi de stand, de kalender, het knockoutschema
   en de uitleg bij gelijke standen.
+- **Kansen** (zodra er geloot is): wie het meest kans maakt op de beker, en per
+  team de kans op de knockout, elke knockoutronde en de titel. Ingelogde spelers
+  zien bovenaan hun eigen kans op de volgende ronde, en bij elke eigen wedstrijd
+  hun winstkans; in de kalender staat die bij elke wedstrijd die nog moet komen.
+
+  Hoe? De computer speelt het toernooi duizenden keren na (`kansen.py`), met
+  precies dezelfde regels als het echte (tiebreaks, shootouts, knockoutschema).
+  Wie een open wedstrijd wint, hangt af van de Aura van beide kanten — de helft
+  die van het team, de helft het gemiddelde van de twee spelers, net als in de
+  Aura-berekening zelf. Twee nieuwe teams van 1000 zijn dus geen 50-50 als er
+  bij het ene twee sterkhouders in zitten. Wat al gespeeld is, ligt vast: na
+  elke uitslag wordt alles herberekend en worden kansen stilaan feiten.
+
+  Daaronder staat de **voorspelling van vóór de aftrap**: het schema dat de motor
+  bij de eerste wedstrijd zou invullen (één kampioen, één finalist, ...), en na
+  afloop naast wat elk team echt haalde, met de kans die het vooraf kreeg. Die
+  voorspelling wordt niet bewaard maar achteraf herberekend met de ratings van
+  bij de aftrap, dus ze werkt ook voor oude toernooien.
 
 **Organisatie** (voor accounts met de rol organisator of eigenaar)
 
@@ -311,6 +329,7 @@ verliest de andere.
 | `app.py` | Flask-app: routes, leaderboards, adminpaneel |
 | `elo.py` | Aura-berekening + gewicht per fase |
 | `tournament.py` | Toernooimotor: potten, loting, kalender, stand, knockout |
+| `kansen.py` | Kansberekening: speelt het toernooi duizenden keren na |
 | `database.py` | SQLite-schema, initialisatie en migratie |
 | `test_toernooi.py` | Simulatie die een volledig toernooi uitspeelt en controleert |
 | `*.html` | Jinja2-templates (frontend) |
@@ -390,6 +409,10 @@ opent dezelfde pagina met `?beamer=1` erachter en:
 
 Zet het venster op volledig scherm (F11) en laat het gerust openstaan. Staat het
 tabblad op de achtergrond, dan ververst het niet — zo verspil je niets.
+
+**Kans op de beker:** rechts op het beamerscherm staan de tien teams met de
+grootste kans op de titel. Na elke uitslag schuiven ze naar hun nieuwe plaats,
+met een groen of rood pijltje bij wie steeg of zakte.
 
 **Geluid erbij:** hangt de beamerlaptop ook aan de boxen, stel dan bij
 *Organisatie → Instellingen → Beamergeluiden* per gebeurtenis een geluid in
