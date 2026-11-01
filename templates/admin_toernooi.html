@@ -74,7 +74,7 @@
     <tbody>
       {% for team in teams %}
       <tr>
-        <td class="naam">{% if t['status'] == 'opzet' %}<span class="stil">{{ loop.index }}.</span> {% endif %}{{ team.naam }}{% if team.via %} <span class="pil pil-via" title="Ingeschreven via de uitnodigingslink van {{ team.via }}">via {{ team.via }}</span>{% endif %}
+        <td class="naam">{% if t['status'] == 'opzet' %}<span class="stil">{{ loop.index }}.</span> {% endif %}<a href="{{ url_for('team_profiel', team_id=team.id) }}">{{ team.naam }}</a>{% if team.via %} <span class="pil pil-via" title="Ingeschreven via de uitnodigingslink van {{ team.via }}">via {{ team.via }}</span>{% endif %}
           <details class="via-blok">
             <summary>{{ 'uitnodiger wijzigen' if team.via else 'uitnodiger invullen' }}</summary>
             <form method="post" action="{{ url_for('toernooi_team_via', toernooi_id=t['id'], team_id=team.id) }}">
@@ -88,7 +88,7 @@
             </form>
           </details>{% if team.wachtlijst %} <span class="pil pil-wacht">wachtlijst {{ team.wachtlijst }}</span>{% endif %}
           {% if team.door is defined %}<span class="inschrijf-meta">{% if team.door %}ingeschreven door {{ team.door }}{% else %}toegevoegd door de organisatie{% endif %}{% if team.op %} · {{ team.op[8:10] }}/{{ team.op[5:7] }} {{ team.op[11:16] }}{% endif %}</span>{% endif %}</td>
-        <td class="stil wikkel">{{ team.spelers }}
+        <td class="stil wikkel">{% if team.spelers_volledig is defined %}{% for pid, naam in team.spelers_volledig %}<a href="{{ url_for('speler_profiel', speler_id=pid) }}">{{ naam }}</a>{{ ' & ' if not loop.last }}{% endfor %}{% else %}{{ team.spelers }}{% endif %}
           {% if team.zonder_account %}<span class="pil pil-wacht" title="Deze speler heeft zijn account nog niet opgeëist. Hij doet dat door zich te registreren met exact dezelfde naam.">{{ team.zonder_account|join(', ') }}: nog geen account</span>{% endif %}</td>
         <td class="kol-elo">{{ team.elo|elo }}</td>
         {% if potten_aantal > 1 %}<td class="verbergen-mobiel"><span class="pot-pil pot-{{ team.pot }}">{{ team.pot }}</span></td>{% endif %}

@@ -5629,7 +5629,7 @@ def toernooi_beheer(toernooi_id):
         # Vóór de loting: in volgorde van inschrijving, met wie en wanneer.
         info = {r["team_id"]: r for r in db.execute(f"""
             SELECT tt.team_id, tt.id AS volgorde, tt.ingeschreven_op,
-                   {WEERGAVE.replace('p.', 'd.')} AS door,
+                   d.name AS door,
                    {WEERGAVE.replace('p.', 'u.')} AS via
             FROM tournament_teams tt LEFT JOIN players d ON d.id = tt.ingeschreven_door
             LEFT JOIN players u ON u.id = tt.uitgenodigd_door
@@ -5637,7 +5637,11 @@ def toernooi_beheer(toernooi_id):
         zonder_account = {r["id"] for r in db.execute(
             "SELECT id FROM players WHERE password_hash IS NULL")}
         namen_w = weergavenamen(db)
+        # De organisatie wil weten wíé er inschreef: volledige namen, geen bijnamen.
+        volledig = {r["id"]: r["name"] for r in db.execute("SELECT id, name FROM players")}
         for team in teams:
+            team["spelers_volledig"] = [(pid, volledig.get(pid, "?")) for pid in
+                                        (team["player1_id"], team["player2_id"]) if pid]
             r = info.get(team["id"])
             team["door"] = r["door"] if r else None
             team["via"] = r["via"] if r else None
