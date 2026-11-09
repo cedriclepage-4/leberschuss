@@ -3,6 +3,9 @@ shuss.db
 shuss.db-journal
 shuss.db-wal
 shuss.db-shm
+# slotbestandje dat gelijktijdige evaluaties na elkaar laat lopen
+shuss.db-slot
+shuss.db-slot-journal
 shuss_backup_*.db
 shuss_oud_*.db
 backups/
@@ -22,3 +25,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Achtergebleven tijdelijke bestanden van een netwerkschijf (FUSE)
+.fuse_hidden*

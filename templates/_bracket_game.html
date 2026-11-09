@@ -17,7 +17,7 @@
   {% endfor %}
   <div class="bracket-meta">
     {% if gespeeld %}Gespeeld · {{ g['played_at']|dag }}
-    {% else %}{{ g['scheduled_at']|uur }}{% if g['location_id'] and loc_namen.get(g['location_id']) %} · {{ loc_namen[g['location_id']] }}{% endif %}
+    {% else %}{% if g['location_id'] and loc_namen.get(g['location_id']) %}{{ loc_namen[g['location_id']] }}{% else %}Nog te spelen{% endif %}
     {% endif %}
   </div>
 </div>

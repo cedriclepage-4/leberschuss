@@ -119,8 +119,7 @@
                   {%- if o.verschil > 0 %} <span class="pil">+{{ o.verschil }}, langer</span>
                   {%- elif o.verschil < 0 %} <span class="pil">{{ o.verschil }}, korter</span>
                   {%- else %} <span class="pil pil-actief">ongewijzigd</span>{% endif %}
-                  <span class="klein-tekst stil">(nog {{ o.nieuw }} wedstrijd(en),
-                    ± {{ o.minuten }} min)</span>
+                  <span class="klein-tekst stil">(nog {{ o.nieuw }} wedstrijd(en) te spelen)</span>
                 </label>
                 {% endfor %}
               </div>
@@ -177,6 +176,9 @@
   <p class="stil klein-tekst">De kalender houdt rekening met deze tafels: per moment spelen er
      nooit meer wedstrijden dan er tafels zijn. Zonder locaties speelt een hele ronde tegelijk.
      Na de loting liggen de tafels vast.</p>
+  {% if not locaties %}
+  <p class="conflict-tekst">Nog geen tafels toegevoegd.</p>
+  {% endif %}
   {% if locaties %}
   <div class="actie-rij ruimte-boven">
     {% for l in locaties %}
@@ -210,10 +212,32 @@
 <h2 class="sectiekop" id="openstaand">Openstaande wedstrijden</h2>
 <p class="stil klein-tekst">Net als in de league melden de spelers zelf hun uitslag via hun profiel.
    Vul hier zelf in als reserve-optie of om een conflict te beslechten.</p>
+{% if aandacht.conflict or aandacht.half %}
+<div class="kaart aandacht-kaart">
+  <p><strong>Vraagt je aandacht:</strong>
+    {% if aandacht.conflict %}<span class="pil pil-rood">{{ aandacht.conflict }} conflict{{ 'en' if aandacht.conflict > 1 }}</span>{% endif %}
+    {% if aandacht.half %}<span class="pil pil-wacht">{{ aandacht.half }} wacht{{ 'en' if aandacht.half > 1 }} op bevestiging</span>{% endif %}
+  </p>
+  <p class="stil klein-tekst">Zolang een uitslag niet officieel is, kunnen beide teams hun
+     volgende wedstrijd niet melden. Ze staan hieronder bovenaan.</p>
+</div>
+{% endif %}
 {% if openstaand %}
 <div class="wedstrijd-lijst">
   {% for g in openstaand %}
-  <div class="kaart">
+  {% set ms = meldstaat.get(g['id']) %}
+  <div class="kaart{% if ms and ms.soort == 'conflict' %} meld-conflict{% elif ms %} meld-half{% endif %}">
+    {% if ms and ms.soort == 'conflict' %}
+    <p class="conflict-tekst klein-tekst"><strong>Conflict:</strong> de teams meldden elk een andere winnaar. Beslis hieronder.</p>
+    {% elif ms %}
+    <p class="klein-tekst"><span class="pil pil-wacht">Wacht op bevestiging{% if ms.minuten is not none %} · {{ ms.minuten }} min{% endif %}</span>
+       {{ namen[ms.wacht_op] }} heeft nog niets gemeld.</p>
+    <form method="post" action="{{ url_for('wedstrijd_resultaat', game_id=g['id']) }}" class="ruimte-onder">
+      <input type="hidden" name="winnaar" value="{{ ms.winnaar }}">
+      <input type="hidden" name="gespeeld_op" value="{{ ms.gespeeld_op }}">
+      <button type="submit" class="knop primair klein">Bevestig: {{ namen[ms.winnaar_id] }} wint</button>
+    </form>
+    {% endif %}
     <div class="wedstrijd-teams">
       <span class="team-naam">{{ namen[g['team1_id']] }}</span>
       <span class="vs">vs</span>
@@ -298,7 +322,6 @@
           {% endfor %}
         </select>
       </label>
-      <label>Minuten per wedstrijd <input type="number" name="slot" min="5" max="120" value="{{ t['slot_minuten'] }}"></label>
       <label>Maximum aantal teams
         <input type="number" name="max_teams" min="4" max="200" value="{{ t['max_teams'] or '' }}" placeholder="geen maximum"></label>
       <label>Uitnodigingen per speler
@@ -334,8 +357,14 @@
        maar iedereen speelt evenveel wedstrijden ({{ t['bracket_ronden'] }}).</p>
     {% endif %}
     {% endif %}
+    {% if not locaties %}
+    <p class="conflict-tekst">Let op: er zijn nog geen tafels toegevoegd. Dan gaat de loting
+       ervan uit dat álle wedstrijden van een speelronde tegelijk gespeeld worden, en krijgt
+       geen enkele wedstrijd een tafel. Voeg eerst de tafels toe bij
+       <a class="profiel-link" href="#locaties">Locaties</a>, tenzij dat echt de bedoeling is.</p>
+    {% endif %}
     <form method="post" action="{{ url_for('toernooi_genereren', toernooi_id=t['id']) }}"
-          data-confirm="Potten trekken en het volledige programma loten?">
+          data-confirm="{% if not locaties %}Er zijn GEEN tafels: alle wedstrijden van een speelronde worden tegelijk ingepland. Toch loten?{% else %}Potten trekken en het volledige programma loten?{% endif %}">
       <button type="submit" class="knop primair" {{ 'disabled' if controle }}>Toernooi genereren</button>
     </form>
   {% else %}
@@ -359,9 +388,14 @@
   <h3>Toernooi verwijderen</h3>
   <p class="stil klein-tekst">Alle wedstrijden van dit toernooi verdwijnen. De permanente Aura
      wordt daarna herberekend alsof ze nooit gespeeld zijn.</p>
-  <form method="post" action="{{ url_for('toernooi_verwijderen', toernooi_id=t['id']) }}"
-        data-confirm="“{{ t['name'] }}” definitief verwijderen?">
-    <button type="submit" class="knop gevaar">Toernooi verwijderen</button>
+  <form method="post" action="{{ url_for('toernooi_verwijderen', toernooi_id=t['id']) }}">
+    <p class="klein-tekst">Typ <code>verwijder</code> om te bevestigen. Er wordt eerst
+       automatisch een back-up gemaakt.</p>
+    <div class="rij-form">
+      <input type="text" name="bevestiging" placeholder="verwijder" autocomplete="off"
+             autocapitalize="none" spellcheck="false" required>
+      <button type="submit" class="knop gevaar">Toernooi verwijderen</button>
+    </div>
   </form>
 </div>
 

@@ -166,6 +166,7 @@ def controleer_sessie():
             db.execute("UPDATE players SET last_seen = ? WHERE id = ?",
                        (f"{nu:%Y-%m-%d %H:%M:%S}", speler_id))
             db.commit()
+            dagelijkse_backup()
 
 
 def instelling(db, sleutel, standaard=None):
@@ -2536,10 +2537,11 @@ def vrije_accounts(db):
 
 
 def _log_claim(db, speler, soort):
+    # Enkel remote_addr: met ACHTER_PROXY=1 zet ProxyFix daar het echte adres in
+    # (de laatste hop, die nginx toevoegde). De ruwe X-Forwarded-For-header zelf
+    # lezen kan niet: het eerste adres daarin kiest de bezoeker zelf.
     db.execute("INSERT INTO claim_log (player_id, naam, soort, ip) VALUES (?, ?, ?, ?)",
-               (speler["id"], speler["name"], soort,
-                (request.headers.get("X-Forwarded-For") or request.remote_addr or "")
-                .split(",")[0].strip()))
+               (speler["id"], speler["name"], soort, request.remote_addr or ""))
 
 
 def _claim_venster_dicht():
@@ -3584,6 +3586,7 @@ def speler_definitief_verwijderen(speler_id):
         flash(f"Typ “{BEVESTIGINGSWOORD}” in het vakje om het verwijderen te "
               "bevestigen. Er is niets gewist.", "fout")
         return redirect(url_for("admin_spelers"))
+    vangnet("voor-speler-wissen")
     if speler_id == session.get("speler_id"):
         flash("Je kan je eigen account niet verwijderen.", "fout")
         return redirect(url_for("admin_spelers"))
@@ -3633,6 +3636,7 @@ def team_definitief_verwijderen(team_id):
         flash(f"Typ “{BEVESTIGINGSWOORD}” in het vakje om het verwijderen te "
               "bevestigen. Er is niets gewist.", "fout")
         return redirect(url_for("admin_spelers") + "#teams")
+    vangnet("voor-team-wissen")
 
     bezig = team_blokkerende_toernooien(db, team_id)
     if bezig:
@@ -4012,6 +4016,7 @@ def wedstrijd_verwijderen(game_id):
             flash(reden, "fout")
             return redirect(terug)
 
+        vangnet("voor-uitslag-wissen")
         db.execute("UPDATE games SET status = 'gepland', winner_team_id = NULL, "
                    "played_at = NULL WHERE id = ?", (game_id,))
         db.execute("DELETE FROM game_reports WHERE game_id = ?", (game_id,))
@@ -4026,6 +4031,8 @@ def wedstrijd_verwijderen(game_id):
                if game["fase"] in ("bracket", "shootout") else ""), "ok")
         return redirect(terug)
 
+    if was_gespeeld:
+        vangnet("voor-uitslag-wissen")
     db.execute("DELETE FROM games WHERE id = ?", (game_id,))
     db.commit()
     if was_gespeeld:
@@ -4128,7 +4135,11 @@ def instellingen_opslaan():
 # geschreven wordt, krijg je een halve database. De backup-API van SQLite maakt
 # wél een samenhangende kopie, ook terwijl de site draait.
 
-BACKUPS_BEWAREN = 20
+# 50 en niet minder: er komt ook een kopie vóór elke zware ingreep (loten,
+# terugtrekken, een uitslag wissen, ...). Op een drukke toernooiavond mogen die
+# de dagelijkse back-ups niet allemaal wegduwen. Een kopie is maar enkele
+# honderden kB.
+BACKUPS_BEWAREN = 50
 
 
 def maak_backup(reden="handmatig"):
@@ -4144,6 +4155,39 @@ def maak_backup(reden="handmatig"):
     bron.close()
     _ruim_backups_op()
     return pad
+
+
+def vangnet(reden):
+    """Een back-up vlak vóór een ingreep die moeilijk terug te draaien is.
+
+    Mislukt het (schijf vol, rechten), dan gaat de ingreep toch door: een
+    organisator midden in een toernooi mag daar niet door geblokkeerd raken.
+    """
+    try:
+        return maak_backup(reden)
+    except Exception as fout:
+        print(f"Let op: de back-up vóór '{reden}' is niet gelukt ({fout}).")
+        return None
+
+
+_laatste_dagcontrole = 0.0
+
+
+def dagelijkse_backup():
+    """Een server die weken draait, start niet opnieuw op en maakte dus geen
+    opstartback-ups meer. Daarom: hoogstens om de tien minuten kijken of de
+    nieuwste back-up ouder is dan een dag, en dan een nieuwe maken."""
+    global _laatste_dagcontrole
+    nu = time.time()
+    if nu - _laatste_dagcontrole < 600:
+        return
+    _laatste_dagcontrole = nu
+    try:
+        recent = backup_lijst()
+        if not recent or (datetime.now() - recent[0]["moment"]).total_seconds() >= 24 * 3600:
+            maak_backup("dagelijks")
+    except Exception as fout:
+        print(f"Let op: de dagelijkse back-up is niet gelukt ({fout}).")
 
 
 def _ruim_backups_op():
@@ -5596,15 +5640,14 @@ def toernooi_nieuw():
     try:
         db.execute("""
             INSERT INTO tournaments (name, description, date, start_tijd,
-                                     bracket_ronden, ko_teams, potten, slot_minuten,
+                                     bracket_ronden, ko_teams, potten,
                                      uitnodigingen_per_speler)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
         """, (naam, (request.form.get("beschrijving") or "").strip(), datum,
               request.form.get("start_tijd") or "19:00",
               int(request.form.get("ronden") or 4),
               int(request.form.get("ko_teams") or 8),
-              toernooi_motor.STANDAARD_POTTEN,
-              int(request.form.get("slot") or 20)))
+              toernooi_motor.STANDAARD_POTTEN))
         db.commit()
         nieuw = db.execute("SELECT id FROM tournaments WHERE name = ?", (naam,)).fetchone()
         flash(f"Toernooi “{naam}” aangemaakt. Voeg nu teams en tafels toe.", "ok")
@@ -5693,6 +5736,40 @@ def toernooi_beheer(toernooi_id):
     """, (toernooi_id,)):
         meldingen_per_game[r["game_id"]].append(r)
 
+    # Wat vraagt nu je aandacht? Een wedstrijd waar maar één team meldde, houdt
+    # beide teams tegen: ze kunnen hun volgende wedstrijd pas melden als deze
+    # officieel is. Die (en de conflicten) komen dus bovenaan, met een knop om
+    # de gemelde uitslag in één tik te bevestigen.
+    nu_dt = datetime.now()
+    meldstaat = {}
+    for g in openstaand:
+        ms = meldingen_per_game.get(g["id"], [])
+        winnaars = {m["winner_team_id"] for m in ms}
+        if len(winnaars) > 1:
+            meldstaat[g["id"]] = {"soort": "conflict"}
+        elif len(ms) == 1:
+            m = ms[0]
+            try:
+                sinds = datetime.strptime(m["created_at"][:19], "%Y-%m-%d %H:%M:%S")
+                minuten = max(0, int((nu_dt - sinds).total_seconds() // 60))
+            except (TypeError, ValueError):
+                sinds, minuten = None, None
+            meldstaat[g["id"]] = {
+                "soort": "half", "minuten": minuten,
+                "winnaar": "1" if m["winner_team_id"] == g["team1_id"] else "2",
+                "winnaar_id": m["winner_team_id"],
+                "wacht_op": g["team2_id"] if m["team_id"] == g["team1_id"] else g["team1_id"],
+                # het moment van de melding = wanneer ze ongeveer klaar waren
+                "gespeeld_op": (sinds.strftime("%Y-%m-%dT%H:%M") if sinds
+                                else nu_dt.strftime("%Y-%m-%dT%H:%M")),
+            }
+    volgorde = {"conflict": 0, "half": 1}
+    openstaand = sorted(openstaand, key=lambda g: (
+        volgorde.get(meldstaat.get(g["id"], {}).get("soort"), 2),
+        -(meldstaat.get(g["id"], {}).get("minuten") or 0)))
+    aandacht = {"conflict": sum(1 for m in meldstaat.values() if m["soort"] == "conflict"),
+                "half": sum(1 for m in meldstaat.values() if m["soort"] == "half")}
+
     # Wie nodigde welk team uit? De organisatie kan het invullen of verbeteren,
     # bv. als de vriend de link op een andere gsm opende dan waarop hij inschreef.
     namen_via = weergavenamen(db)
@@ -5724,6 +5801,7 @@ def toernooi_beheer(toernooi_id):
                            openstaand=openstaand, recent=recent,
                            namen=teamnamen(db),
                            meldingen_per_game=meldingen_per_game,
+                           meldstaat=meldstaat, aandacht=aandacht,
                            inzet=toernooi_motor.shootout_inzet(db, toernooi_id),
                            potten_aantal=toernooi_motor.potten_aantal(db, toernooi_id),
                            inschrijf_adres=externe_url("toernooi_inschrijven", toernooi_id=toernooi_id),
@@ -5749,7 +5827,6 @@ def toernooi_instellingen(toernooi_id):
             "start_tijd": request.form.get("start_tijd") or t["start_tijd"],
             "bracket_ronden": int(request.form.get("ronden") or t["bracket_ronden"]),
             "ko_teams": int(request.form.get("ko_teams") or t["ko_teams"]),
-            "slot_minuten": int(request.form.get("slot") or t["slot_minuten"]),
             "max_teams": (int(request.form["max_teams"]) if (request.form.get("max_teams") or "").strip()
                           else None),
             "uitnodigingen_per_speler": (int(request.form["uitnodigingen"])
@@ -5889,6 +5966,7 @@ def toernooi_team_terugtrekken(toernooi_id, team_id):
     """Een team komt niet opdagen: schrappen en de rest opnieuw loten."""
     db = get_db()
     _toernooi_of_404(db, toernooi_id)
+    vangnet("voor-terugtrekken")
     gekozen = request.form.get("doel")
     ok, boodschap = toernooi_motor.terugtrekken(
         db, toernooi_id, team_id,
@@ -5946,6 +6024,7 @@ def toernooi_locatie_weg(toernooi_id, locatie_id):
 def toernooi_genereren(toernooi_id):
     db = get_db()
     _toernooi_of_404(db, toernooi_id)
+    vangnet("voor-loting")
     ok, boodschap = toernooi_motor.genereer(db, toernooi_id)
     flash(boodschap, "ok" if ok else "fout")
     if ok:
@@ -5972,6 +6051,7 @@ def toernooi_bijwerken(toernooi_id):
 def toernooi_herloten(toernooi_id):
     db = get_db()
     _toernooi_of_404(db, toernooi_id)
+    vangnet("voor-herloting")
     ok, boodschap = toernooi_motor.herloot(db, toernooi_id)
     flash(boodschap, "ok" if ok else "fout")
     return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
@@ -5982,6 +6062,11 @@ def toernooi_herloten(toernooi_id):
 def toernooi_verwijderen(toernooi_id):
     db = get_db()
     t = _toernooi_of_404(db, toernooi_id)
+    if not _bevestigd():
+        flash(f"Typ “{BEVESTIGINGSWOORD}” in het vakje om het toernooi te "
+              "verwijderen. Er is niets gewist.", "fout")
+        return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
+    vangnet("voor-toernooi-wissen")
     gespeeld = db.execute("SELECT COUNT(*) AS n FROM games WHERE tournament_id = ? "
                           "AND status = 'gespeeld'", (toernooi_id,)).fetchone()["n"]
     db.execute("DELETE FROM tournaments WHERE id = ?", (toernooi_id,))

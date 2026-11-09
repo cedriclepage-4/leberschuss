@@ -100,9 +100,20 @@ er tafels zijn, en een team staat nooit op twee tafels tegelijk.
 De planning kijkt daarbij naar het hele toernooi in één keer in plaats van ronde
 per ronde: komt er een tafel vrij, dan schuift meteen een wedstrijd van verderop
 in het programma naar voren. Zo staat geen enkele tafel stil en duurt de avond
-exact `aantal wedstrijden ÷ aantal tafels` speelrondes — het theoretische minimum.
+exact `aantal wedstrijden ÷ aantal tafels` beurten — het theoretische minimum.
 Voorbeeld: 7 teams, 4 wedstrijden per team en 2 tafels = 14 wedstrijden in
-7 speelrondes (3u30 aan een half uur per wedstrijd) in plaats van 9.
+7 beurten in plaats van 9.
+
+**Geen klok.** Er wordt niet met speelduur gerekend en spelers zien geen uren
+bij hun wedstrijden: is een wedstrijd gedaan, dan sturen de organisatoren het
+volgende duo naar die tafel. De site bewaakt enkel de **volgorde** (je meldt eerst
+je vorige wedstrijd) en welke tafel. Zonder tafels gaat de loting ervan uit dat een
+hele speelronde tegelijk speelt; het organisatiepaneel waarschuwt daarvoor.
+
+**Wachten op bevestiging.** Meldt maar één team een uitslag, dan kunnen beide teams
+hun volgende wedstrijd niet melden. In het organisatiepaneel staan zulke
+wedstrijden (en conflicten) bovenaan, met hoe lang ze al wachten en een knop om
+de gemelde uitslag in één tik te bevestigen.
 
 **Lotingsscherm.** Elk geloot toernooi heeft een pagina voor het grote scherm: de
 potten links, en daarnaast de affiches die je één voor één omdraait (spatiebalk of
@@ -211,7 +222,7 @@ fouten recht.
     gecontroleerd, dus een verkeerd bestand kan niets stukmaken.
 
 - Toernooi aanmaken: kies de datum, het aantal wedstrijden per team, hoeveel teams
-  doorstoten (2, 4, 8, 16, …), het aantal potten en de duur van een wedstrijd.
+  doorstoten (2, 4, 8, 16, …), en eventueel een maximum aantal teams.
   Wijs daarna teams toe, voeg de tafels toe en klik op **Toernooi genereren**:
   potten, affiches, kalender en knockoutschema rollen er in één keer uit.
 - Spelers toevoegen (iedereen start op 1000 Aura). Elke speler krijgt bij het
@@ -385,8 +396,11 @@ daarom ook in `.gitignore`:
 - `static/uploads/` — de profielfoto's
 - `.secret_key` — anders is iedereen bij de eerste herstart uitgelogd
 
-**Back-ups.** Bij het opstarten maakt de site automatisch een kopie in `backups/`
-(hoogstens één per uur, de 20 nieuwste blijven staan). Download er zelf ook
+**Back-ups.** De site maakt automatisch een kopie in `backups/`: bij het opstarten
+(hoogstens één per uur), minstens één per dag zolang ze draait, en vlak vóór elke
+ingreep die moeilijk terug te draaien is (loten, opnieuw loten, een team
+terugtrekken, een uitslag wissen, een toernooi, team of speler verwijderen). De 50
+nieuwste blijven staan. Download er zelf ook
 geregeld eentje via *Organisatie → Instellingen → Back-up*, zeker rond een
 toernooi — een kopie op de server helpt niet als de server zelf wegvalt.
 Terugzetten: hernoem het back-upbestand naar `shuss.db` en herstart.

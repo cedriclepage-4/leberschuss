@@ -23,9 +23,12 @@ per ronde spelen er nooit meer wedstrijden tegelijk dan er tafels zijn, en een
 team staat nooit op twee tafels tegelijk.
 """
 
+import contextlib
 import hashlib
 import math
 import random
+import sqlite3
+import threading
 from datetime import datetime, timedelta
 
 from elo import KLEINE_FINALE
@@ -548,9 +551,18 @@ def _tijdsloten(games, plafond=None, rng=None, pogingen=40):
     return beste
 
 
-def _plan(rondes, tafel_ids, start, slot_minuten):
-    """Zet elke wedstrijd op een tijdstip en een tafel. Geeft per ronde een lijst
-    van (team_a, team_b, tijdstip, locatie_id)."""
+# Er wordt niet meer met speelduur gerekend: een wedstrijd begint wanneer de
+# vorige gedaan is en de organisatoren de teams naar de tafel sturen. Het veld
+# scheduled_at blijft wel bestaan, maar is enkel nog een **volgorde**: elke
+# speelbeurt (alle tafels tegelijk) krijgt één minuut na de vorige. Zo blijven
+# "eerst je vorige wedstrijd", de volgorde in de kalender en het opnieuw
+# inplannen na een terugtrekking gewoon werken. Toon dit tijdstip nergens.
+STAP_MINUTEN = 1
+
+
+def _plan(rondes, tafel_ids, start, slot_minuten=STAP_MINUTEN):
+    """Zet elke wedstrijd op een volgnummer (als tijdstip) en een tafel. Geeft
+    per ronde een lijst van (team_a, team_b, tijdstip, locatie_id)."""
     tafels = len(tafel_ids)
     resultaat = []
     tijd = start
@@ -639,9 +651,11 @@ def genereer(db, tid, rng=None):
     # zeggen potten niets: elke indeling is dan even willekeurig. We loten dan
     # gewoon vrij en laten de potten uit beeld, in plaats van de zaal een
     # rangschikking voor te schotelen die nergens op slaat.
+    # rng eerst invullen: zonder rng schudt potten_verdelen niet, en dan zou de
+    # alfabetische volgorde beslissen in welke pot even sterke teams belanden.
+    rng = rng or random.Random()
     aantal_potten = STANDAARD_POTTEN if potten_zinvol(teams) else 1
     pot_van = potten_verdelen(teams, aantal_potten, rng)
-    rng = rng or random.Random()
 
     tafel_ids = [l["id"] for l in locaties(db, tid)]
     plafond = len(tafel_ids) or None
@@ -674,7 +688,7 @@ def genereer(db, tid, rng=None):
         return False, "De loting lukte niet; probeer een ander aantal wedstrijden per team."
     _sleutel, rondes, games, sloten = beste
     gepland, _einde = _plan([[(a, b) for a, b, _nr in slot] for slot in sloten],
-                            tafel_ids, _starttijd(t), t["slot_minuten"])
+                            tafel_ids, _starttijd(t))
 
     for team_id in op_wachtlijst:
         db.execute("DELETE FROM tournament_teams WHERE tournament_id = ? AND team_id = ?",
@@ -694,14 +708,12 @@ def genereer(db, tid, rng=None):
     db.execute("UPDATE tournaments SET status = 'bracket' WHERE id = ?", (tid,))
     db.commit()
     aantal = len(games)
-    duur = len(sloten) * t["slot_minuten"]
-    verloop = (f"{len(rondes)} speelrondes" if len(sloten) == len(rondes)
-               else f"{len(rondes)} speelrondes in {len(sloten)} tijdsloten")
+    tafels = (f"op {len(tafel_ids)} tafel{'' if len(tafel_ids) == 1 else 's'}" if tafel_ids
+              else "zonder tafels (alle wedstrijden van een speelronde tegelijk)")
     extra = (f" Van de wachtlijst vielen af: {', '.join(afgevallen)}." if afgevallen else "")
     return True, (f"Toernooi geloot: {len(teams)} teams, {t['bracket_ronden']} "
                   f"wedstrijden per team, {aantal} wedstrijden in de bracketfase, "
-                  f"{verloop} (± {duur // 60}u{duur % 60:02d} met "
-                  f"{len(tafel_ids) or 'onbeperkt'} tafel(s)).{extra}")
+                  f"{len(rondes)} speelrondes {tafels}.{extra}")
 
 
 def _aanvulparen(deficit, ontmoet, rng, pogingen=4000):
@@ -807,7 +819,6 @@ def terugtrek_opties(db, tid, team_id):
             "doel": doel,
             "nieuw": len(nieuw),
             "slots": math.ceil(len(nieuw) / tafels),
-            "minuten": math.ceil(len(nieuw) / tafels) * t["slot_minuten"],
             "verschil": doel - t["bracket_ronden"],
         })
     if not opties:
@@ -922,7 +933,7 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
     # 5. Inplannen ná wat er al staat.
     if nieuw:
         tafel_ids = [l["id"] for l in locaties(db, tid)]
-        start = _laatste_moment(db, tid, _starttijd(t)) + timedelta(minutes=t["slot_minuten"])
+        start = _laatste_moment(db, tid, _starttijd(t)) + timedelta(minutes=STAP_MINUTEN)
         # Voorlopige speelrondes, enkel om de volgorde per team te bewaken bij het
         # inplannen: altijd ná de hoogste speelronde die het team al heeft.
         # Daarna wordt alles netjes hernummerd (zie hernummer_speelrondes).
@@ -940,7 +951,7 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
                 games.append((a, b, nummer))
         sloten = _tijdsloten(games, len(tafel_ids) or None, rng)
         gepland, _ = _plan([[(a, b) for a, b, _nr in slot] for slot in sloten],
-                           tafel_ids, start, t["slot_minuten"])
+                           tafel_ids, start)
         for slot, paren in zip(sloten, gepland):
             for (a, b, nummer), (_a, _b, moment, loc) in zip(slot, paren):
                 db.execute("""
@@ -1537,7 +1548,7 @@ def _maak_shootouts(db, t, groepen, rng=None):
     rng = rng or random.Random()
     tafel_ids = [l["id"] for l in locaties(db, t["id"])]
     start = _laatste_moment(db, t["id"], _starttijd(t)) + timedelta(
-        minutes=t["slot_minuten"])
+        minutes=STAP_MINUTEN)
     paren = []
     for groep in groepen:
         paren.extend(_shootout_paren(groep, rng))
@@ -1546,7 +1557,7 @@ def _maak_shootouts(db, t, groepen, rng=None):
 
     # Verdeel over speelrondes: geen team twee keer tegelijk, tafels vol benut.
     rondes = verdeel_in_rondes(paren, rng, max_per_ronde=len(tafel_ids) or None)
-    gepland, _ = _plan(rondes, tafel_ids, start, t["slot_minuten"])
+    gepland, _ = _plan(rondes, tafel_ids, start)
     for groep in gepland:
         for a, b, moment, loc in groep:
             db.execute("""
@@ -1563,7 +1574,7 @@ def maak_knockout(db, t, geplaatst):
     n = len(geplaatst)
     tafel_ids = [l["id"] for l in locaties(db, t["id"])]
     start = _laatste_moment(db, t["id"], _starttijd(t)) + timedelta(
-        minutes=t["slot_minuten"])
+        minutes=STAP_MINUTEN)
 
     def nieuw(ronde, positie, volgende_id, slot):
         cur = db.execute("""
@@ -1601,7 +1612,7 @@ def maak_knockout(db, t, geplaatst):
     if kleine:
         volgorde_lagen.insert(len(volgorde_lagen) - 1, kleine)
     rondes = [[(None, None)] * len(laag) for laag in volgorde_lagen]
-    _tijden, _ = _plan(rondes, tafel_ids, start, t["slot_minuten"])
+    _tijden, _ = _plan(rondes, tafel_ids, start)
     for laag, tijden in zip(volgorde_lagen, _tijden):
         for gid, (_a, _b, moment, loc) in zip(laag, tijden):
             db.execute("UPDATE games SET scheduled_at = ?, location_id = ? WHERE id = ?",
@@ -1802,7 +1813,7 @@ def _kleine_finale_bijwerken(db, t):
         """, (tid, KLEINE_FINALE, moment, finale["location_id"] if finale else None))
         if finale and moment:
             try:
-                later = datetime.fromisoformat(moment) + timedelta(minutes=t["slot_minuten"])
+                later = datetime.fromisoformat(moment) + timedelta(minutes=STAP_MINUTEN)
                 db.execute("UPDATE games SET scheduled_at = ? WHERE id = ?",
                            (later.strftime(TIJDFORMAAT), finale["id"]))
             except ValueError:
@@ -1819,12 +1830,59 @@ def _kleine_finale_bijwerken(db, t):
     return kleine_finale(db, tid)
 
 
+_slot_lokaal = threading.local()
+
+
+@contextlib.contextmanager
+def _evaluatieslot(db):
+    """Laat maar één evaluatie tegelijk lopen, over alle processen heen.
+
+    Komen twee uitslagen op hetzelfde moment binnen (de laatste tijdsronde van
+    de bracketfase, drie tafels die tegelijk eindigen), dan zagen beide
+    verzoeken "bracketfase gespeeld, nog geen knockout" en bouwden ze allebei
+    een knockoutschema: dubbel zoveel wedstrijden. Met dit slot wacht de tweede
+    tot de eerste klaar is, en ziet die daarna gewoon dat de knockout er al is.
+
+    Het slot is een apart SQLite-bestandje naast de database (`shuss.db-slot`):
+    werkt met threads (waitress) én met meerdere processen (gunicorn), op
+    Windows en Linux, en wordt vanzelf vrijgegeven als een proces crasht.
+    Binnen hetzelfde verzoek mag evalueer zichzelf opnieuw oproepen.
+    """
+    if getattr(_slot_lokaal, "diepte", 0):
+        _slot_lokaal.diepte += 1
+        try:
+            yield
+        finally:
+            _slot_lokaal.diepte -= 1
+        return
+    pad = next((r[2] for r in db.execute("PRAGMA database_list") if r[1] == "main"), "")
+    slot = None
+    if pad:                                   # een database in het geheugen: geen slot nodig
+        slot = sqlite3.connect(pad + "-slot", timeout=60, isolation_level=None)
+        slot.execute("BEGIN IMMEDIATE")
+    _slot_lokaal.diepte = 1
+    try:
+        yield
+    finally:
+        _slot_lokaal.diepte = 0
+        if slot is not None:
+            try:
+                slot.execute("ROLLBACK")
+            finally:
+                slot.close()
+
+
 def evalueer(db, tid):
     """Werk de toestand van het toernooi bij. Idempotent: mag na élk resultaat
     (en na elke herberekening) opnieuw gedraaid worden.
 
     Geeft een lijst met meldingen terug voor de gebruiker.
     """
+    with _evaluatieslot(db):
+        return _evalueer(db, tid)
+
+
+def _evalueer(db, tid):
     t = toernooi(db, tid)
     if not t or t["status"] == "opzet":
         return []
