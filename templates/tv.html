@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>Leberschuss klassement · TV · Leberschuss Tonzent</title>
+  <link rel="stylesheet" id="hoofdstijl" href="{{ url_for('statisch', bestand='style.css') }}">
+  {% include "_css_bewaker.html" %}
+  <link rel="icon" href="{{ url_for('statisch', bestand=logo_bestand) }}">
+</head>
+{# ---------------------------------------------------------------------
+   TV-scherm met het globale klassement, voor de tv in het jeugdhuis.
+   Die tv is traag: dus NIETS dat beweegt. Geen canvas, geen animaties,
+   geen overgangen, geen schaduwen of vervaging. Alles past op één scherm
+   zonder scrollen; de maten volgen de hoogte van het scherm (vh).
+   Elke minuut wordt <main> stil vervangen door de nieuwe stand.
+   --------------------------------------------------------------------- #}
+<body class="tv">
+  <header class="tv-kop">
+    <a class="tv-logo" href="{{ url_for('index') }}" title="Terug naar de site">
+      <img src="{{ url_for('statisch', bestand=logo_bestand) }}" alt="Leberschuss Tonzent">
+    </a>
+    <h1>Leberschuss klassement</h1>
+    <button type="button" class="tv-knop" data-volledig>Volledig scherm</button>
+  </header>
+
+  <main class="tv-midden" data-tv-inhoud>
+    <section class="tv-lijst">
+      <h2>Spelers</h2>
+      {% if spelers %}
+      <ol class="tv-rijen" style="--n: {{ aantal }}">
+        {% for s in spelers %}
+        <li class="tv-rij{% if loop.index <= 3 %} tv-top{{ loop.index }}{% endif %}">
+          <span class="tv-nr">{{ loop.index }}</span>
+          <img class="tv-dop" src="{{ dop_speler(s.id) }}" alt="">
+          <span class="tv-naam">{{ s.naam }}</span>
+          <span class="tv-wv">{{ s.winst }}–{{ s.verlies }}</span>
+          <span class="tv-aura">{{ s.elo|elo }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="tv-leeg">Nog geen wedstrijden gespeeld.</p>
+      {% endif %}
+    </section>
+
+    <section class="tv-lijst">
+      <h2>Teams</h2>
+      {% if teams %}
+      <ol class="tv-rijen" style="--n: {{ aantal }}">
+        {% for t in teams %}
+        <li class="tv-rij{% if loop.index <= 3 %} tv-top{{ loop.index }}{% endif %}">
+          <span class="tv-nr">{{ loop.index }}</span>
+          <img class="tv-dop" src="{{ dop_team(t.id) }}" alt="">
+          <span class="tv-naam">{{ t.naam }}</span>
+          <span class="tv-wv">{{ t.winst }}–{{ t.verlies }}</span>
+          <span class="tv-aura">{{ t.elo|elo }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="tv-leeg">Nog geen teams in het klassement.</p>
+      {% endif %}
+    </section>
+
+    <aside class="tv-zij">
+      <div class="tv-cijfer"><strong>{{ aantal_spelers }}</strong><span>spelers</span></div>
+      <div class="tv-cijfer"><strong>{{ aantal_teams }}</strong><span>teams</span></div>
+      <div class="tv-cijfer"><strong>{{ aantal_gespeeld }}</strong><span>wedstrijden</span></div>
+      {% if qr %}
+      <div class="tv-qr">
+        <div class="tv-qr-code">{{ qr }}</div>
+        <span>Volg mee op je gsm</span>
+      </div>
+      {% endif %}
+    </aside>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+      /* Volledig scherm kan enkel na een klik; in volledig scherm is de knop weg. */
+      var knop = document.querySelector("[data-volledig]");
+      if (knop && document.documentElement.requestFullscreen) {
+        knop.addEventListener("click", function () {
+          if (document.fullscreenElement) document.exitFullscreen();
+          else document.documentElement.requestFullscreen().catch(function () {});
+        });
+        document.addEventListener("fullscreenchange", function () {
+          knop.hidden = !!document.fullscreenElement;
+        });
+      } else if (knop) {
+        knop.hidden = true;
+      }
+
+      /* Elke minuut de nieuwe stand. Enkel als er echt iets veranderd is,
+         wordt de inhoud vervangen: zo hoeft de tv niets opnieuw te tekenen. */
+      var inhoud = document.querySelector("[data-tv-inhoud]");
+      setInterval(function () {
+        fetch(window.location.href, { credentials: "same-origin", cache: "no-store" })
+          .then(function (r) { return r.ok ? r.text() : null; })
+          .then(function (html) {
+            if (!html) return;
+            var nieuw = new DOMParser().parseFromString(html, "text/html")
+                          .querySelector("[data-tv-inhoud]");
+            if (nieuw && nieuw.innerHTML !== inhoud.innerHTML) inhoud.innerHTML = nieuw.innerHTML;
+          }).catch(function () {});
+      }, 60000);
+    })();
+  </script>
+</body>
+</html>

@@ -2767,3 +2767,94 @@ body.volledig .bm-geluid-knop.vraagt { opacity: 1; }
 .gok-melding {
   background: #fef3c7; color: #92400e; border-radius: 10px; padding: 8px 12px;
 }
+
+/* Toernooi-instellingen: bewaren gaat vanzelf, dit zegt hoe het ervoor staat. */
+.autosave-voet { display: flex; align-items: center; gap: 12px; min-height: 1.4em; }
+.autosave-status { color: var(--stil); }
+.autosave-status.ok { color: var(--groen); font-weight: 600; }
+.autosave-status.fout { color: var(--rood); font-weight: 600; }
+
+/* ================================================================
+   TV-scherm met het globale klassement (/tv).
+   Voor een trage tv: effen kleuren, geen schaduwen, geen filters,
+   geen animaties of overgangen. Alles past op één scherm; de maten
+   volgen de schermhoogte (vh).
+   ================================================================ */
+body.tv {
+  margin: 0; height: 100vh; overflow: hidden; display: flex; flex-direction: column;
+  background: var(--navy-donker); color: #fff; font-family: var(--tekst);
+  font-size: clamp(14px, 2vh, 28px); line-height: 1.2;
+}
+body.tv *, body.tv *::before, body.tv *::after { animation: none !important; transition: none !important; }
+
+.tv-kop {
+  display: flex; align-items: center; gap: 2.4vh; padding: 1.6vh 3vh;
+  background: var(--navy); border-bottom: .5vh solid var(--amber);
+}
+.tv-logo img { width: 7vh; height: 7vh; display: block; }
+.tv-kop h1 {
+  flex: 1; margin: 0; font-family: var(--kop); font-weight: 800; font-size: 5.6vh; line-height: 1;
+}
+.tv-knop {
+  font: inherit; font-size: 1.7vh; font-weight: 700; color: #cbd5e1; cursor: pointer;
+  background: transparent; border: 1px solid rgba(255, 255, 255, .35); border-radius: 999px;
+  padding: .8vh 1.8vh;
+}
+
+.tv-midden {
+  flex: 1; min-height: 0; display: grid; gap: 3vh; padding: 2.4vh 3vh 3vh;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 22vh;
+}
+.tv-lijst { display: flex; flex-direction: column; min-height: 0; }
+.tv-lijst h2 {
+  margin: 0 0 1.2vh; font-family: var(--kop); font-weight: 700; font-size: 3.4vh;
+  color: var(--amber); text-transform: uppercase; letter-spacing: .1vh;
+}
+.tv-leeg { color: #94a3b8; font-size: 2.4vh; }
+
+/* De rijen delen de hoogte eerlijk: --n rijen, elk even hoog. */
+.tv-rijen {
+  list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0;
+  display: grid; grid-template-rows: repeat(var(--n, 10), minmax(0, 1fr)); gap: .6vh;
+}
+.tv-rij {
+  display: grid; align-items: center; column-gap: 1.4vh; min-height: 0;
+  grid-template-columns: 5vh 5vh minmax(0, 1fr) auto 9vh;
+  padding: 0 1.6vh; background: #1a2437; border-radius: .8vh;
+  font-size: min(3vh, calc((100vh - 26vh) / var(--n, 10) * .42));
+}
+.tv-nr {
+  font-family: var(--kop); font-weight: 800; font-size: 1.15em; color: #94a3b8; text-align: center;
+}
+.tv-top1 .tv-nr { color: var(--goud); }
+.tv-top2 .tv-nr { color: var(--zilver); }
+.tv-top3 .tv-nr { color: var(--brons); }
+.tv-top1 { box-shadow: inset .6vh 0 0 var(--goud); }
+.tv-top2 { box-shadow: inset .6vh 0 0 var(--zilver); }
+.tv-top3 { box-shadow: inset .6vh 0 0 var(--brons); }
+.tv-dop { width: 1.8em; height: 1.8em; max-width: 5vh; max-height: 5vh; display: block; justify-self: center; }
+.tv-naam { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-wv { color: #94a3b8; font-weight: 500; font-size: .8em; font-variant-numeric: tabular-nums; }
+.tv-aura {
+  font-family: var(--kop); font-weight: 800; font-size: 1.15em; text-align: right;
+  color: var(--amber); font-variant-numeric: tabular-nums;
+}
+
+.tv-zij { display: flex; flex-direction: column; gap: 2.4vh; padding-top: 4.6vh; }
+.tv-cijfer { display: flex; flex-direction: column; }
+.tv-cijfer strong { font-family: var(--kop); font-weight: 800; font-size: 6vh; line-height: 1; }
+.tv-cijfer span { color: #94a3b8; font-size: 1.9vh; }
+.tv-qr { margin-top: auto; display: flex; flex-direction: column; gap: 1vh; color: #cbd5e1; font-size: 1.8vh; }
+.tv-qr-code { background: #fff; border-radius: 1.2vh; padding: 1vh; }
+.tv-qr-code svg { width: 100%; height: auto; display: block; }
+
+/* Smalle schermen (een gsm die het toch opent): onder elkaar, wel scrollen. */
+@media (max-width: 760px) {
+  body.tv { height: auto; overflow: auto; }
+  .tv-midden { grid-template-columns: 1fr; }
+  .tv-rijen { grid-template-rows: none; }
+  .tv-rij { font-size: 16px; padding: 10px 12px; }
+  .tv-zij { padding-top: 0; flex-direction: row; flex-wrap: wrap; }
+  .tv-qr { display: none; }
+}
+.thuis-held .tv-link { margin-top: 16px; }

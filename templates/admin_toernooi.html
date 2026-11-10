@@ -3,7 +3,7 @@
 {% block titel %}Toernooi beheren{% endblock %}
 {% block inhoud %}
 
-<section class="held">
+<section class="held" data-ververs="kop">
   <h1>{{ t['name'] }} <span class="pil pil-fase pil-{{ t['status'] }}">{{ t['status'] }}</span></h1>
   <p>{{ t['date']|dag }} · vanaf {{ t['start_tijd'] }}</p>
   <div class="knop-rij">
@@ -29,7 +29,7 @@
 
 {% if t['status'] == 'opzet' %}
 <!-- ======================================================== inschrijven -->
-<div class="kaart inschrijf-deel">
+<div class="kaart inschrijf-deel" data-ververs="inschrijf">
   <div>
     <h3>Inschrijvingen</h3>
     <p class="stil klein-tekst">Spelers schrijven hun team zelf in via deze pagina. Zet de link
@@ -304,7 +304,9 @@
 <!-- ======================================================= instellingen -->
 <h2 class="sectiekop" id="instellingen">Instellingen</h2>
 <div class="kaart">
-  <form method="post" action="{{ url_for('toernooi_instellingen', toernooi_id=t['id']) }}">
+  {# Elke wijziging wordt meteen bewaard (zie het script onderaan). De knop
+     Opslaan is er enkel nog voor wie geen JavaScript heeft. #}
+  <form method="post" action="{{ url_for('toernooi_instellingen', toernooi_id=t['id']) }}" data-autosave>
     <div class="rij-form">
       <input type="text" name="naam" value="{{ t['name'] }}" placeholder="Naam" required>
       <input type="text" name="beschrijving" value="{{ t['description'] }}" placeholder="Korte beschrijving">
@@ -335,13 +337,16 @@
     {% else %}
     <p class="stil klein-tekst">Het formaat ligt vast zodra het toernooi geloot is.</p>
     {% endif %}
-    <div class="ruimte-boven"><button type="submit" class="knop primair">Opslaan</button></div>
+    <div class="ruimte-boven autosave-voet">
+      <button type="submit" class="knop primair" data-autosave-knop>Opslaan</button>
+      <span class="autosave-status klein-tekst" data-autosave-status aria-live="polite"></span>
+    </div>
   </form>
 </div>
 
 <!-- ========================================================= genereren -->
 <h2 class="sectiekop" id="genereren">Toernooi genereren</h2>
-<div class="kaart">
+<div class="kaart" data-ververs="genereren">
   {% if t['status'] == 'opzet' %}
     {% if controle %}
     <p class="conflict-tekst">{{ controle }}</p>
@@ -399,4 +404,105 @@
   </form>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Instellingen meteen bewaren: geen knop Opslaan meer die je kan vergeten.
+   Tekst en getallen worden bewaard zodra je even stopt met typen, keuzelijsten
+   en datums meteen. Wie de pagina verlaat terwijl er nog iets onderweg is,
+   krijgt het toch bewaard via sendBeacon. Na het bewaren worden de stukken
+   van de pagina die van de instellingen afhangen (kop, inschrijvingen,
+   genereren) opnieuw opgehaald. */
+(function () {
+  "use strict";
+  var form = document.querySelector("form[data-autosave]");
+  if (!form) return;
+  var status = form.querySelector("[data-autosave-status]");
+  var knop = form.querySelector("[data-autosave-knop]");
+  if (knop) knop.hidden = true;
+
+  var wachtrij = null, bezig = false, opnieuw = false, vuil = false;
+
+  function zeg(tekst, soort) {
+    status.textContent = tekst;
+    status.className = "autosave-status klein-tekst" + (soort ? " " + soort : "");
+  }
+
+  function geldig() {
+    var velden = form.querySelectorAll("input, select");
+    for (var i = 0; i < velden.length; i++) {
+      if (!velden[i].checkValidity()) {
+        zeg("Niet bewaard: " + (velden[i].closest("label") ? velden[i].closest("label").firstChild.textContent.trim().toLowerCase() + " klopt niet" : "vul alles correct in") + ".", "fout");
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function ververs() {
+    fetch(window.location.pathname, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (!html) return;
+        var nieuw = new DOMParser().parseFromString(html, "text/html");
+        document.querySelectorAll("[data-ververs]").forEach(function (el) {
+          var ander = nieuw.querySelector('[data-ververs="' + el.getAttribute("data-ververs") + '"]');
+          if (ander) el.replaceWith(document.importNode(ander, true));
+        });
+      }).catch(function () {});
+  }
+
+  function bewaar() {
+    clearTimeout(wachtrij); wachtrij = null;
+    if (!vuil) return;
+    if (!geldig()) return;
+    if (bezig) { opnieuw = true; return; }
+    bezig = true; vuil = false;
+    zeg("Bewaren…");
+    fetch(form.action, {
+      method: "POST", credentials: "same-origin",
+      headers: { "X-Autosave": "1" }, body: new FormData(form)
+    }).then(function (r) {
+      return r.json().catch(function () { return { ok: false }; });
+    }).then(function (d) {
+      if (!d.ok) { vuil = true; throw new Error(d.fout || ""); }
+      zeg("Bewaard ✓", "ok");
+      ververs();
+    }).catch(function (e) {
+      vuil = true;
+      zeg("Niet bewaard: " + (e.message || "geen verbinding? Probeer opnieuw."), "fout");
+    }).then(function () {
+      bezig = false;
+      if (opnieuw) { opnieuw = false; bewaar(); }
+    });
+  }
+
+  function later() {
+    vuil = true;
+    zeg("Wijziging…");
+    clearTimeout(wachtrij);
+    wachtrij = setTimeout(bewaar, 700);
+  }
+
+  form.addEventListener("input", function (e) {
+    if (e.target.tagName === "SELECT" || e.target.type === "date") return;
+    later();
+  });
+  form.addEventListener("change", function () { vuil = true; bewaar(); });
+  form.addEventListener("submit", function (e) { e.preventDefault(); vuil = true; bewaar(); });
+
+  /* Pagina verlaten met iets dat nog niet weg is? Dan gaat het mee met een
+     beacon, die de browser ook na het sluiten van de pagina nog verstuurt. */
+  window.addEventListener("pagehide", function () {
+    if (!vuil || !navigator.sendBeacon) return;
+    for (var i = 0, v = form.querySelectorAll("input, select"); i < v.length; i++)
+      if (!v[i].checkValidity()) return;
+    var data = new FormData(form);
+    data.append("autosave", "1");
+    navigator.sendBeacon(form.action, data);
+    vuil = false;
+  });
+})();
+</script>
 {% endblock %}

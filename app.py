@@ -1685,15 +1685,9 @@ def geluid(bestand):
 
 # --------------------------------------------------------- publieke pagina's
 
-@app.route("/")
-def index():
-    """Thuispagina: het globale klassement over álles wat ooit gespeeld is.
-
-    Dit staat los van league én toernooi — de permanente Aura telt alle
-    wedstrijden mee — en is dus ook zichtbaar wanneer het leaguegedeelte
-    verborgen is.
-    """
-    db = get_db()
+def globaal_klassement(db):
+    """Spelers en teams van het globale klassement (thuispagina en tv-scherm),
+    plus het aantal gespeelde wedstrijden."""
     sp_stats, tm_stats = speel_statistieken(db)
     rangen = alle_rangen(db)
 
@@ -1726,6 +1720,20 @@ def index():
         "SELECT COUNT(*) AS n FROM games WHERE status = 'gespeeld' "
         "AND fase != 'shootout'").fetchone()["n"]
 
+    return spelers, teams, aantal_gespeeld
+
+
+@app.route("/")
+def index():
+    """Thuispagina: het globale klassement over álles wat ooit gespeeld is.
+
+    Dit staat los van league én toernooi — de permanente Aura telt alle
+    wedstrijden mee — en is dus ook zichtbaar wanneer het leaguegedeelte
+    verborgen is.
+    """
+    db = get_db()
+    spelers, teams, aantal_gespeeld = globaal_klassement(db)
+
     # Is er een toernooi bezig? Dat is op zo'n avond het eerste wat men zoekt.
     lopend = db.execute("""
         SELECT * FROM tournaments WHERE status IN ('bracket', 'knockout')
@@ -1755,6 +1763,30 @@ def index():
                            aantal_gespeeld=aantal_gespeeld, lopend=lopend,
                            lopend_label=(TOERNOOI_STATUS.get(lopend["status"], ("", ""))
                                          if lopend else None))
+
+
+@app.route("/tv")
+def tv_scherm():
+    """Het globale klassement op de tv in het jeugdhuis.
+
+    Bewust kaal: geen rook, geen 3D-logo, geen animaties of overgangen, want
+    de tv haalt amper een paar beelden per seconde. De pagina haalt elke minuut
+    stil de nieuwe stand op (geen herladen, zodat volledig scherm blijft staan).
+    Met ?aantal= kies je hoeveel rijen per lijst (standaard 10).
+    """
+    db = get_db()
+    spelers, teams, aantal_gespeeld = globaal_klassement(db)
+    try:
+        aantal = max(3, min(25, int(request.args.get("aantal", 10))))
+    except ValueError:
+        aantal = 10
+    adres = externe_url("index")
+    return render_template("tv.html", aantal=aantal,
+                           spelers=[s for s in spelers if s["gespeeld"]][:aantal],
+                           teams=teams[:aantal],
+                           aantal_spelers=len(spelers), aantal_teams=len(teams),
+                           aantal_gespeeld=aantal_gespeeld,
+                           adres=adres, qr=qr_svg(adres))
 
 
 @app.route("/statistieken")
@@ -5817,8 +5849,13 @@ def toernooi_beheer(toernooi_id):
 @app.route("/admin/toernooi/<int:toernooi_id>/instellingen", methods=["POST"])
 @login_vereist
 def toernooi_instellingen(toernooi_id):
+    """Bewaart de instellingen. De beheerpagina stuurt elke wijziging meteen door
+    op de achtergrond (zie admin_toernooi.html) en krijgt dan JSON terug in plaats
+    van een redirect; zonder JavaScript werkt het gewone formulier nog altijd."""
     db = get_db()
     t = _toernooi_of_404(db, toernooi_id)
+    achtergrond = (request.headers.get("X-Autosave") == "1"
+                   or request.form.get("autosave") == "1")  # sendBeacon: geen headers
     try:
         velden = {
             "name": (request.form.get("naam") or t["name"]).strip(),
@@ -5838,6 +5875,8 @@ def toernooi_instellingen(toernooi_id):
         if velden["max_teams"] is not None and velden["max_teams"] < 4:
             raise ValueError
     except ValueError:
+        if achtergrond:
+            return jsonify({"ok": False, "fout": "Vul geldige getallen in."}), 400
         flash("Vul geldige getallen in.", "fout")
         return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
     if t["status"] != "opzet":
@@ -5846,6 +5885,8 @@ def toernooi_instellingen(toernooi_id):
     db.execute(f"UPDATE tournaments SET {', '.join(f'{k} = ?' for k in velden)} "
                "WHERE id = ?", (*velden.values(), toernooi_id))
     db.commit()
+    if achtergrond:
+        return jsonify({"ok": True})
     flash("Toernooi bijgewerkt.", "ok")
     return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
 
