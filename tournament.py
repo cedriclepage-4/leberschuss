@@ -973,6 +973,161 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
                   f"{len(nieuw)} nieuwe affiches geloot, zodat {stuk}.")
 
 
+def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, pogingen=300):
+    """Leg wedstrijden op tijdsloten terwijl sommige teams pas later kunnen.
+
+    `games`  = lijst (team_a, team_b, game_id); de affiches liggen vast.
+    `wacht`  = {team: eerste tijdslot waarin het mag spelen} (0 = meteen).
+    `bezet0` / `vol0` = teams en aantal wedstrijden die het eerste tijdslot al
+               innemen (de ronde die nu bezig is en blijft staan).
+
+    Per tijdslot kiezen we gretig: eerst de wedstrijden van wie nog het meest
+    moet spelen (de laatkomer haalt zo zijn achterstand in zodra hij er is),
+    dan liefst teams die net rustten. Van een reeks willekeurige pogingen houden
+    we de kortste, en bij gelijke lengte die met de minste teams die twee keer
+    na elkaar moeten aantreden — de laatkomer zelf niet meegerekend, die heeft
+    zijn rust al gehad.
+
+    Geeft een lijst tijdsloten terug, elk een lijst game_id's. Tijdslot 0 is het
+    huidige; enkel niet-lege tijdsloten worden teruggegeven.
+    """
+    if not games:
+        return []
+    plafond = plafond or (len(games) + vol0)
+    laatkomers = {t_ for t_, w in wacht.items() if w > 0}
+    beste, beste_sleutel = None, None
+    for _ in range(pogingen):
+        open_ = list(games)
+        rest = {}
+        for a, b, _gid in open_:
+            rest[a] = rest.get(a, 0) + 1
+            rest[b] = rest.get(b, 0) + 1
+        sloten, bezettingen, vorig, i = [], [], set(), 0
+        while open_:
+            bezet = set(bezet0) if i == 0 else set()
+            ruimte = plafond - (vol0 if i == 0 else 0)
+            kandidaten = [g for g in open_
+                          if wacht.get(g[0], 0) <= i and wacht.get(g[1], 0) <= i]
+            sleutel = {g: (-max(rest[g[0]], rest[g[1]]), -(rest[g[0]] + rest[g[1]]),
+                           (g[0] in vorig) + (g[1] in vorig), rng.random())
+                       for g in kandidaten}
+            kandidaten.sort(key=sleutel.get)
+            slot = []
+            for g in kandidaten:
+                if len(slot) >= ruimte:
+                    break
+                if g[0] in bezet or g[1] in bezet:
+                    continue
+                slot.append(g)
+                bezet.update(g[:2])
+            for g in slot:
+                open_.remove(g)
+                rest[g[0]] -= 1
+                rest[g[1]] -= 1
+            if slot or i == 0:
+                sloten.append([g[2] for g in slot])
+                bezettingen.append(bezet)
+            vorig = bezet
+            i += 1
+        na_elkaar = sum(len((x & y) - laatkomers)
+                        for x, y in zip(bezettingen, bezettingen[1:]))
+        sleutel = (len(sloten), na_elkaar)
+        if beste_sleutel is None or sleutel < beste_sleutel:
+            beste, beste_sleutel = sloten, sleutel
+    return beste
+
+
+def later_inplannen(db, tid, team_id, beurten, rng=None):
+    """Een team komt later: schuif zijn wedstrijden op in plaats van ze te schrappen.
+
+    Een forfait voor wie toevallig vroeg tegen de laatkomer geloot was, is drie
+    punten cadeau. Maar de affiches liggen bij de loting al vast — wie tegen wie
+    speelt hangt niet af van wánneer. Dus hoeft er niets te vervallen: de
+    wedstrijden van de laatkomer gaan naar achteren en andere wedstrijden
+    schuiven naar voren om de vrijgekomen tafels te vullen.
+
+    `beurten` = hoeveel speelbeurten het team mist, de huidige meegerekend
+    (bij 2 speelt het op zijn vroegst in de tweede speelbeurt ná de huidige).
+
+    Wat vast blijft: alles wat gespeeld is, en de wedstrijden van de huidige
+    speelbeurt waar de laatkomer niet in zit (die staan misschien al te spelen).
+    Een vrijgekomen tafel in de huidige speelbeurt wordt meteen opnieuw gevuld
+    als er twee vrije teams voor zijn. Er wordt niets herloot en niemand speelt
+    meer of minder wedstrijden; enkel de volgorde verandert.
+
+    Geeft (gelukt, boodschap) terug.
+    """
+    rng = rng or random.Random()
+    t = toernooi(db, tid)
+    if not t:
+        return False, "Toernooi niet gevonden."
+    if t["status"] != "bracket":
+        return False, "Wedstrijden opschuiven kan enkel tijdens de bracketfase."
+    if beurten < 1:
+        return False, "Kies hoeveel speelbeurten het team mist (minstens 1)."
+    rij = db.execute("SELECT * FROM tournament_teams WHERE tournament_id = ? AND "
+                     "team_id = ?", (tid, team_id)).fetchone()
+    if not rij or rij["teruggetrokken"]:
+        return False, "Dat team doet niet (meer) mee aan dit toernooi."
+
+    open_ = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket' "
+                       "AND status = 'gepland' ORDER BY scheduled_at, id", (tid,)).fetchall()
+    naam = db.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()["name"]
+    if not any(team_id in (g["team1_id"], g["team2_id"]) for g in open_):
+        return False, f"“{naam}” heeft geen wedstrijden meer op het programma."
+
+    huidige = open_[0]["scheduled_at"]
+    vast = [g for g in open_ if g["scheduled_at"] == huidige
+            and team_id not in (g["team1_id"], g["team2_id"])]
+    vast_ids = {g["id"] for g in vast}
+    te_plannen = [g for g in open_ if g["id"] not in vast_ids]
+
+    # Een wedstrijd waarvoor al een uitslag gemeld is, wordt (of werd) gespeeld:
+    # die verschuiven we niet onder de spelers vandaan.
+    gemeld = [g for g in te_plannen if db.execute(
+        "SELECT 1 FROM game_reports WHERE game_id = ?", (g["id"],)).fetchone()]
+    if gemeld:
+        return False, ("Er is al een uitslag gemeld voor een wedstrijd die zou "
+                       "verschuiven. Bevestig of wis die melding eerst.")
+
+    tafel_ids = [l["id"] for l in locaties(db, tid)]
+    bezet0 = {x for g in vast for x in (g["team1_id"], g["team2_id"])}
+    sloten = _sloten_met_wachttijd(
+        [(g["team1_id"], g["team2_id"], g["id"]) for g in te_plannen],
+        len(tafel_ids) or None, {team_id: beurten}, rng,
+        bezet0=bezet0, vol0=len(vast))
+
+    start = datetime.fromisoformat(huidige)
+    vrij0 = [l for l in tafel_ids if l not in {g["location_id"] for g in vast}]
+    for i, slot in enumerate(sloten):
+        moment = (start + timedelta(minutes=STAP_MINUTEN * i)).strftime(TIJDFORMAAT)
+        tafels = vrij0 if i == 0 else tafel_ids
+        for j, gid in enumerate(slot):
+            loc = tafels[j] if j < len(tafels) else None
+            db.execute("UPDATE games SET scheduled_at = ?, location_id = ? WHERE id = ?",
+                       (moment, loc, gid))
+    hernummer_speelrondes(db, tid)
+    db.commit()
+
+    voor = len({g["scheduled_at"] for g in open_})
+    # Tijdslot 0 komt altijd terug, ook leeg; leeg én zonder vaste wedstrijden
+    # is het geen echte speelbeurt.
+    na = len(sloten) - (1 if sloten and not sloten[0] and not vast else 0)
+    eigen = sum(1 for g in te_plannen if team_id in (g["team1_id"], g["team2_id"]))
+    if na > voor:
+        duur = (f"Het programma telt nu {na} speelbeurten in plaats van {voor}: "
+                f"{na - voor} extra aan het einde.")
+    else:
+        duur = f"Het programma blijft even lang ({na} speelbeurten)."
+    wanneer = ("de huidige speelbeurt" if beurten == 1
+               else f"de huidige en de volgende {beurten - 1} speelbeurt"
+                    f"{'en' if beurten > 2 else ''}")
+    return True, (f"“{naam}” mist {wanneer}. Hun {eigen} "
+                  f"wedstrijd{'en' if eigen != 1 else ''} zijn naar later geschoven en "
+                  f"andere wedstrijden schoven naar voren; niemand krijgt een forfait. "
+                  f"{duur}")
+
+
 def hernummer_speelrondes(db, tid):
     """Geef elke bracketwedstrijd als speelronde het volgnummer voor de teams.
 

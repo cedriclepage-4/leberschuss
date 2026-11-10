@@ -6020,6 +6020,23 @@ def toernooi_team_terugtrekken(toernooi_id, team_id):
     return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
 
 
+@app.route("/admin/toernooi/<int:toernooi_id>/teams/<int:team_id>/later",
+           methods=["POST"])
+@login_vereist
+def toernooi_team_later(toernooi_id, team_id):
+    """Een team komt later: zijn wedstrijden schuiven op, niemand krijgt forfait."""
+    db = get_db()
+    _toernooi_of_404(db, toernooi_id)
+    try:
+        beurten = int(request.form.get("beurten") or 0)
+    except ValueError:
+        beurten = 0
+    vangnet("voor-later-inplannen")
+    ok, boodschap = toernooi_motor.later_inplannen(db, toernooi_id, team_id, beurten)
+    flash(boodschap, "ok" if ok else "fout")
+    return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
+
+
 @app.route("/admin/toernooi/<int:toernooi_id>/locaties", methods=["POST"])
 @login_vereist
 def toernooi_locatie_nieuw(toernooi_id):

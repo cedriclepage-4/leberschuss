@@ -13,8 +13,6 @@
     <a class="knop" href="{{ url_for('toernooi_beamer', toernooi_id=t['id']) }}"
        title="Groot scherm met de stand of het knockoutschema. Zet het op de beamer en laat het openstaan: het werkt zichzelf bij.">Beamerscherm</a>
     {% endif %}
-    <a class="knop" href="{{ url_for('admin_beamergeluiden') }}"
-       title="Geluiden bij de gebeurtenissen op het beamerscherm instellen">Beamergeluiden</a>
     <a class="knop" href="{{ url_for('admin_toernooien') }}">Terug naar alle toernooien</a>
   </div>
 </section>
@@ -99,6 +97,22 @@
             <button type="submit" class="knop gevaar klein">Weg</button>
           </form>
           {% elif t['status'] == 'bracket' %}
+          <details class="wis-blok">
+            <summary>Komt later…</summary>
+            <form method="post"
+                  action="{{ url_for('toernooi_team_later', toernooi_id=t['id'], team_id=team.id) }}">
+              <p class="klein-tekst">De wedstrijden van <strong>{{ team.naam }}</strong> schuiven
+                 naar achteren; andere wedstrijden schuiven naar voren om de tafels te vullen.
+                 Niemand krijgt een forfait en er wordt niets herloot. Wedstrijden die nu
+                 bezig zijn blijven staan.</p>
+              <label class="klein-tekst">Hoeveel speelbeurten mist het team, de huidige meegerekend?
+                <select name="beurten">
+                  {% for n in range(1, 7) %}<option value="{{ n }}" {{ 'selected' if n == 2 }}>{{ n }}</option>{% endfor %}
+                </select>
+              </label>
+              <button type="submit" class="knop klein">Wedstrijden opschuiven</button>
+            </form>
+          </details>
           {% set opties = terugtrek_opties.get(team.id, []) %}
           <details class="wis-blok">
             <summary>Komt niet opdagen…</summary>
