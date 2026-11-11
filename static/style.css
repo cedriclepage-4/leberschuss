@@ -2858,3 +2858,191 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
   .tv-qr { display: none; }
 }
 .thuis-held .tv-link { margin-top: 16px; }
+
+/* ================================================================
+   VAR-review
+   ================================================================ */
+
+/* ---- organisatiepaneel: de knop onder een openstaande wedstrijd ---- */
+.var-review { margin-top: 12px; border-top: 1px dashed #cbd5e1; padding-top: 10px; }
+.var-review summary {
+  cursor: pointer; font-weight: 700; color: var(--navy-donker, #0f172a);
+  display: inline-flex; align-items: center; gap: 8px; list-style: none;
+}
+.var-review summary::-webkit-details-marker { display: none; }
+.var-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--kop); font-weight: 800;
+  letter-spacing: .12em; background: #0f172a; color: #22d3ee; box-shadow: inset 0 0 0 2px #22d3ee;
+}
+.var-review[open] summary { margin-bottom: 10px; }
+.var-foto-kies {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px;
+  border: 2px dashed #94a3b8; border-radius: 10px; cursor: pointer; text-align: center; font-weight: 600;
+}
+.var-foto-kies input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.var-foto-kies:focus-within { border-color: var(--amber); }
+.var-foto-kies img { max-width: 100%; max-height: 240px; border-radius: 6px; }
+.var-keuzes { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 6px 0 12px; }
+.var-keuze { position: relative; }
+.var-keuze input { position: absolute; opacity: 0; inset: 0; }
+.var-keuze span {
+  display: block; padding: 12px 6px; border-radius: 8px; border: 2px solid #cbd5e1; background: #fff;
+  text-align: center; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+}
+.var-keuze input:focus-visible + span { outline: 2px solid var(--amber); outline-offset: 2px; }
+.var-keuze input:checked + span { color: #fff; border-color: transparent; }
+.var-uit input:checked + span { background: var(--groen); }
+.var-1 input:checked + span { background: var(--amber-donker); }
+.var-2 input:checked + span { background: #ea580c; }
+.var-3 input:checked + span { background: var(--rood); }
+.var-adje input:checked + span { background: #7f1d1d; }
+.var-stuur { width: 100%; }
+.var-ok { color: var(--groen); font-weight: 600; }
+.var-fout { color: var(--rood); font-weight: 600; }
+
+/* ---- beamer: het grote VAR-scherm ---- */
+.bm-var {
+  --var: #22d3ee; --oordeel: #f59e0b;
+  position: fixed; inset: 0; z-index: 60; overflow: hidden; color: #fff;
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 47, 73, .9), rgba(2, 6, 23, .97) 70%);
+  opacity: 0; transition: opacity .35s;
+}
+.bm-var[hidden] { display: none; }
+.bm-var.intro { opacity: 1; }
+.bm-var.weg { opacity: 0; transition: opacity .7s; }
+.bm-var-uit { --oordeel: #22c55e; }
+.bm-var-1 { --oordeel: #f59e0b; }
+.bm-var-2 { --oordeel: #f97316; }
+.bm-var-3 { --oordeel: #ef4444; }
+.bm-var-adje { --oordeel: #ef4444; }
+
+/* bewegende strepen en scanlijnen, zoals een tv-uitzending */
+.bm-var-strepen {
+  position: absolute; inset: -20%;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .035) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(115deg, transparent 0 8vh, rgba(34, 211, 238, .07) 8vh 16vh);
+  animation: bm-var-strepen 6s linear infinite;
+}
+@keyframes bm-var-strepen { to { transform: translateX(17.6vh); } }
+.bm-var.intro::before {                         /* een lichtbalk die door het beeld veegt */
+  content: ""; position: absolute; left: -10%; right: -10%; top: 30%; height: 1.4vh; z-index: 1;
+  background: linear-gradient(90deg, transparent, var(--var), transparent);
+  box-shadow: 0 0 4vh var(--var); animation: bm-var-veeg 1.1s cubic-bezier(.6, 0, .2, 1) both;
+}
+@keyframes bm-var-veeg { from { transform: translateX(-110%); } to { transform: translateX(110%); } }
+
+/* intro: V-A-R knalt erin, schuift daarna naar boven */
+.bm-var-intro {
+  position: absolute; left: 0; right: 0; top: 50%; text-align: center; z-index: 2;
+  transform: translateY(-50%); transform-origin: 50% 0;
+  transition: top .8s cubic-bezier(.7, 0, .2, 1), transform .8s cubic-bezier(.7, 0, .2, 1), opacity .3s;
+}
+.bm-var-woord {
+  margin: 0; font-family: var(--kop); font-weight: 800; font-size: 34vh; line-height: .9; letter-spacing: 3vh;
+  color: #fff; text-shadow: 0 0 3vh var(--var), 0 0 9vh rgba(34, 211, 238, .55);
+}
+.bm-var-woord span { display: inline-block; opacity: 0; }
+.bm-var.intro .bm-var-woord span { animation: bm-var-letter .55s cubic-bezier(.2, 1.5, .4, 1) both; }
+.bm-var.intro .bm-var-woord span:nth-child(2) { animation-delay: .18s; }
+.bm-var.intro .bm-var-woord span:nth-child(3) { animation-delay: .36s; }
+@keyframes bm-var-letter {
+  0% { opacity: 0; transform: scale(3) translateY(-4vh); filter: blur(2vh); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+.bm-var-sub {
+  margin: 1vh 0 0; font-family: var(--kop); font-weight: 700; font-size: 5vh; letter-spacing: .5vh;
+  text-transform: uppercase; color: var(--var); opacity: 0;
+}
+.bm-var-match { margin: 1.4vh 0 0; font-size: 3.6vh; font-weight: 600; color: #e2e8f0; opacity: 0; white-space: pre; }
+.bm-var.intro .bm-var-sub { animation: bm-var-op .5s .8s both; }
+.bm-var.intro .bm-var-match { animation: bm-var-op .5s 1.1s both; }
+.bm-var-sub::after { content: " \25CF"; animation: bm-var-knipper 1s steps(2) infinite; }
+@keyframes bm-var-op { from { opacity: 0; transform: translateY(2vh); } to { opacity: 1; transform: none; } }
+@keyframes bm-var-knipper { 50% { opacity: 0; } }
+.bm-var.beeld .bm-var-intro { top: 2vh; transform: translateY(0) scale(.32); }
+.bm-var.beeld .bm-var-sub, .bm-var.beeld .bm-var-match { animation: none; opacity: 0; }
+
+/* de foto */
+.bm-var-beeld {
+  position: absolute; left: 0; right: 0; top: 14vh; bottom: 4vh; z-index: 2;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.bm-var-kader {
+  position: relative; max-width: 88vw; max-height: 100%; opacity: 0; transform: scale(.55) rotate(-3deg);
+  transition: opacity .6s, transform .9s cubic-bezier(.2, 1.3, .4, 1), filter .6s;
+  box-shadow: 0 0 0 .5vh var(--var), 0 3vh 10vh rgba(0, 0, 0, .7), 0 0 8vh rgba(34, 211, 238, .4);
+  border-radius: 1vh; overflow: hidden; background: #000;
+}
+/* Ook een kleine (bijgesneden) foto vult een groot deel van het scherm. */
+.bm-var-kader img {
+  display: block; max-width: 88vw; max-height: 82vh; min-width: 40vw; min-height: 55vh;
+  object-fit: contain; transform-origin: 50% 50%;
+}
+.bm-var.beeld .bm-var-kader { opacity: 1; transform: none; }
+.bm-var.beeld .bm-var-kader img { animation: bm-var-zoom 11s ease-out both; }
+@keyframes bm-var-zoom { from { transform: scale(1); } to { transform: scale(1.12); } }
+.bm-var-hoek { position: absolute; width: 6vh; height: 6vh; border: .6vh solid var(--var); z-index: 1; }
+.bm-var-hoek.lb { left: 1.5vh; top: 1.5vh; border-right: 0; border-bottom: 0; }
+.bm-var-hoek.rb { right: 1.5vh; top: 1.5vh; border-left: 0; border-bottom: 0; }
+.bm-var-hoek.lo { left: 1.5vh; bottom: 1.5vh; border-right: 0; border-top: 0; }
+.bm-var-hoek.ro { right: 1.5vh; bottom: 1.5vh; border-left: 0; border-top: 0; }
+.bm-var-scan {
+  position: absolute; left: 0; right: 0; height: 12vh; top: -12vh; z-index: 1;
+  background: linear-gradient(180deg, transparent, rgba(34, 211, 238, .35) 85%, rgba(165, 243, 252, .9));
+  mix-blend-mode: screen;
+}
+.bm-var.beeld .bm-var-scan { animation: bm-var-scan 2.2s .6s ease-in-out 2 alternate both; }
+@keyframes bm-var-scan { from { top: -12vh; } to { top: 100%; } }
+.bm-var-rec {
+  position: absolute; left: 2.4vh; bottom: 2.2vh; z-index: 1; padding: .6vh 1.4vh; border-radius: .6vh;
+  background: rgba(2, 6, 23, .75); color: var(--var); font-family: var(--kop); font-weight: 700;
+  font-size: 2.6vh; letter-spacing: .3vh; text-transform: uppercase;
+}
+
+/* het verdict stempelt zich over de foto */
+.bm-var-verdict {
+  position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none; visibility: hidden;
+}
+.bm-var.verdict .bm-var-verdict { visibility: visible; }
+.bm-var.verdict .bm-var-kader { filter: brightness(.35) saturate(.6); }
+.bm-var.verdict .bm-var-intro { opacity: 0; }
+.bm-var-verdict-kop {
+  margin: 0 0 2vh; font-family: var(--kop); font-weight: 700; font-size: 5vh; letter-spacing: .8vh;
+  text-transform: uppercase; color: var(--var); opacity: 0;
+}
+.bm-var.verdict .bm-var-verdict-kop { animation: bm-var-op .4s both; }
+.bm-var-stempel {
+  margin: 0; padding: 1vh 6vh; border: 1.4vh solid var(--oordeel); border-radius: 2.5vh;
+  font-family: var(--kop); font-weight: 800; font-size: 24vh; line-height: 1; text-transform: uppercase;
+  color: var(--oordeel); background: rgba(2, 6, 23, .7); white-space: nowrap; opacity: 0;
+  text-shadow: 0 0 6vh var(--oordeel); box-shadow: 0 0 10vh var(--oordeel), inset 0 0 6vh rgba(0, 0, 0, .5);
+}
+.bm-var.verdict .bm-var-stempel { animation: bm-var-stempel .6s .35s cubic-bezier(.2, 1.6, .4, 1) both; }
+@keyframes bm-var-stempel {
+  0% { opacity: 0; transform: scale(3.2) rotate(-14deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-6deg); }
+}
+.bm-var.verdict::after {                        /* lichtflits op het moment van de stempel */
+  content: ""; position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0;
+  background: var(--oordeel); animation: bm-var-flits .7s .55s ease-out both;
+}
+@keyframes bm-var-flits { 0% { opacity: 0; } 15% { opacity: .55; } 100% { opacity: 0; } }
+/* een adje verdient wat meer: het hele scherm schudt en de stempel pulseert */
+.bm-var-adje.verdict { animation: bm-var-schud .5s .6s both; }
+.bm-var-adje.verdict .bm-var-stempel {
+  animation: bm-var-stempel .6s .35s cubic-bezier(.2, 1.6, .4, 1) both,
+             bm-var-puls .7s 1.1s ease-in-out infinite alternate;
+}
+.bm-var-adje.verdict::after { animation: bm-var-flits 1.2s .55s ease-out 4; }
+@keyframes bm-var-schud {
+  0%, 100% { transform: none; } 20% { transform: translate(-1.5vh, .8vh); } 40% { transform: translate(1.4vh, -1vh); }
+  60% { transform: translate(-1vh, -.6vh); } 80% { transform: translate(.8vh, .8vh); }
+}
+@keyframes bm-var-puls { from { transform: scale(1) rotate(-6deg); } to { transform: scale(1.08) rotate(-4deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bm-var *, .bm-var::before, .bm-var::after { animation-duration: .01s !important; animation-iteration-count: 1 !important; }
+  .bm-var-adje.verdict { animation: none; }
+}

@@ -12,7 +12,11 @@
  *             een feestscherm voor de kampioen.
  *
  * Het scherm volgt de fase van het toernooi (stand → knockout), tenzij je
- * zelf op een van de knoppen klikt. Met ?demo=1 verzint het zelf uitslagen.
+ * zelf op een van de knoppen klikt. Met ?demo=1 verzint het zelf uitslagen
+ * (en toont toets V een verzonnen VAR-review).
+ *
+ * VAR-review: los daarvan kijkt het scherm elke 2,5 s of een organisator een
+ * VAR-foto doorstuurde, en toont die dan groot over alles heen (zie "VAR").
  *
  * Geluiden: bij elke gebeurtenis roepen we geluid("sleutel") aan (zie
  * geluid.js en de geluidseditor). In de proefweergave van die editor
@@ -1013,7 +1017,7 @@
                                 { duration: seconden * 1000, easing: "linear", fill: "forwards" });
   }
 
-  var interval = cfg.demo ? Math.min(cfg.elke || 20, 8) : (cfg.elke || 20);
+  var interval = cfg.demo ? Math.min(cfg.elke || 8, 8) : (cfg.elke || 8);
   /* Vast ritme: de volgende keer wordt meteen ingepland, wat er nu ook
      gebeurt. Loopt er nog een animatie, dan wacht de nieuwe stand in de rij
      (zie verwerk). Enkel de demo wacht op zijn eigen animaties, omdat hij
@@ -1102,6 +1106,7 @@
     if (e.key === "s" || e.key === "S") { handmatig = true; toon("stand"); }
     if (e.key === "k" || e.key === "K") { handmatig = true; toon("knockout"); }
     if ((e.key === "g" || e.key === "G") && geluidKnop) wisselGeluid();
+    if ((e.key === "v" || e.key === "V") && cfg.demo) toonVar(demoVar());
   });
 
   /* De muisaanwijzer verdwijnt na een paar seconden stilstand. */
@@ -1184,6 +1189,93 @@
     geluidKnop = null;
   }
 
+  /* ------------------------------------------------------------ VAR -- */
+  /* Een organisator stuurt een VAR-review door (foto + beslissing). Los van
+     de stand vragen we elke paar seconden /var.json op: zo verschijnt een
+     review meteen, en niet pas bij de volgende ververs. Het verloop (± 15 s):
+       intro    "VAR" knalt in beeld met de wedstrijd eronder
+       beeld    de foto, groot, met een scanlijn erover
+       verdict  de beslissing stempelt zich over de foto
+     Een review die dit scherm al toonde (ook na herladen) komt niet terug. */
+  var varPaneel = document.querySelector("[data-var]");
+  var VAR_ELKE = 2500;
+  var varBezig = false;
+  var varGezien = null;
+  try { varGezien = sessionStorage.getItem("bm-var-gezien"); } catch (e) {}
+
+  function pauze(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  function laadBeeld(img, bron) {
+    return new Promise(function (ok) {
+      var klaar = false;
+      function af() { if (!klaar) { klaar = true; ok(); } }
+      img.onload = af; img.onerror = af;
+      setTimeout(af, 8000);
+      img.src = bron;
+    });
+  }
+
+  async function toonVar(v) {
+    if (!varPaneel || varBezig || !v) return;
+    varBezig = true;
+    try {
+      var img = varPaneel.querySelector("[data-var-img]");
+      await laadBeeld(img, v.foto);
+      var match = [v.team1, v.team2].filter(Boolean).join("  vs  ");
+      if (v.tafel) match += (match ? "  ·  " : "") + v.tafel;
+      varPaneel.querySelector("[data-var-match]").textContent = match;
+      var stempel = varPaneel.querySelector("[data-var-stempel]");
+      stempel.textContent = v.label;
+      varPaneel.className = "bm-var bm-var-" + v.beslissing;
+      varPaneel.hidden = false;
+      void varPaneel.offsetWidth;
+      varPaneel.classList.add("intro");
+      geluid("var");
+      await pauze(3400);
+      varPaneel.classList.add("beeld");
+      await pauze(5200);
+      varPaneel.classList.add("verdict");
+      geluid("var_beslissing");
+      await pauze(v.beslissing === "adje" ? 6000 : 5200);
+      varPaneel.classList.add("weg");
+      await pauze(800);
+    } finally {
+      varPaneel.hidden = true;
+      varPaneel.className = "bm-var";
+      varBezig = false;
+    }
+  }
+
+  async function kijkVar() {
+    setTimeout(kijkVar, VAR_ELKE);
+    if (varBezig || document.hidden) return;
+    try {
+      var antwoord = await fetch(cfg.varBron, { cache: "no-store" });
+      if (!antwoord.ok) return;
+      var v = (await antwoord.json()).var;
+      if (!v || v.id === varGezien) return;
+      varGezien = v.id;
+      try { sessionStorage.setItem("bm-var-gezien", v.id); } catch (e) {}
+      toonVar(v);
+    } catch (e) {}
+  }
+
+  /* Een verzonnen review voor de demo (toets V) en de geluidseditor. */
+  function demoVar() {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">' +
+      '<defs><radialGradient id="d" cx=".4" cy=".35"><stop offset="0" stop-color="#fde68a"/>' +
+      '<stop offset=".7" stop-color="#d97706"/><stop offset="1" stop-color="#92400e"/></radialGradient></defs>' +
+      '<rect width="1600" height="1000" fill="#5b3a1f"/>' +
+      '<g stroke="#4a2f18" stroke-width="6" opacity=".6"><path d="M0 120h1600M0 330h1600M0 610h1600M0 870h1600"/></g>' +
+      '<rect x="0" y="470" width="1600" height="38" fill="#f8fafc"/>' +
+      '<circle cx="820" cy="400" r="150" fill="url(#d)" stroke="#78350f" stroke-width="10"/>' +
+      '<g fill="none" stroke="#92400e" stroke-width="7">' +
+      '<circle cx="820" cy="400" r="110"/></g></svg>';
+    var keuzes = [["uit", "Uit"], ["1", "1 slok"], ["2", "2 slokken"], ["3", "3 slokken"], ["adje", "Adje!"]];
+    var k = keuzes[Math.floor(Math.random() * keuzes.length)];
+    return { id: "demo" + Math.random(), foto: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
+             beslissing: k[0], label: k[1], team1: "De Dopjes", team2: "Lijnrechters", tafel: "Tafel 2" };
+  }
+
   /* ---------------------------------------------------------- proef -- */
   /* Eén scène met verzonnen teams (?scene=...): de editor laadt het scherm
      voor elke scène opnieuw, zodat het altijd van een schone lei vertrekt. */
@@ -1213,6 +1305,10 @@
     } else if (["finale_winst", "sprong", "beker", "kampioen"].indexOf(scene) >= 0) {
       await naarSchema(speelTot(koStart(), function (d) { return !enkelFinaleOver(d); }));
       await verwerk(demoStap(data));
+    } else if (scene === "var" || scene === "var_beslissing") {
+      var v = demoVar();
+      v.beslissing = "adje"; v.label = "Adje!";
+      await toonVar(v);
     } else if (scene === "alles") {
       await verwerk(demoStap(data));
       await verwerk(koStart());
@@ -1234,5 +1330,6 @@
   } else {
     startRing(interval);
     setTimeout(haal, interval * 1000);
+    if (cfg.varBron && !cfg.demo) setTimeout(kijkVar, 1000);
   }
 })();

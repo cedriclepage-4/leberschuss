@@ -51,7 +51,7 @@
   (function () {
     if (!/[?&]beamer=1/.test(window.location.search)) return;
     document.body.classList.add("beamer");
-    var SECONDEN = 20;
+    var SECONDEN = 10;
     var teller = document.createElement("div");
     teller.className = "beamer-teller";
     document.body.appendChild(teller);

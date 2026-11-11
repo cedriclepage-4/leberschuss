@@ -73,10 +73,33 @@
     </div>
   </div>
 
+  <div class="bm-var" data-var hidden aria-live="assertive">
+    <div class="bm-var-strepen" aria-hidden="true"></div>
+    <div class="bm-var-intro">
+      <p class="bm-var-woord" aria-label="VAR"><span>V</span><span>A</span><span>R</span></p>
+      <p class="bm-var-sub">Review · beslissing onderweg</p>
+      <p class="bm-var-match" data-var-match></p>
+    </div>
+    <div class="bm-var-beeld">
+      <div class="bm-var-kader">
+        <img alt="VAR-foto" data-var-img>
+        <span class="bm-var-hoek lb"></span><span class="bm-var-hoek rb"></span>
+        <span class="bm-var-hoek lo"></span><span class="bm-var-hoek ro"></span>
+        <span class="bm-var-scan" aria-hidden="true"></span>
+        <span class="bm-var-rec">● VAR · Check</span>
+      </div>
+    </div>
+    <div class="bm-var-verdict" data-var-verdict>
+      <p class="bm-var-verdict-kop">Beslissing VAR</p>
+      <p class="bm-var-stempel" data-var-stempel></p>
+    </div>
+  </div>
+
   <script id="beamer-gegevens" type="application/json">{{ gegevens|tojson }}</script>
   <script>
     window.BEAMER = {
       bron: {{ url_for('toernooi_beamer_json', toernooi_id=toernooi_id)|tojson if toernooi_id else '""'|safe }},
+      varBron: {{ (var_bron or "")|tojson }},
       elke: {{ elke }},
       demo: {{ 'true' if request.args.get('demo') == '1' else 'false' }},
       geluiden: {{ (geluiden or {})|tojson }},

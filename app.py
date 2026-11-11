@@ -123,6 +123,11 @@ _AVATAR_RE = re.compile(r"^avatar_[pt]\d+_[0-9a-f]{8}\.(png|jpg|jpeg|webp|gif)$"
 _GELUID_EXT = {"mp3", "ogg", "wav", "m4a"}
 _GELUID_RE = re.compile(r"^geluid_[a-z_]+_[0-9a-f]{8}\.(mp3|ogg|wav|m4a)$")
 MAX_GELUID = 8 * 1024 * 1024
+# Foto's van een VAR-review (zie "VAR-review" verderop). De pagina verkleint
+# de foto al vóór het uploaden; dit is enkel de bovengrens als dat niet lukt.
+_VAR_EXT = {"png", "jpg", "jpeg", "webp"}
+_VAR_RE = re.compile(r"^var_t\d+_[0-9a-f]{8}\.(png|jpg|jpeg|webp)$")
+MAX_VAR = 20 * 1024 * 1024
 
 # SQL-fragment: weergavenaam = bijnaam als die er is, anders de accountnaam.
 WEERGAVE = "COALESCE(NULLIF(p.nickname, ''), p.name)"
@@ -1672,6 +1677,13 @@ def dop_kiezen(plek):
 @app.route("/media/<bestand>")
 def media(bestand):
     if not _AVATAR_RE.match(bestand):
+        abort(404)
+    return send_from_directory(UPLOAD_MAP, bestand)
+
+
+@app.route("/var/<bestand>")
+def var_foto(bestand):
+    if not _VAR_RE.match(bestand):
         abort(404)
     return send_from_directory(UPLOAD_MAP, bestand)
 
@@ -4397,7 +4409,7 @@ def database_legen():
     db.execute("PRAGMA foreign_keys = ON")
     for map_ in (UPLOAD_MAP,) if alles else ():
         for naam in os.listdir(map_) if os.path.isdir(map_) else []:
-            if _AVATAR_RE.match(naam):
+            if _AVATAR_RE.match(naam) or _VAR_RE.match(naam):
                 try:
                     os.remove(os.path.join(map_, naam))
                 except OSError:
@@ -5317,9 +5329,12 @@ def inschrijving_klopt_niet(toernooi_id, team_id):
 #
 # Eén groot scherm voor op de beamer, dat de fase van het toernooi volgt: de
 # stand tijdens de bracketfase, het knockoutschema daarna. De pagina laadt één
-# keer; daarna haalt ze om de 20 seconden de gegevens op via /beamer.json en
+# keer; daarna haalt ze om de 8 seconden de gegevens op via /beamer.json en
 # toont ze de veranderingen met een animatie. Zo blijft het scherm ook in
 # volledig scherm staan (herladen zou dat telkens afsluiten).
+
+BEAMER_ELKE = 8      # seconden tussen twee keer kijken (?elke=... om te wijzigen)
+
 
 def _beamer_gegevens(db, toernooi_id):
     from elo import KO_LABEL
@@ -5414,13 +5429,14 @@ def toernooi_beamer(toernooi_id):
     gegevens = _beamer_gegevens(db, toernooi_id)
     adres = externe_url("toernooi_detail", toernooi_id=toernooi_id)
     try:
-        elke = max(3, min(120, int(request.args.get("elke", 20))))
+        elke = max(3, min(120, int(request.args.get("elke", BEAMER_ELKE))))
     except ValueError:
-        elke = 20
+        elke = BEAMER_ELKE
     return render_template("beamer.html", gegevens=gegevens, toernooi_id=toernooi_id,
                            adres=adres, qr=qr_svg(adres), elke=elke,
                            geluiden=beamer_geluiden(db),
-                           geluid_volume=beamer_geluid_volume(db))
+                           geluid_volume=beamer_geluid_volume(db),
+                           var_bron=url_for("toernooi_var_json", toernooi_id=toernooi_id))
 
 
 @app.route("/toernooi/<int:toernooi_id>/beamer.json")
@@ -5431,6 +5447,141 @@ def toernooi_beamer_json(toernooi_id):
         abort(404)
     antwoord = app.response_class(json.dumps(_beamer_gegevens(db, toernooi_id)),
                                   mimetype="application/json")
+    antwoord.headers["Cache-Control"] = "no-store"
+    return antwoord
+
+
+# ------------------------------------------------------------- VAR-review --
+#
+# Ligt de dop zo dicht bij de lijn dat niemand het met het blote oog ziet, dan
+# trekt de VAR-organisator een foto met zijn gsm en zoomt hij in. Die foto
+# uploadt hij hier, samen met zijn beslissing, en de beamer toont ze groot aan
+# de hele zaal: eerst "VAR-review", dan de foto, dan het verdict.
+#
+# Per toernooi onthouden we enkel de laatste review (in de instellingen, geen
+# aparte tabel of migratie nodig). De beamer vraagt elke paar seconden
+# /var.json op en toont een review die hij nog niet zag, zolang ze vers is.
+
+VAR_BESLISSINGEN = [
+    ("uit", "Uit", "Geen slok"),
+    ("1", "1 slok", "Eén slok"),
+    ("2", "2 slokken", "Twee slokken"),
+    ("3", "3 slokken", "Drie slokken"),
+    ("adje", "Adje!", "Adje"),
+]
+_VAR_LABEL = {s: (kort, lang) for s, kort, lang in VAR_BESLISSINGEN}
+VAR_VERS = 90         # seconden dat een review nog op de beamer mag verschijnen
+
+
+def _var_sleutel(toernooi_id):
+    return f"var_toernooi_{toernooi_id}"
+
+
+def laatste_var(db, toernooi_id):
+    try:
+        v = json.loads(instelling(db, _var_sleutel(toernooi_id), "") or "null")
+    except ValueError:
+        return None
+    return v if isinstance(v, dict) and v.get("beslissing") in _VAR_LABEL else None
+
+
+def bewaar_var_foto(bestand, toernooi_id):
+    """Sla de foto van een VAR-review op; geeft de bestandsnaam terug (of None)."""
+    if not bestand or not bestand.filename or "." not in bestand.filename:
+        return None
+    ext = bestand.filename.rsplit(".", 1)[-1].lower()
+    if ext not in _VAR_EXT:
+        return None
+    bestand.stream.seek(0, os.SEEK_END)
+    if bestand.stream.tell() > MAX_VAR:
+        bestand.stream.seek(0)
+        return None
+    bestand.stream.seek(0)
+    os.makedirs(UPLOAD_MAP, exist_ok=True)
+    naam = f"var_t{toernooi_id}_{secrets.token_hex(4)}.{ext}"
+    bestand.save(os.path.join(UPLOAD_MAP, naam))
+    return naam
+
+
+@app.route("/admin/wedstrijden/<int:game_id>/var", methods=["POST"])
+@login_vereist
+def wedstrijd_var(game_id):
+    db = get_db()
+    game = db.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
+    wil_json = request.headers.get("X-Var") == "1"
+
+    def fout(tekst, code=400):
+        if wil_json:
+            return jsonify({"ok": False, "fout": tekst}), code
+        flash(tekst, "fout")
+        if game and game["tournament_id"]:
+            return redirect(url_for("toernooi_beheer", toernooi_id=game["tournament_id"])
+                            + "#openstaand")
+        return redirect(url_for("admin_toernooien"))
+
+    if not game or not game["tournament_id"]:
+        return fout("Deze wedstrijd hoort niet bij een toernooi.", 404)
+    toernooi_id = game["tournament_id"]
+    beslissing = request.form.get("beslissing")
+    if beslissing not in _VAR_LABEL:
+        return fout("Kies de beslissing van de VAR.")
+    naam = bewaar_var_foto(request.files.get("foto"), toernooi_id)
+    if not naam:
+        return fout("Die foto lukte niet: kies een afbeelding (jpg, png of webp) "
+                    f"van hoogstens {MAX_VAR // (1024 * 1024)} MB.")
+
+    oud = laatste_var(db, toernooi_id)
+    zet_instelling(db, _var_sleutel(toernooi_id), json.dumps({
+        "id": naam.rsplit(".", 1)[0], "game_id": game_id, "foto": naam,
+        "beslissing": beslissing, "tijd": time.time()}))
+    db.commit()
+    # Enkel de laatste foto bijhouden.
+    if oud and _VAR_RE.match(oud.get("foto") or "") and oud["foto"] != naam:
+        try:
+            os.remove(os.path.join(UPLOAD_MAP, oud["foto"]))
+        except OSError:
+            pass
+
+    if wil_json:
+        return jsonify({"ok": True, "label": _VAR_LABEL[beslissing][1]})
+    flash(f"VAR-review staat op de beamer: {_VAR_LABEL[beslissing][1]}.", "ok")
+    return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id) + "#openstaand")
+
+
+@app.route("/toernooi/<int:toernooi_id>/var.json")
+def toernooi_var_json(toernooi_id):
+    """De VAR-review die nu op de beamer moet, of null. Licht genoeg om de
+    beamer er elke paar seconden naar te laten vragen."""
+    db = get_db()
+    t = _toernooi_of_404(db, toernooi_id)
+    if t["status"] == "opzet" and not is_organisator():
+        abort(404)
+    v = laatste_var(db, toernooi_id)
+    uit = None
+    try:
+        vers = time.time() - float(v.get("tijd") or 0) <= VAR_VERS if v else False
+    except (TypeError, ValueError):
+        vers = False
+    if vers:
+        game = db.execute("SELECT team1_id, team2_id, location_id FROM games WHERE id = ?",
+                          (v.get("game_id"),)).fetchone()
+        namen = {}
+        if game:
+            for rij in db.execute("SELECT id, name FROM teams WHERE id IN (?, ?)",
+                                  (game["team1_id"], game["team2_id"])):
+                namen[rij["id"]] = rij["name"]
+        tafel = None
+        if game and game["location_id"]:
+            rij = db.execute("SELECT name FROM tournament_locations WHERE id = ?",
+                             (game["location_id"],)).fetchone()
+            tafel = rij["name"] if rij else None
+        kort, lang = _VAR_LABEL[v["beslissing"]]
+        uit = {"id": v["id"], "foto": url_for("var_foto", bestand=v["foto"]),
+               "beslissing": v["beslissing"], "label": kort, "uitleg": lang,
+               "team1": namen.get(game["team1_id"]) if game else None,
+               "team2": namen.get(game["team2_id"]) if game else None,
+               "tafel": tafel}
+    antwoord = jsonify({"var": uit})
     antwoord.headers["Cache-Control"] = "no-store"
     return antwoord
 
@@ -5460,6 +5611,10 @@ BEAMER_GEBEURTENISSEN = [
      "Het moment dat de kampioen in de beker landt en de vonken wegspatten."),
     ("kampioen", "Feestscherm",
      "Het grote feestscherm met confetti voor de kampioen (± 11 s)."),
+    ("var", "VAR-review",
+     "Een organisator stuurt een VAR-foto door: het grote “VAR-review” verschijnt."),
+    ("var_beslissing", "VAR-beslissing",
+     "Na de foto knalt de beslissing van de VAR in beeld (uit, slokken of adje)."),
 ]
 _GEBEURTENIS_SLEUTELS = {s for s, _, _ in BEAMER_GEBEURTENISSEN}
 
@@ -5831,6 +5986,7 @@ def toernooi_beheer(toernooi_id):
                            loc_namen={l["id"]: l["name"] for l in
                                       toernooi_motor.locaties(db, toernooi_id)},
                            openstaand=openstaand, recent=recent,
+                           var_beslissingen=VAR_BESLISSINGEN,
                            namen=teamnamen(db),
                            meldingen_per_game=meldingen_per_game,
                            meldstaat=meldstaat, aandacht=aandacht,

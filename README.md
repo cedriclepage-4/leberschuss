@@ -343,6 +343,7 @@ verliest de andere.
 | `kansen.py` | Kansberekening: speelt het toernooi duizenden keren na |
 | `database.py` | SQLite-schema, initialisatie en migratie |
 | `test_toernooi.py` | Simulatie die een volledig toernooi uitspeelt en controleert |
+| `test_var.py` | VAR-review: foto + beslissing doorsturen naar de beamer |
 | `*.html` | Jinja2-templates (frontend) |
 | `style.css`, `app.js` | Vormgeving en interactie |
 | `seed_demo.py` | Optionele demogegevens |
@@ -414,7 +415,7 @@ wijst.
 Op de toernooipagina staat voor organisatoren een knop **📺 Beamermodus**. Die
 opent dezelfde pagina met `?beamer=1` erachter en:
 
-- **ververst zichzelf om de 20 seconden**, dus de stand loopt de hele avond mee
+- **ververst zichzelf om de 8 seconden**, dus de stand loopt de hele avond mee
   zonder dat je iets moet doen (rechtsonder zie je aftellen);
 - **blijft op hetzelfde tabblad** staan — kies *Stand* of *Knockout* en dat blijft
   zo na elke verversing, want het tabblad staat mee in het adres;
@@ -435,6 +436,16 @@ Je knipt er het juiste stuk uit met twee grepen op de golfvorm, en een
 proefweergave met verzonnen teams speelt de animatie met jouw geluid erbij.
 Op de beamer zelf moet je één keer klikken (bv. op *Volledig scherm*) voor de
 browser geluid toelaat; met de toets **G** zet je het aan en uit.
+
+**VAR-review:** ligt een dop net op (of net naast) de lijn, trek dan een foto
+met je gsm. In het organisatiepaneel staat onder elke openstaande wedstrijd
+**VAR-review naar de beamer**: kies de foto, duid de beslissing aan (*Uit*,
+*1 slok*, *2 slokken*, *3 slokken* of *Adje!*) en tik *Toon op de beamer*.
+Binnen een paar seconden verschijnt op de beamer een groot "VAR", dan de foto
+en tot slot de beslissing (± 15 seconden). De gsm verkleint de foto zelf voor
+hij vertrekt; enkel de laatste foto per toernooi blijft bewaard. Met
+`?demo=1` toont de toets **V** een verzonnen review. Ook voor de VAR kan je
+bij *Beamergeluiden* een geluid instellen.
 
 ## Op je startscherm zetten
 

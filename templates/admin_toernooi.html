@@ -284,6 +284,25 @@
       </div>
       <div class="resultaat-acties"><button type="submit" class="knop primair">Resultaat opslaan</button></div>
     </form>
+    <details class="var-review">
+      <summary><span class="var-badge">VAR</span> VAR-review naar de beamer</summary>
+      <form method="post" enctype="multipart/form-data" data-var-form
+            action="{{ url_for('wedstrijd_var', game_id=g['id']) }}">
+        <label class="var-foto-kies">
+          <input type="file" name="foto" accept="image/*" capture="environment" required data-var-foto>
+          <span data-var-foto-tekst>📷 Trek of kies de foto</span>
+          <img alt="" hidden data-var-voorbeeld>
+        </label>
+        <p class="veld-label">Beslissing</p>
+        <div class="var-keuzes">
+          {% for sleutel, kort, lang in var_beslissingen %}
+          <label class="var-keuze var-{{ sleutel }}"><input type="radio" name="beslissing" value="{{ sleutel }}" required><span>{{ kort }}</span></label>
+          {% endfor %}
+        </div>
+        <button type="submit" class="knop primair var-stuur">Toon op de beamer</button>
+        <p class="klein-tekst" data-var-status aria-live="polite"></p>
+      </form>
+    </details>
   </div>
   {% endfor %}
 </div>
@@ -421,6 +440,69 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+/* VAR-review: de foto eerst verkleinen op de gsm (een foto van 10 MB over de
+   wifi van het jeugdhuis duurt te lang), dan doorsturen. De beamer pikt ze
+   binnen een paar seconden op. Lukt het verkleinen niet, dan gaat het origineel. */
+(function () {
+  "use strict";
+  var MAX = 2400;
+
+  function verklein(bestand) {
+    return new Promise(function (ok) {
+      if (!bestand || !window.createImageBitmap) return ok(bestand);
+      createImageBitmap(bestand).then(function (beeld) {
+        var s = Math.min(1, MAX / Math.max(beeld.width, beeld.height));
+        var c = document.createElement("canvas");
+        c.width = Math.round(beeld.width * s); c.height = Math.round(beeld.height * s);
+        c.getContext("2d").drawImage(beeld, 0, 0, c.width, c.height);
+        c.toBlob(function (blob) { ok(blob ? new File([blob], "var.jpg", { type: "image/jpeg" }) : bestand); },
+                 "image/jpeg", 0.9);
+      }).catch(function () { ok(bestand); });
+    });
+  }
+
+  document.querySelectorAll("[data-var-form]").forEach(function (form) {
+    var invoer = form.querySelector("[data-var-foto]");
+    var tekst = form.querySelector("[data-var-foto-tekst]");
+    var voorbeeld = form.querySelector("[data-var-voorbeeld]");
+    var status = form.querySelector("[data-var-status]");
+    var knop = form.querySelector(".var-stuur");
+
+    invoer.addEventListener("change", function () {
+      var f = invoer.files[0];
+      if (voorbeeld.src) URL.revokeObjectURL(voorbeeld.src);
+      if (f) { voorbeeld.src = URL.createObjectURL(f); voorbeeld.hidden = false; tekst.textContent = "Andere foto"; }
+      else { voorbeeld.hidden = true; tekst.textContent = "📷 Trek of kies de foto"; }
+    });
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      if (!window.fetch) return form.submit();
+      knop.disabled = true;
+      status.className = "klein-tekst";
+      status.textContent = "Foto verkleinen…";
+      try {
+        var data = new FormData(form);
+        var klein = await verklein(invoer.files[0]);
+        data.set("foto", klein, klein.name || "var.jpg");
+        status.textContent = "Doorsturen naar de beamer…";
+        var antwoord = await fetch(form.action, { method: "POST", body: data, headers: { "X-Var": "1" } });
+        var uitkomst = await antwoord.json().catch(function () { return {}; });
+        if (!antwoord.ok || !uitkomst.ok) throw new Error(uitkomst.fout || "Doorsturen mislukt.");
+        status.className = "klein-tekst var-ok";
+        status.textContent = "✔ Op de beamer: " + uitkomst.label + ". Hij verschijnt binnen een paar seconden.";
+        form.reset();
+        voorbeeld.hidden = true; tekst.textContent = "📷 Trek of kies de foto";
+      } catch (fout) {
+        status.className = "klein-tekst var-fout";
+        status.textContent = fout.message || "Doorsturen mislukt. Probeer opnieuw.";
+      }
+      knop.disabled = false;
+    });
+  });
+})();
+</script>
 <script>
 /* Instellingen meteen bewaren: geen knop Opslaan meer die je kan vergeten.
    Tekst en getallen worden bewaard zodra je even stopt met typen, keuzelijsten
