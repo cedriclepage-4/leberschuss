@@ -20,11 +20,6 @@
         <div class="cijfer"><strong data-tel="{{ aantal_teams }}">{{ aantal_teams }}</strong><span>teams</span></div>
         <div class="cijfer"><strong data-tel="{{ aantal_gespeeld }}">{{ aantal_gespeeld }}</strong><span>gespeelde wedstrijden</span></div>
       </div>
-      {% if is_organisator %}
-      {# Voor de tv in het jeugdhuis: hetzelfde klassement, zonder één bewegend ding. #}
-      <a class="knop tv-link" href="{{ url_for('tv_scherm') }}"
-         title="Het klassement groot op de tv, zonder animaties. Laat het openstaan: het werkt zichzelf bij.">TV-scherm</a>
-      {% endif %}
     </div>
 
     {% include "_logo3d.html" %}

@@ -2892,7 +2892,6 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
   .tv-zij { padding-top: 0; flex-direction: row; flex-wrap: wrap; }
   .tv-qr { display: none; }
 }
-.thuis-held .tv-link { margin-top: 16px; }
 
 /* ================================================================
    VAR-review

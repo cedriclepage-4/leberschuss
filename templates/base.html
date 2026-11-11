@@ -64,6 +64,11 @@
           {% if sectie == 'home' %}
             <a href="{{ url_for('index') }}" class="{{ 'actief' if request.path == '/' }}">Globaal klassement</a>
             <a href="{{ url_for('statistieken') }}" class="{{ 'actief' if request.path.startswith('/statistieken') }}">Statistieken</a>
+            {% if is_organisator %}
+              {# Voor de tv in het jeugdhuis: hetzelfde klassement, zonder één bewegend ding. #}
+              <a href="{{ url_for('tv_scherm') }}"
+                 title="Het klassement groot op de tv, zonder animaties. Laat het openstaan: het werkt zichzelf bij.">TV-scherm</a>
+            {% endif %}
           {% elif sectie == 'liga' %}
             <a href="{{ url_for('seizoenen') }}" class="{{ 'actief' if request.path == '/seizoenen' }}">Alle seizoenen</a>
             {% if huidig_seizoen is defined and huidig_seizoen %}
