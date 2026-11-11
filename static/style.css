@@ -1383,61 +1383,79 @@ h3 { font-weight: 700; }
 }
 .logo3d.geaaid .logo3d-gloed { filter: hue-rotate(calc(var(--roze, 0) * -55deg)) saturate(calc(1 + var(--roze, 0) * .6)); }
 
-/* ---- podium ---- */
+/* ---- podium ----
+   Drie aaneengesloten blokken, recht van voren gezien: een voorkant en
+   een smalle bovenkant die naar achter toe versmalt (naar het midden van
+   het podium toe). Het gouden blok staat vooraan; zijn zijkanten verdwijnen
+   achter niets, die van de buren achter het gouden blok. Daarboven zweeft
+   de 3D-kroonkurk van elke speler. */
 .podium {
   list-style: none; margin: 34px 0 0; padding: 0;
-  display: flex; justify-content: center; align-items: flex-end; gap: 14px;
-  perspective: 900px; perspective-origin: 50% -40%; transform-style: preserve-3d;
+  display: flex; justify-content: center; align-items: flex-end; gap: 0;
 }
-.podium-plek { width: 200px; display: flex; flex-direction: column; align-items: center; transform-style: preserve-3d; }
+.podium-plek {
+  --diep: 22px;                        /* hoe diep de bovenkant lijkt */
+  width: 210px; display: flex; flex-direction: column; align-items: center; position: relative;
+}
 .podium-speler {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  color: #fff; text-decoration: none; text-align: center; padding: 0 6px 26px; max-width: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 0 6px calc(var(--diep) + 10px); max-width: 100%;
 }
-.podium-foto {
-  width: 68px; height: 68px; border-radius: 50%; object-fit: cover; flex: 0 0 auto;
-  border: 3px solid var(--metaal); box-shadow: 0 0 0 4px rgba(15, 23, 42, .6), 0 10px 24px rgba(0, 0, 0, .45);
-  transition: transform .2s;
+.podium-dop.dop3d { width: 116px; margin-bottom: 2px; }
+.plek-1 .podium-dop.dop3d { width: 142px; }
+.podium-dop > img.dop-img { width: 100%; height: 100%; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55)); }
+.podium-dop .dop3d-schaduw { bottom: -12%; }
+.podium-link {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: 100%;
+  color: #fff; text-decoration: none; text-align: center; border-radius: 8px; padding: 2px 8px;
 }
-.podium-letter {
-  display: flex; align-items: center; justify-content: center;
-  background: var(--navy-donker); color: var(--amber); font-family: var(--kop);
-  font-weight: 800; font-size: 1.9rem;
-}
-.podium-speler:hover .podium-foto { transform: translateY(-4px) scale(1.05); }
 .podium-naam {
-  font-weight: 700; font-size: 1.08rem; margin-top: 6px; max-width: 100%;
+  font-weight: 700; font-size: 1.08rem; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.podium-speler:hover .podium-naam { color: var(--amber); }
+.podium-link:hover .podium-naam, .podium-link:focus-visible .podium-naam { color: var(--amber); }
 .podium-aura { color: #cbd5e1; font-size: .85rem; text-shadow: 0 1px 6px rgba(15, 23, 42, .8); }
 .podium-aura strong {
   font-family: var(--kop); font-size: 1.45rem; color: var(--amber); margin-right: 3px;
   font-variant-numeric: tabular-nums;
 }
 
-/* Elk blok is een echte doos: een voorkant en een bovenkant. */
-.podium-blok { position: relative; width: 100%; height: var(--h); transform-style: preserve-3d; }
-.blok-voor, .blok-boven { position: absolute; left: 0; width: 100%; }
+.podium-blok { position: relative; width: 100%; height: var(--h); }
 .blok-voor {
-  top: 0; bottom: 0; transform: translateZ(32px); overflow: hidden;
-  background: linear-gradient(180deg, var(--metaal-licht), var(--metaal) 35%, var(--metaal-donker));
-  border-radius: 4px 4px 0 0;
+  position: absolute; inset: 0; overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, .16), transparent 18%, transparent 82%, rgba(0, 0, 0, .16)),
+    linear-gradient(180deg, var(--metaal-licht) 0, var(--metaal) 28%, var(--metaal-donker) 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, .7),        /* de scherpe voorrand bovenaan */
+    inset 0 -14px 18px -10px rgba(0, 0, 0, .35);  /* donkerder naar de grond toe */
   display: flex; align-items: flex-start; justify-content: center;
 }
 .blok-voor span {
-  font-family: var(--kop); font-weight: 800; font-size: 4.2rem; line-height: 1.15;
-  color: rgba(255, 255, 255, .92); text-shadow: 0 2px 0 rgba(0, 0, 0, .18), 0 6px 18px rgba(0, 0, 0, .2);
+  font-family: var(--kop); font-weight: 800; font-size: 4.2rem; line-height: 1; padding-top: 14px;
+  color: rgba(255, 255, 255, .94);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, .18), 0 2px 0 var(--metaal-donker), 0 6px 14px rgba(0, 0, 0, .22);
 }
+/* De bovenkant: een trapezium, uitgeknipt zodat de hoeken precies op de
+   voorkant aansluiten. De binnenste schuine kant valt achter het gouden blok. */
 .blok-boven {
-  top: 0; height: 64px; transform-origin: top center;
-  transform: translateZ(-32px) rotateX(90deg);
-  background: linear-gradient(0deg, var(--metaal-licht), var(--metaal));
+  position: absolute; left: 0; right: 0; bottom: 100%; height: var(--diep);
+  background: linear-gradient(0deg, color-mix(in srgb, var(--metaal-licht) 80%, #fff), var(--metaal) 140%);
+  border-bottom: 1px solid rgba(255, 255, 255, .85);
+  clip-path: var(--vorm);
 }
-.plek-1 { --h: 150px; --metaal: var(--goud); --metaal-licht: #ffe08a; --metaal-donker: #c98500; }
-.plek-2 { --h: 108px; --metaal: var(--zilver); --metaal-licht: #f1f4f8; --metaal-donker: #8e9aab; }
-.plek-3 { --h: 78px;  --metaal: var(--brons); --metaal-licht: #f3c29a; --metaal-donker: #9b5422; }
-.plek-1 .podium-foto { width: 84px; height: 84px; }
+.blok-boven::after {                         /* zachte glans over het vlak */
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent 10%, rgba(255, 255, 255, .35) 50%, transparent 90%);
+}
+.plek-1 { --h: 150px; --metaal: var(--goud); --metaal-licht: #ffe08a; --metaal-donker: #b77700;
+  --vorm: polygon(0 100%, 100% 100%, calc(100% - 14px) 0, 14px 0); z-index: 2; }
+.plek-2 { --h: 108px; --metaal: var(--zilver); --metaal-licht: #f1f4f8; --metaal-donker: #7f8b9c;
+  --vorm: polygon(0 100%, 100% 100%, 100% 0, 24px 0); }
+.plek-3 { --h: 78px;  --metaal: var(--brons); --metaal-licht: #f3c29a; --metaal-donker: #8a4a1c;
+  --vorm: polygon(0 100%, 100% 100%, calc(100% - 24px) 0, 0 0); }
+/* Het gouden blok werpt een schaduw op zijn buren. */
+.plek-1 .podium-blok { box-shadow: 0 0 26px 2px rgba(0, 0, 0, .38); }
 .plek-1 .podium-naam { font-size: 1.2rem; }
 
 /* Een lichtstreep die af en toe over het gouden blok glijdt. */
@@ -1449,7 +1467,7 @@ h3 { font-weight: 700; }
 @keyframes glans { 0% { left: -60%; } 30%, 100% { left: 130%; } }
 
 /* ---- opbouw bij het laden ---- */
-.thuis-held.wacht:not(.klaar) .podium-blok { transform: translateY(105%); }
+.thuis-held.wacht:not(.klaar) .podium-blok { transform: translateY(calc(100% + var(--diep) + 4px)); }
 .thuis-held.wacht:not(.klaar) .podium-speler { opacity: 0; transform: translateY(16px); }
 .thuis-held.wacht:not(.klaar) .logo3d { opacity: 0; transform: scale(.7) rotate(-20deg); }
 .thuis-held.wacht:not(.klaar) .thuis-tekst > * { opacity: 0; transform: translateY(18px); }
@@ -1494,17 +1512,18 @@ h3 { font-weight: 700; }
   .logo3d { width: 170px; order: -1; }
   .thuis-tekst h1 { font-size: 2.7rem; }
   .thuis-tekst p { font-size: .98rem; }
-  .podium { gap: 8px; margin-top: 26px; }
-  .podium-plek { width: 32%; }
-  .podium-foto { width: 50px; height: 50px; }
-  .plek-1 .podium-foto { width: 62px; height: 62px; }
+  .podium { margin-top: 26px; }
+  .podium-plek { width: 33%; --diep: 14px; }
+  .podium-dop.dop3d { width: 84px; margin-bottom: 0; }
+  .plek-1 .podium-dop.dop3d { width: 104px; }
+  .podium-link { padding: 2px 2px; }
   .podium-naam, .plek-1 .podium-naam { font-size: .92rem; }
   .podium-aura { font-size: .75rem; }
   .podium-aura strong { font-size: 1.15rem; }
-  .plek-1 { --h: 112px; } .plek-2 { --h: 80px; } .plek-3 { --h: 60px; }
-  .blok-voor span { font-size: 3rem; }
-  .blok-boven { height: 40px; transform: translateZ(-20px) rotateX(90deg); }
-  .blok-voor { transform: translateZ(20px); }
+  .plek-1 { --h: 112px; --vorm: polygon(0 100%, 100% 100%, calc(100% - 9px) 0, 9px 0); }
+  .plek-2 { --h: 80px; --vorm: polygon(0 100%, 100% 100%, 100% 0, 15px 0); }
+  .plek-3 { --h: 60px; --vorm: polygon(0 100%, 100% 100%, calc(100% - 15px) 0, 0 0); }
+  .blok-voor span { font-size: 3rem; padding-top: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2270,7 +2289,6 @@ img.dop-img {
   filter: drop-shadow(0 1px 1.5px rgba(15, 23, 42, .35));
 }
 .avatar-mini.dop-img { width: 28px; height: 28px; }
-.podium-foto.dop-img { width: 76px; height: 76px; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55)); }
 .bm-foto.dop-img { filter: drop-shadow(0 .4vh .6vh rgba(0, 0, 0, .5)); }
 
 /* ---- de zwevende 3D-dop (static/dop3d.js) ----
