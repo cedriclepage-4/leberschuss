@@ -31,7 +31,7 @@ import threading
 import time
 
 import tournament as tm
-from elo import KLEINE_FINALE, KO_LABEL, fase_factor, verwacht, zijde_rating
+from elo import KLEINE_FINALE, fase_factor, is_voorronde, ko_label, verwacht, zijde_rating
 
 # Hoe lang we hoogstens rekenen, en hoeveel afloopjes minimaal en maximaal.
 # Met 1000 afloopjes zit een kans van 50% er hooguit een paar procent naast;
@@ -91,7 +91,9 @@ def winstkans(sterkte, a, b):
 def _ronde_label(grootte):
     if grootte == 1:
         return "Kampioen"
-    return KO_LABEL.get(grootte, f"Ronde van {grootte}")
+    if is_voorronde(grootte):
+        return "Knockout"          # bv. 12: in de knockout, al dan niet via de voorronde
+    return ko_label(grootte)
 
 
 def _vingerafdruk(db, tid, sterkte):
@@ -117,7 +119,7 @@ def bereken(db, tid):
       sterkte     {team_id: rating}
     """
     t = tm.toernooi(db, tid)
-    if not t or t["status"] == "opzet" or not tm.is_macht_van_twee(t["ko_teams"]):
+    if not t or t["status"] == "opzet" or not tm.geldig_ko_aantal(t["ko_teams"]):
         return None
     sterkte = sterktes(db, tid)
     afdruk = _vingerafdruk(db, tid, sterkte)
@@ -142,7 +144,7 @@ def bereken_vooraf(db, tid):
     zijn. Hetzelfde formaat als `bereken`; None vóór de loting.
     """
     t = tm.toernooi(db, tid)
-    if not t or t["status"] == "opzet" or not tm.is_macht_van_twee(t["ko_teams"]):
+    if not t or t["status"] == "opzet" or not tm.geldig_ko_aantal(t["ko_teams"]):
         return None
     sterkte = sterktes_vooraf(db, tid)
     h = hashlib.sha1(f"vooraf:{t['ko_teams']}".encode())
@@ -165,8 +167,10 @@ def bereken_vooraf(db, tid):
 
 def _reken(db, t, sterkte, rng, vooraf=False):
     tid, cut = t["id"], t["ko_teams"]
-    grootten = []
-    g = cut
+    # Bij een knockout met voorronde (bv. 12) eerst "in de knockout" (12), dan
+    # de eerste volle ronde (8), 4, 2, 1.
+    grootten = [cut] if not tm.is_macht_van_twee(cut) else []
+    g = tm.voorronde_info(cut)[2]
     while g >= 1:
         grootten.append(g)
         g //= 2
@@ -227,15 +231,25 @@ def _knockout_afloopje(db, tid, speel, tel):
     games.sort(key=lambda g: (-g["ronde"], g["positie"]))
     # Enkel de vakken van de eerste ronde zijn vast; de rest vult het afloopje
     # zelf in met zijn eigen winnaars (bij gespeelde wedstrijden de echte).
+    # Een vak waar geen wedstrijd in uitmondt, is vast: de eerste ronde, en de
+    # plaatsen van wie vrijgeloot is voor de voorronde. Die vrijgelote teams
+    # zitten ook "in de knockout" (de eerste grootte, bv. 12).
     eerste = max((g["ronde"] for g in games), default=0)
+    gevoed = {(g["volgende_game_id"], g["volgende_slot"]) for g in games
+              if g["volgende_game_id"]}
 
     def afloopje():
         vak = {}
         for g in games:
-            if g["ronde"] == eerste:
-                a, b = g["team1_id"], g["team2_id"]
-            else:
-                a, b = vak.get((g["id"], 1)), vak.get((g["id"], 2))
+            kanten = []
+            for slot in (1, 2):
+                if (g["id"], slot) in gevoed:
+                    kanten.append(vak.get((g["id"], slot)))
+                else:
+                    kanten.append(g[f"team{slot}_id"])
+                    if g["ronde"] != eerste:
+                        tel(kanten[-1], eerste)          # vrijgeloot
+            a, b = kanten
             tel(a, g["ronde"])
             tel(b, g["ronde"])
             if g["status"] == "gespeeld" and g["winner_team_id"]:
@@ -272,7 +286,7 @@ def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False):
     k_rij = db.execute("SELECT value FROM settings WHERE key = 'k_team'").fetchone()
     k_team = float(k_rij["value"]) if k_rij else 32.0
     k = k_team * fase_factor("bracket")
-    volgorde = tm.seed_volgorde(cut)
+    volgorde = tm.seed_volgorde(tm.schema_grootte(cut))
 
     def afloopje():
         kracht = dict(basis_kracht)
@@ -302,12 +316,14 @@ def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False):
             geordend, beslissend = tm.stand_uit(tid, cut, teams, gespeeld, so, kracht)
 
         geplaatst = [r["team_id"] for r in geordend[:cut]]
-        geplaatst += [None] * (cut - len(geplaatst))
+        geplaatst += [None] * (len(volgorde) - len(geplaatst))
+        # Plaatsen voorbij de cut zijn leeg: wie daartegen "speelt", is
+        # vrijgeloot (speel() laat een leeg vak altijd verliezen).
         veld = [geplaatst[s - 1] for s in volgorde]
-        grootte = cut
+        grootte = len(volgorde)
         while len(veld) > 1:
             for x in veld:
-                tel(x, grootte)
+                tel(x, cut if grootte == len(volgorde) else grootte)
             veld = [speel(veld[i], veld[i + 1]) for i in range(0, len(veld), 2)]
             grootte //= 2
         tel(veld[0], 1)

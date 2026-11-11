@@ -143,7 +143,10 @@
        plaatsen: winnaar door, verliezer eruit.</p>
     {% endif %}
     <p class="klein-tekst stil">Winst = 3 punten. De bovenste {{ t['ko_teams'] }} teams gaan door
-      naar de knockout. Staan teams gelijk, dan telt eerst het onderlinge duel, daarna de
+      naar de knockout.{% if ko_opbouw %} De top {{ ko_opbouw.vrij }} is vrijgeloot
+      en zit meteen in de {{ ko_opbouw.ronde }}; de nummers {{ ko_opbouw.vrij + 1 }}
+      t/m {{ t['ko_teams'] }} spelen eerst een voorronde om de andere
+      {{ ko_opbouw.plaatsen }} plaatsen.{% endif %} Staan teams gelijk, dan telt eerst het onderlinge duel, daarna de
       <strong>kwaliteit</strong> van je overwinningen (de punten van de teams die je
       versloeg) en vervolgens je hele <strong>programma</strong>. Valt het dan nog niet te
       scheiden én hangt er een ticket van af, dan spelen de teams rond de streep één
@@ -165,7 +168,8 @@
               <img class="avatar-mini dop-img" src="{{ dop_team(r.team_id) }}" alt="" loading="lazy"> {{ r.naam }}</a></span>
             <div class="klein-tekst stil">{{ r.spelers }}</div>
             {% if r.onbeslist %}<span class="pil pil-rood">shootout nodig</span>
-            {% elif r.gedeeld %}<span class="pil">gedeelde plaats</span>{% endif %}
+            {% elif r.gedeeld %}<span class="pil">gedeelde plaats</span>
+            {% elif ko_opbouw and r.doorstoot %}<span class="pil {{ 'pil-vrij' if r.positie <= ko_opbouw.vrij else 'pil-voorronde' }}">{{ 'vrijgeloot' if r.positie <= ko_opbouw.vrij else 'voorronde' }}</span>{% endif %}
           </td>
           {% if potten_aantal > 1 %}<td class="verbergen-mobiel"><span class="pot-pil pot-{{ r.pot }}">Pot {{ r.pot }}</span></td>{% endif %}
           <td class="kol-num">{{ r.gespeeld }}</td>
@@ -180,7 +184,8 @@
       </tbody>
     </table>
     {% if t['status'] == 'bracket' %}
-    <p class="klein-tekst stil ruimte-boven">De lijn onder plaats {{ t['ko_teams'] }} bepaalt wie doorgaat.</p>
+    <p class="klein-tekst stil ruimte-boven">De lijn onder plaats {{ t['ko_teams'] }} bepaalt wie doorgaat.{% if ko_opbouw %}
+       Wie in de top {{ ko_opbouw.vrij }} eindigt, slaat de voorronde over.{% endif %}</p>
     {% endif %}
   </div>
 </div>
@@ -472,19 +477,23 @@
     {# Een raster: elke wedstrijd beslaat zoveel rijen als de wedstrijden die
        erin uitmonden, zodat ze precies tussen haar twee voorgangers staat.
        De verbindingslijnen tekent de CSS (bracket-cel::before/::after). #}
-    {% set eerste = kolommen[0].games|length %}
+    {# Rijen: het aantal vakken van de eerste kolom. Een voorronde heeft er
+       evenveel als de ronde erna plaatsen telt (met gaten voor wie vrijgeloot
+       is); haar positie zegt in welk vak ze staat. #}
+    {% set eerste = kolommen[0].plaatsen %}
     {% set n_kol = kolommen|length %}
     <div class="bracket-scroll">
     <div class="bracket" style="--kolommen: {{ n_kol }}; --rijen: {{ eerste }};">
       {% for kolom in kolommen %}
       {% set c = loop.index %}
-      {% set span = eerste // (kolom.games|length or 1) %}
+      {% set span = eerste // (kolom.plaatsen or 1) %}
       <div class="bracket-titel" style="grid-column: {{ c }};">{{ kolom.titel }}</div>
       {% for g in kolom.games %}
         {% set richting = '' if not g['volgende_game_id'] else ('naar-onder' if g['volgende_slot'] == 1 else 'naar-boven') %}
-        <div class="bracket-cel {{ richting or 'naar-kampioen' }} {{ 'met-voorgangers' if c > 1 }}
-                    {{ 'lijn-actief' if g['status'] == 'gespeeld' }} {{ 'lijn-binnen' if c > 1 and g['team1_id'] and g['team2_id'] }}"
-             style="grid-column: {{ c }}; grid-row: {{ 2 + (loop.index0 * span) }} / span {{ span }};">
+        <div class="bracket-cel {{ richting or 'naar-kampioen' }} {{ 'met-voorgangers' if g['id'] in kolom.gevoed }}
+                    {{ 'bracket-cel-voorronde' if kolom.voorronde }}
+                    {{ 'lijn-actief' if g['status'] == 'gespeeld' }} {{ 'lijn-binnen' if g['id'] in kolom.gevoed and g['team1_id'] and g['team2_id'] }}"
+             style="grid-column: {{ c }}; grid-row: {{ 2 + ((g['positie'] or loop.index) - 1) * span }} / span {{ span }};">
           {% include "_bracket_game.html" %}
         </div>
       {% endfor %}

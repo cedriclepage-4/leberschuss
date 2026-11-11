@@ -56,6 +56,32 @@ KLEINE_FINALE = 3
 KO_LABEL = {2: "Finale", KLEINE_FINALE: "Kleine finale", 4: "Halve finale",
             8: "Kwartfinale", 16: "Achtste finale", 32: "Zestiende finale"}
 
+# Stoten er geen 2, 4, 8, ... teams door maar bv. 12, dan spelen de laagst
+# geplaatsten eerst een voorronde (zie tournament.maak_knockout). Die ronde
+# krijgt als nummer het aantal teams in de knockout (12): geen macht van twee,
+# zo herken je ze, en ze sorteert vanzelf vóór de kwartfinale (8).
+VOORRONDE = "Voorronde"
+
+
+def is_voorronde(ronde) -> bool:
+    """Is dit rondenummer een voorronde (geen macht van twee, geen kleine finale)?"""
+    try:
+        n = int(ronde)
+    except (TypeError, ValueError):
+        return False
+    return n > KLEINE_FINALE and n & (n - 1) != 0
+
+
+def ko_label(ronde, standaard=None) -> str:
+    """Leesbaar label van een knockoutronde: 'Kwartfinale', 'Voorronde', ..."""
+    if is_voorronde(ronde):
+        return VOORRONDE
+    try:
+        n = int(ronde)
+    except (TypeError, ValueError):
+        return standaard or "Knockout"
+    return KO_LABEL.get(n, standaard or f"Ronde van {n}")
+
 
 # In de knockout weegt een nederlaag maar half zo zwaar als een overwinning.
 #
@@ -84,6 +110,8 @@ def fase_factor(fase: str, ronde=None, verloren: bool = False) -> float:
             # Geen vermenigvuldiger en geen halve straf: een gewone wedstrijd
             # die voor beide kanten even zwaar telt.
             return 1.0
+        # Een voorronde (bv. ronde 12) valt hier ook op 1,25: het gewicht van
+        # een achtste finale, de ronde die ze in een volledig schema zou zijn.
         f = KO_FACTOR.get(n, 1.25)
         return f * KO_VERLIES if verloren else f
     return FASE_FACTOR.get(fase, 1.0)
@@ -92,10 +120,7 @@ def fase_factor(fase: str, ronde=None, verloren: bool = False) -> float:
 def fase_omschrijving(fase: str, ronde=None) -> str:
     """Leesbaar label, bv. 'Kwartfinale' of 'Bracketronde 3'."""
     if fase == "knockout":
-        try:
-            return KO_LABEL.get(int(ronde), f"Ronde van {ronde}")
-        except (TypeError, ValueError):
-            return "Knockout"
+        return ko_label(ronde)
     if fase == "bracket":
         return f"Speelronde {ronde}" if ronde else "Bracketfase"
     return FASE_LABEL.get(fase, "Wedstrijd")

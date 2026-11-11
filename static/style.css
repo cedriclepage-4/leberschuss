@@ -710,6 +710,16 @@ input[type="file"] { padding: 7px 10px; }
 }
 .bracket-kant + .bracket-meta { border-top: none; }
 
+/* Voorronde (bv. 12 teams): enkel de laagst geplaatsten spelen ze; wie
+   vrijgeloot is, staat al in de ronde erna. Iets compacter, zodat ze er
+   duidelijk vóór komt en niet als een volwaardige ronde oogt. */
+.bracket-cel-voorronde { padding: 3px 0; }
+.bracket-cel-voorronde .bracket-game { border-style: dashed; box-shadow: none; }
+.bracket-cel-voorronde .bracket-game.gespeeld { border-style: solid; }
+.bracket-cel-voorronde .bracket-kant { min-height: 36px; padding-top: 4px; padding-bottom: 4px; }
+.pil.pil-vrij { background: #dcfce7; color: #14532d; }
+.pil.pil-voorronde { background: #fef3c7; color: var(--amber-donker); }
+
 /* Kleine finale: onder de finale, in dezelfde kolom, zonder lijnen. */
 .bracket-cel-klein { padding-top: 22px; }
 .bracket-titel-klein { border-bottom: none; padding-bottom: 4px; margin: 0; }
@@ -1668,6 +1678,8 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
   position: absolute; right: 0; top: -1.3vh; font-size: 1.3vh; font-weight: 700;
   background: var(--amber); color: var(--navy-donker); padding: .2vh 1vh; border-radius: 999px;
 }
+.bm-streep-vrij { border-top-color: var(--groen); border-top-style: dotted; }
+.bm-streep-vrij span { background: var(--groen); color: #fff; }
 
 /* ---- knockout ---- */
 .bm-bracket { height: 100%; position: relative; }
@@ -1695,6 +1707,11 @@ body.offline .bm-live span::after { content: " · geen verbinding"; color: #fca5
 }
 .bm-finale { border: .3vh solid var(--amber); box-shadow: 0 0 5vh rgba(245, 158, 11, .25), 0 1vh 3vh rgba(0, 0, 0, .35); }
 .bm-kleine-finale { border-color: rgba(213, 138, 78, .7); }
+/* Voorronde: elk vak even hoog, de kaart in het midden — dan staat ze precies
+   naast de plaats in de ronde erna waar haar winnaar heen gaat. */
+.bm-plek { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.bm-voorronde { border-style: dashed; border-color: rgba(255, 255, 255, .22); }
+.bm-voorronde.gespeeld { border-style: solid; }
 .bm-kant {
   --kh: min(6.2vh, 100cqh / (var(--ko-n, 4) * 2.4));
   display: flex; align-items: center; gap: calc(var(--kh) * .18);

@@ -829,7 +829,7 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
     Geef ofwel een speler mee (dan tellen alle teams waarin hij speelde),
     ofwel één team.
     """
-    from elo import KO_LABEL
+    from elo import ko_label
 
     if team_id is not None:
         rijen = db.execute("""
@@ -886,7 +886,7 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
             gewonnen = bool(beslissend and beslissend["winner_team_id"] == team_id)
             if wacht_nog:
                 volgende = min(g["ronde"] for g in ko if g["status"] == "gepland")
-                label = f"Nog in de running · {KO_LABEL.get(volgende, 'knockout').lower()}"
+                label = f"Nog in de running · {ko_label(volgende, 'knockout').lower()}"
                 klasse = "loopt"
             elif verst == 2 and gewonnen:
                 label = "Toernooiwinnaar"
@@ -900,7 +900,7 @@ def toernooi_historiek(db, speler_id=None, team_id=None):
             elif verst == 3:
                 label = "Vierde plaats"
             else:
-                label = f"Uitgeschakeld in de {KO_LABEL.get(verst, 'knockout').lower()}"
+                label = f"Uitgeschakeld in de {ko_label(verst, 'knockout').lower()}"
                 klasse = "brons" if verst == 4 else ""
         elif r["status"] == "afgelopen":
             label = ("Net naast de knockout" if positie and positie <= r["ko_teams"] + 2
@@ -2935,7 +2935,7 @@ def _viering(db, game, speler_id, gewonnen, tegen_naam, officieel):
         if r is not None and r["d"] is not None:
             v["aura"] = int(round(r["d"]))
         if game["fase"] == "knockout":
-            from elo import KO_LABEL, KLEINE_FINALE
+            from elo import ko_label, KLEINE_FINALE
             if game["ronde"] == 2:
                 v["verder"] = "Toernooiwinnaar!" if gewonnen else "Tweede plaats"
             elif game["ronde"] == KLEINE_FINALE:
@@ -2944,11 +2944,11 @@ def _viering(db, game, speler_id, gewonnen, tegen_naam, officieel):
                 volgende = db.execute("SELECT ronde FROM games WHERE id = ?",
                                       (game["volgende_game_id"],)).fetchone()
                 if volgende:
-                    v["verder"] = f"Door naar de {KO_LABEL.get(volgende['ronde'], 'volgende ronde').lower()}"
+                    v["verder"] = f"Door naar de {ko_label(volgende['ronde'], 'volgende ronde').lower()}"
             elif not gewonnen and game["ronde"] == 4:
                 v["verder"] = "Nog een kans op brons in de kleine finale"
             elif not gewonnen:
-                v["verder"] = f"Uitgeschakeld in de {KO_LABEL.get(game['ronde'], 'knockout').lower()}"
+                v["verder"] = f"Uitgeschakeld in de {ko_label(game['ronde'], 'knockout').lower()}"
     return v
 
 
@@ -4769,6 +4769,7 @@ def toernooi_detail(toernooi_id):
         mijn_coupon = sum(1 for v in uitgenodigd_door_speler(db, toernooi_id, session["speler_id"])
                           if coupon_staat(db, toernooi_id, v["team_id"])["staat"] == "geldig")
     return render_template("toernooi.html", t=t, huidig_toernooi=t, teams=teams,
+                           ko_opbouw=toernooi_motor.ko_opbouw(t["ko_teams"]),
                            mijn_coupon=mijn_coupon,
                            groepen=groepen,
                            mijn_wedstrijden=mijn_wedstrijden,
@@ -5389,7 +5390,7 @@ BEAMER_ELKE = 8      # seconden tussen twee keer kijken (?elke=... om te wijzige
 
 
 def _beamer_gegevens(db, toernooi_id):
-    from elo import KO_LABEL
+    from elo import ko_label
     t = toernooi_motor.toernooi(db, toernooi_id)
     teams = {x["id"]: x for x in toernooi_motor.deelnemers(db, toernooi_id,
                                                            ook_teruggetrokken=True)}
@@ -5424,6 +5425,7 @@ def _beamer_gegevens(db, toernooi_id):
     kleine = None
     for kolom in toernooi_motor.knockout_kolommen(db, toernooi_id):
         kolommen.append({"titel": kolom["titel"], "ronde": kolom["ronde"],
+                         "voorronde": kolom["voorronde"], "plaatsen": kolom["plaatsen"],
                          "games": [wedstrijd(g) for g in kolom["games"]]})
         if kolom["kleine_finale"] is not None:
             kleine = wedstrijd(kolom["kleine_finale"])
@@ -5439,7 +5441,7 @@ def _beamer_gegevens(db, toernooi_id):
                  CASE WHEN fase = 'knockout' THEN ronde END ASC, id DESC LIMIT 7
     """, (toernooi_id,)):
         if g["fase"] == "knockout":
-            label = KO_LABEL.get(g["ronde"], "Knockout")
+            label = ko_label(g["ronde"], "Knockout")
         elif g["fase"] == "shootout":
             label = "Shootout"
         else:
@@ -5467,6 +5469,7 @@ def _beamer_gegevens(db, toernooi_id):
     return {"versie": afdruk, "naam": t["name"], "status": t["status"],
             "status_label": TOERNOOI_STATUS.get(t["status"], ("", ""))[0],
             "fase": fase, "cut": t["ko_teams"], "stand": stand,
+            "vrij": (toernooi_motor.ko_opbouw(t["ko_teams"]) or {}).get("vrij"),
             "knockout": {"kolommen": kolommen, "kleine_finale": kleine,
                          "kampioen": kampioen},
             "laatste": laatste, "kansen": kansen}
@@ -5877,6 +5880,10 @@ def toernooi_nieuw():
         flash("Geef het toernooi een naam en een datum.", "fout")
         return redirect(url_for("admin_toernooien"))
     try:
+        ko_teams = int(request.form.get("ko_teams") or 8)
+        if not toernooi_motor.geldig_ko_aantal(ko_teams) or ko_teams > 128:
+            flash("Kies 2 of minstens 4 teams voor de knockout.", "fout")
+            return redirect(url_for("admin_toernooien"))
         db.execute("""
             INSERT INTO tournaments (name, description, date, start_tijd,
                                      bracket_ronden, ko_teams, potten,
@@ -5885,7 +5892,7 @@ def toernooi_nieuw():
         """, (naam, (request.form.get("beschrijving") or "").strip(), datum,
               request.form.get("start_tijd") or "19:00",
               int(request.form.get("ronden") or 4),
-              int(request.form.get("ko_teams") or 8),
+              ko_teams,
               toernooi_motor.STANDAARD_POTTEN))
         db.commit()
         nieuw = db.execute("SELECT id FROM tournaments WHERE name = ?", (naam,)).fetchone()
@@ -6051,6 +6058,7 @@ def toernooi_beheer(toernooi_id):
                                    db, toernooi_id, team["id"])
                                for team in teams} if t["status"] == "bracket" else {},
                            controle=toernooi_motor.controleer(db, toernooi_id),
+                           ko_opbouw=toernooi_motor.ko_opbouw(t["ko_teams"]),
                            nu=datetime.now().strftime("%Y-%m-%dT%H:%M"))
 
 
@@ -6082,6 +6090,11 @@ def toernooi_instellingen(toernooi_id):
             raise ValueError
         if velden["max_teams"] is not None and velden["max_teams"] < 4:
             raise ValueError
+        if not toernooi_motor.geldig_ko_aantal(velden["ko_teams"]) or velden["ko_teams"] > 128:
+            if achtergrond:
+                return jsonify({"ok": False, "fout": "Kies 2 of minstens 4 teams voor de knockout."}), 400
+            flash("Kies 2 of minstens 4 teams voor de knockout.", "fout")
+            return redirect(url_for("toernooi_beheer", toernooi_id=toernooi_id))
     except ValueError:
         if achtergrond:
             return jsonify({"ok": False, "fout": "Vul geldige getallen in."}), 400

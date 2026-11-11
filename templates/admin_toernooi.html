@@ -351,12 +351,7 @@
       <label>Wedstrijden per team
         <input type="number" name="ronden" min="1" max="20" value="{{ t['bracket_ronden'] }}"></label>
       <label>Teams naar de knockout
-        <select name="ko_teams">
-          {% for n in [2, 4, 8, 16, 32] %}
-          <option value="{{ n }}" {{ 'selected' if t['ko_teams'] == n }}>{{ n }}</option>
-          {% endfor %}
-        </select>
-      </label>
+        <input type="number" name="ko_teams" min="2" max="128" value="{{ t['ko_teams'] }}"></label>
       <label>Maximum aantal teams
         <input type="number" name="max_teams" min="4" max="200" value="{{ t['max_teams'] or '' }}" placeholder="geen maximum"></label>
       <label>Uitnodigingen per speler
@@ -367,6 +362,10 @@
     <p class="stil klein-tekst">Met een maximum komen de laatste inschrijvers op een wachtlijst, die
        vanzelf opschuift als er iemand uitschrijft. Wie bij het loten nog op de wachtlijst
        staat, valt af.</p>
+    <p class="stil klein-tekst">Teams naar de knockout: 2, 4, 8, 16, ... geeft een gewoon schema.
+       Een aantal daartussen kan ook (bv. 12): dan zijn de beste teams vrijgeloot en spelen
+       de anderen eerst een voorronde (bij 12: top 4 meteen naar de kwartfinale,
+       5 t/m 12 spelen een voorronde om de andere 4 plaatsen).</p>
     {% else %}
     <p class="stil klein-tekst">Het formaat ligt vast zodra het toernooi geloot is.</p>
     {% endif %}
@@ -388,7 +387,8 @@
        {{ t['bracket_ronden'] }} wedstrijden per team,
        {% if teams|map(attribute='elo')|map('round', 6)|unique|list|length > 1 %}4 potten,
        {% else %}vrije loting (iedereen op dezelfde rating),
-       {% endif %}{{ t['ko_teams'] }} teams naar de knockout,
+       {% endif %}{{ t['ko_teams'] }} teams naar de knockout{% if ko_opbouw %}
+       (top {{ ko_opbouw.vrij }} vrijgeloot, {{ ko_opbouw.voorronde }} teams in de voorronde){% endif %},
        {{ locaties|length }} tafel(s).</p>
     {% if teams|length % 2 %}
     <p class="stil klein-tekst">Oneven aantal teams: elke ronde rust er één team,

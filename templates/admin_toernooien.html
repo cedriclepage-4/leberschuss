@@ -48,14 +48,8 @@
       <label>Startuur <input type="text" name="start_tijd" value="19:00"></label>
       <label>Wedstrijden per team <input type="number" name="ronden" min="1" max="20" value="4"></label>
       <label>Teams naar de knockout
-        <select name="ko_teams">
-          <option value="2">2 (meteen de finale)</option>
-          <option value="4">4</option>
-          <option value="8" selected>8</option>
-          <option value="16">16</option>
-          <option value="32">32</option>
-        </select>
-      </label>
+        <input type="number" name="ko_teams" min="2" max="128" value="8"
+               title="2, 4, 8, 16, ... of een aantal daartussen (bv. 12): dan spelen de laagst geplaatsten eerst een voorronde"></label>
       <button type="submit" class="knop primair">Toernooi aanmaken</button>
     </div>
   </form>

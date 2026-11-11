@@ -16,7 +16,9 @@ Formaat (naar het model van de nieuwe Champions League):
    niet. Een shootout beslist enkel wie doorstoot en telt niet mee voor de Aura.
 3. **Knockout** — de beste 2, 4, 8, 16, ... teams gaan door. Nummer 1 speelt
    tegen de laagste geplaatste, enzovoort, zodat de nummers 1 en 2 elkaar pas in
-   de finale kunnen tegenkomen.
+   de finale kunnen tegenkomen. Een aantal daartussen (bv. 12) kan ook: dan zijn
+   de topteams vrijgeloot (de top 4 zit meteen in de kwartfinale) en spelen de
+   anderen eerst een **voorronde** om de overige plaatsen (5–12, 6–11, ...).
 
 De kalender houdt rekening met de beschikbare locaties ("tafel 1", "tuintafel", ...):
 per ronde spelen er nooit meer wedstrijden tegelijk dan er tafels zijn, en een
@@ -119,6 +121,48 @@ def games_van(db, tid, fase=None):
 
 def is_macht_van_twee(n):
     return n >= 2 and (n & (n - 1)) == 0
+
+
+def schema_grootte(n):
+    """De kleinste macht van twee die n teams kan bevatten: 12 → 16, 8 → 8."""
+    g = 2
+    while g < n:
+        g *= 2
+    return g
+
+
+def geldig_ko_aantal(n):
+    """Mogen er n teams naar de knockout? 2, 4, 8, ... én alles daartussen vanaf
+    5: dan speelt een deel eerst een voorronde. 3 kan niet (geen halve finale
+    om de voorronde in uit te laten monden, en ronde 3 is de kleine finale)."""
+    return n == 2 or n >= 4
+
+
+def voorronde_info(n):
+    """Hoe ziet de knockout met n teams eruit? Geeft (vrij, voorronde, eerste):
+
+    * vrij      — hoeveel topteams rechtstreeks naar de eerste volle ronde gaan
+    * voorronde — hoeveel teams een voorronde spelen (0 bij 2, 4, 8, ...)
+    * eerste    — het aantal plaatsen in de eerste volle ronde (8 = kwartfinale)
+
+    Voorbeeld met 12: de top 4 zit al in de kwartfinale, 5 t/m 12 spelen een
+    voorronde (5–12, 6–11, 7–10, 8–9) voor de andere 4 plaatsen."""
+    if is_macht_van_twee(n):
+        return n, 0, n
+    eerste = schema_grootte(n) // 2
+    voorronde = 2 * (n - eerste)
+    return n - voorronde, voorronde, eerste
+
+
+def ko_opbouw(n):
+    """Voor de weergave: {"vrij", "voorronde", "plaatsen", "ronde"} als de
+    knockout met n teams een voorronde heeft, anders None."""
+    if not geldig_ko_aantal(n) or is_macht_van_twee(n):
+        return None
+    from elo import ko_label
+    vrij, voorronde, eerste = voorronde_info(n)
+    return {"vrij": vrij, "voorronde": voorronde, "plaatsen": voorronde // 2,
+            "ronde": ko_label(eerste).lower()}
 
 
 def seed_volgorde(n):
@@ -616,8 +660,8 @@ def controleer(db, tid):
         return (f"Met {n} teams (een oneven aantal) moet elk team een even aantal "
                 f"wedstrijden spelen, anders kan niet iedereen er evenveel afwerken. "
                 f"Kies er {opties} in plaats van {r}.")
-    if not is_macht_van_twee(t["ko_teams"]):
-        return "Het aantal teams dat doorstoot moet 2, 4, 8, 16, ... zijn."
+    if not geldig_ko_aantal(t["ko_teams"]):
+        return "Er moeten 2 of minstens 4 teams naar de knockout."
     if t["ko_teams"] >= n:
         return (f"Er stoten {t['ko_teams']} teams door terwijl er maar {n} meedoen. "
                 "Kies een kleiner knockoutschema.")
@@ -1739,9 +1783,12 @@ def maak_knockout(db, t, geplaatst):
         """, (t["id"], ronde, positie, volgende_id, slot, start.strftime(TIJDFORMAAT)))
         return cur.lastrowid
 
+    # De volle rondes: van de finale tot de eerste ronde waarin iedereen zit
+    # (bij 12 teams: de kwartfinale, want 4 teams zijn vrijgeloot).
+    _vrij, _voor, volle = voorronde_info(n)
     lagen = [[nieuw(2, 1, None, None)]]        # de finale
     grootte = 4
-    while grootte <= n:
+    while grootte <= volle:
         vorige = lagen[-1]
         nieuwe = []
         for idx, ouder in enumerate(vorige):
@@ -1754,12 +1801,35 @@ def maak_knockout(db, t, geplaatst):
     # Enkel als er halve finales zijn (minstens 4 teams in de knockout).
     kleine = [nieuw(KLEINE_FINALE, 1, None, None)] if n >= 4 else []
 
+    # De loting volgt het schema van de volgende macht van twee (12 → 16):
+    # 1–16, 8–9, 4–13, ... Is de tegenstander een plaats die niet bestaat (13 of
+    # meer), dan is het team vrijgeloot en staat het meteen in de volle ronde.
+    # Anders spelen ze eerst een voorronde (8–9, 5–12, ...), met als rondenummer
+    # het aantal teams in de knockout (zie elo.is_voorronde). De positie is het
+    # vak in de volle ronde (1..volle), met gaten waar iemand vrijgeloot is:
+    # zo kan de weergave elke voorrondewedstrijd naast haar vak tekenen.
     eerste = lagen[-1]
-    volgorde = seed_volgorde(n)
-    for i, gid in enumerate(eerste):
-        s1, s2 = volgorde[2 * i], volgorde[2 * i + 1]
-        db.execute("UPDATE games SET team1_id = ?, team2_id = ? WHERE id = ?",
-                   (geplaatst[s1 - 1], geplaatst[s2 - 1], gid))
+    volgorde = seed_volgorde(schema_grootte(n))
+    if n == volle:
+        for i, gid in enumerate(eerste):
+            s1, s2 = volgorde[2 * i], volgorde[2 * i + 1]
+            db.execute("UPDATE games SET team1_id = ?, team2_id = ? WHERE id = ?",
+                       (geplaatst[s1 - 1], geplaatst[s2 - 1], gid))
+    else:
+        voorronde = []
+        for vak in range(volle):
+            s1, s2 = volgorde[2 * vak], volgorde[2 * vak + 1]
+            ouder, slot = eerste[vak // 2], vak % 2 + 1
+            if s2 > n:                         # s1 is altijd de hoogst geplaatste
+                kolom = "team1_id" if slot == 1 else "team2_id"
+                db.execute(f"UPDATE games SET {kolom} = ? WHERE id = ?",
+                           (geplaatst[s1 - 1], ouder))
+                continue
+            gid = nieuw(n, vak + 1, ouder, slot)
+            db.execute("UPDATE games SET team1_id = ?, team2_id = ? WHERE id = ?",
+                       (geplaatst[s1 - 1], geplaatst[s2 - 1], gid))
+            voorronde.append(gid)
+        lagen.append(voorronde)
 
     # Kalender: van de eerste knockoutronde naar de finale, tafels respecteren.
     # De kleine finale krijgt een eigen moment vlak vóór de finale.
@@ -2271,32 +2341,48 @@ def kalender(db, tid):
         groepen.append({"titel": "Shootouts",
                         "tijd": so[0]["scheduled_at"], "games": so})
 
-    from elo import KO_LABEL
+    from elo import ko_label
     for nummer in [r["ronde"] for r in db.execute(
             "SELECT DISTINCT ronde FROM games WHERE tournament_id = ? AND "
             "fase = 'knockout' ORDER BY ronde DESC", (tid,))]:
         games = db.execute("SELECT * FROM games WHERE tournament_id = ? AND "
                            "fase = 'knockout' AND ronde = ? ORDER BY positie",
                            (tid, nummer)).fetchall()
-        groepen.append({"titel": KO_LABEL.get(nummer, f"Ronde van {nummer}"),
+        groepen.append({"titel": ko_label(nummer),
                         "tijd": games[0]["scheduled_at"] if games else None,
                         "games": games})
     return groepen, namen, loc_namen
 
 
 def knockout_kolommen(db, tid):
-    """Het knockoutschema als kolommen (eerste ronde → finale) voor de weergave."""
-    from elo import KO_LABEL
+    """Het knockoutschema als kolommen (eerste ronde → finale) voor de weergave.
+
+    Per kolom ook `plaatsen`: hoeveel wedstrijdvakken die ronde in een volledig
+    schema heeft. Een voorronde heeft er evenveel als er plaatsen zijn in de
+    ronde erna, met gaten waar een team vrijgeloot is; de `positie` van een
+    voorrondewedstrijd is haar vak. Zo staat elke wedstrijd netjes naast de
+    plaats waar haar winnaar terechtkomt. `gevoed` per wedstrijd: komt er
+    minstens één team uit een vorige wedstrijd (dan tekent de weergave een
+    lijn naar links)?
+    """
+    from elo import is_voorronde, ko_label
     rondes = [r["ronde"] for r in db.execute(
         "SELECT DISTINCT ronde FROM games WHERE tournament_id = ? AND "
         "fase = 'knockout' AND ronde != ? ORDER BY ronde DESC", (tid, KLEINE_FINALE))]
+    gevoed = {r["volgende_game_id"] for r in db.execute(
+        "SELECT volgende_game_id FROM games WHERE tournament_id = ? AND fase = "
+        "'knockout' AND volgende_game_id IS NOT NULL", (tid,))}
     kolommen = []
     for nummer in rondes:
         games = db.execute("SELECT * FROM games WHERE tournament_id = ? AND "
                            "fase = 'knockout' AND ronde = ? ORDER BY positie",
                            (tid, nummer)).fetchall()
-        kolommen.append({"ronde": nummer,
-                         "titel": KO_LABEL.get(nummer, f"Ronde van {nummer}"),
+        voorronde = is_voorronde(nummer)
+        kolommen.append({"ronde": nummer, "titel": ko_label(nummer),
+                         "voorronde": voorronde,
+                         "plaatsen": (schema_grootte(nummer) // 2 if voorronde
+                                      else max(nummer // 2, len(games))),
+                         "gevoed": {g["id"] for g in games if g["id"] in gevoed},
                          "games": games, "kleine_finale": None})
     # De kleine finale staat in de laatste kolom, onder de finale.
     if kolommen:

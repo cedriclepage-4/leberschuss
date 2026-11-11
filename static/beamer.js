@@ -178,6 +178,10 @@
     var streep = el("div", "bm-streep");
     streep.appendChild(el("span", null, "Knockoutgrens"));
     lijst.appendChild(streep);
+    /* Met een voorronde (bv. 12 door): een tweede lijn onder de vrijgelote top. */
+    var vrijStreep = el("div", "bm-streep bm-streep-vrij");
+    vrijStreep.appendChild(el("span", null, "Vrijgeloot voor de voorronde"));
+    lijst.appendChild(vrijStreep);
     d.stand.forEach(function (r) {
       var rij = maakRij(r);
       rijen[r.id] = rij;
@@ -212,6 +216,11 @@
     var toon = d.status === "bracket" && d.cut < d.stand.length;
     streep.hidden = !toon;
     streep.style.transform = "translateY(" + (d.cut * rijHoogte) + "px)";
+    var vrijStreep = lijst.querySelector(".bm-streep-vrij");
+    if (vrijStreep) {
+      vrijStreep.hidden = !(toon && d.vrij && d.vrij < d.cut);
+      vrijStreep.style.transform = "translateY(" + ((d.vrij || 0) * rijHoogte) + "px)";
+    }
     if (camera.offset > camera.max) zetCamera(camera.max, 0);
     else randen();
   }
@@ -393,7 +402,7 @@
             return huidig[b].punten - huidig[a].punten || nieuwePlek[a] - nieuwePlek[b];
           });
       var tussen = {
-        status: nieuw.status, cut: nieuw.cut,
+        status: nieuw.status, cut: nieuw.cut, vrij: nieuw.vrij,
         stand: nieuweVolgorde.map(function (id, i) {
           if (slot) return nieuwRij[id];
           var r = Object.assign({}, huidig[id]);
@@ -483,15 +492,30 @@
         "Het knockoutschema verschijnt zodra de bracketfase gespeeld is."));
       return;
     }
-    /* Het aantal wedstrijden in de eerste ronde bepaalt hoe groot de kaartjes zijn. */
-    paneelKo.style.setProperty("--ko-n", Math.max(4, ko.kolommen[0].games.length));
+    /* Het aantal wedstrijden in de eerste ronde bepaalt hoe groot de kaartjes zijn.
+       Een voorronde telt zoveel vakken als de ronde erna plaatsen heeft. */
+    var eerste = ko.kolommen[0];
+    paneelKo.style.setProperty("--ko-n", Math.max(4, eerste.plaatsen || eerste.games.length));
     var rij = el("div", "bm-kolommen");
     ko.kolommen.forEach(function (kolom, i) {
       var laatste = i === ko.kolommen.length - 1;
       var k = el("div", "bm-kolom" + (laatste ? " bm-kolom-finale" : ""));
       k.appendChild(el("div", "bm-kolom-titel", kolom.titel));
       var vak = el("div", "bm-kolom-vak");
-      kolom.games.forEach(function (g) { vak.appendChild(maakKaart(g, laatste ? "bm-finale" : "")); });
+      if (kolom.voorronde) {
+        /* Voorronde: één vak per plaats in de ronde erna, leeg waar een team
+           vrijgeloot is. Zo staat elke wedstrijd naast de plaats van haar winnaar. */
+        k.classList.add("bm-kolom-voorronde");
+        var perVak = {};
+        kolom.games.forEach(function (g) { perVak[g.positie] = g; });
+        for (var p = 1; p <= kolom.plaatsen; p++) {
+          var plek = el("div", "bm-plek");
+          if (perVak[p]) plek.appendChild(maakKaart(perVak[p], "bm-voorronde"));
+          vak.appendChild(plek);
+        }
+      } else {
+        kolom.games.forEach(function (g) { vak.appendChild(maakKaart(g, laatste ? "bm-finale" : "")); });
+      }
       if (laatste && ko.kleine_finale) {
         var klein = el("div", "bm-klein");
         klein.appendChild(el("div", "bm-kolom-titel", "Kleine finale"));
