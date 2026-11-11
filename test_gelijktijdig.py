@@ -50,7 +50,7 @@ def houd_slot_vast(werkmap, pad, klaar, seconden):
 def main():
     werkmap = tempfile.mkdtemp(prefix="shuss_test_")
     for naam in ("app.py", "database.py", "elo.py", "tournament.py", "kansen.py",
-                 "league.py", "dop.py", "samenvoegen.py"):
+                 "league.py", "dop.py", "samenvoegen.py", "bezoekers.py"):
         shutil.copy(os.path.join(BRON, naam), werkmap)
     shutil.copytree(os.path.join(BRON, "templates"), os.path.join(werkmap, "templates"))
     shutil.copytree(os.path.join(BRON, "static"), os.path.join(werkmap, "static"),

@@ -3046,3 +3046,74 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
   .bm-var *, .bm-var::before, .bm-var::after { animation-duration: .01s !important; animation-iteration-count: 1 !important; }
   .bm-var-adje.verdict { animation: none; }
 }
+
+/* ------------------------------------------- bezoekers (enkel eigenaar) -- */
+.bz-tegels { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; margin: 18px 0; }
+.bz-tegel { margin: 0; }
+.bz-tegel p { margin: 0; }
+.bz-tegel-label { font-weight: 600; color: var(--stil); font-size: .9rem; display: flex; align-items: center; gap: 8px; }
+.bz-tegel-cijfer { font-family: var(--kop); font-weight: 800; font-size: 2.6rem; line-height: 1.1; color: var(--navy-donker); font-variant-numeric: tabular-nums; }
+.bz-stip { width: 9px; height: 9px; border-radius: 50%; background: var(--groen); box-shadow: 0 0 0 3px rgba(22, 163, 74, .2); }
+.bz-uitleg { margin-top: 0; }
+.bz-tabs { margin: 0 0 14px; }
+
+/* Kolomgrafiek: één reeks, dus één kleur. */
+.bz-grafiek { display: flex; align-items: flex-end; gap: 2px; height: 190px; padding-bottom: 22px; border-bottom: 1px solid var(--lijn); position: relative; }
+.bz-kolom { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; position: relative; cursor: default; outline: none; }
+.bz-balk { background: var(--amber); border-radius: 4px 4px 0 0; min-height: 0; transition: background .1s; }
+.bz-balk-nul { height: 0; }
+.bz-kolom:hover .bz-balk, .bz-kolom:focus .bz-balk { background: var(--amber-donker); }
+.bz-kolom:hover, .bz-kolom:focus { background: rgba(15, 23, 42, .04); border-radius: 4px; }
+.bz-as-label { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-size: .72rem; color: var(--stil); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Tooltip voor balken en cellen. */
+[data-tip] { position: relative; }
+.bz-kolom[data-tip]:hover::after, .bz-kolom[data-tip]:focus::after,
+.bz-cel[data-tip]:hover::after, .bz-cel[data-tip]:focus::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--navy-donker); color: #fff; font-size: .78rem; padding: 5px 9px; border-radius: 6px;
+  white-space: nowrap; z-index: 5; pointer-events: none; box-shadow: var(--schaduw);
+}
+.bz-kolom[data-tip]:hover::after, .bz-kolom[data-tip]:focus::after { bottom: auto; top: 0; transform: translate(-50%, -110%); }
+.bz-kolom:first-child[data-tip]:hover::after, .bz-kolom:nth-child(2)[data-tip]:hover::after,
+.bz-kolom:first-child[data-tip]:focus::after, .bz-kolom:nth-child(2)[data-tip]:focus::after { left: 0; transform: translate(0, -110%); }
+.bz-kolom:last-child[data-tip]:hover::after, .bz-kolom:nth-last-child(2)[data-tip]:hover::after,
+.bz-kolom:last-child[data-tip]:focus::after, .bz-kolom:nth-last-child(2)[data-tip]:focus::after { left: auto; right: 0; transform: translate(0, -110%); }
+
+/* Weekdag × uur: één tint, van licht naar donker. */
+.bz-raster-venster { overflow-x: auto; padding-top: 34px; margin-top: -26px; }
+.bz-raster { display: grid; grid-template-columns: 28px repeat(24, minmax(16px, 1fr)); gap: 2px; min-width: 480px; }
+.bz-raster-uur { font-size: .7rem; color: var(--stil); text-align: left; font-variant-numeric: tabular-nums; }
+.bz-raster-dag { font-size: .8rem; color: var(--stil); align-self: center; }
+.bz-cel { aspect-ratio: 1; border-radius: 3px; outline: none;
+  background: color-mix(in srgb, var(--amber-donker) calc(var(--sterkte) * 100%), #f3efe6); }
+.bz-cel:hover, .bz-cel:focus { box-shadow: 0 0 0 2px var(--navy-donker); }
+.bz-raster .bz-cel:nth-child(25n+2)[data-tip]:hover::after, .bz-raster .bz-cel:nth-child(25n+3)[data-tip]:hover::after { left: 0; transform: none; }
+.bz-raster .bz-cel:nth-child(25n)[data-tip]:hover::after, .bz-raster .bz-cel:nth-child(25n+24)[data-tip]:hover::after { left: auto; right: 0; transform: none; }
+
+.bz-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+.bz-duo .kaart { height: calc(100% - 50px); }
+.bz-vul { background: var(--amber); }
+.bz-bron-naam { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .92rem; }
+
+/* Twee delen van één geheel: navy en amber, gescheiden door een witte spleet. */
+.bz-split { margin: 14px 0 18px; }
+.bz-split-balk { display: flex; gap: 2px; height: 16px; }
+.bz-split-a, .bz-split-b, .bz-split-leeg { height: 100%; border-radius: 4px; min-width: 4px; }
+.bz-split-a { background: var(--navy); }
+.bz-split-b { background: var(--amber); }
+.bz-split-leeg { flex: 1; background: var(--lijn); }
+.bz-split-legende { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: .88rem; }
+.bz-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.bz-sw-a { background: var(--navy); }
+.bz-sw-b { background: var(--amber); }
+.bz-privacy { margin: 0; padding-left: 18px; }
+.bz-privacy li { margin: 4px 0; }
+
+@media (max-width: 720px) {
+  .bz-duo { grid-template-columns: 1fr; }
+  .bz-duo .kaart { height: auto; }
+  .bz-tegels { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .bz-tegel-cijfer { font-size: 2rem; }
+  .bz-grafiek { height: 150px; gap: 1px; }
+}

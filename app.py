@@ -48,6 +48,7 @@ import tournament as toernooi_motor
 import kansen as kansmotor
 import dop as kroonkurk
 import samenvoegen
+import bezoekers as bezoekstats
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
                       verbind, vrij_spelernummer)
 from elo import (START_ELO, fase_factor, fase_omschrijving, proces_wedstrijd)
@@ -172,6 +173,32 @@ def controleer_sessie():
                        (f"{nu:%Y-%m-%d %H:%M:%S}", speler_id))
             db.commit()
             dagelijkse_backup()
+
+
+@app.after_request
+def noteer_bezoek(antwoord):
+    """Paginabezoeken tellen voor de bezoekersstatistieken (zie bezoekers.py).
+    Een fout hier mag de pagina zelf nooit breken."""
+    try:
+        if not bezoekstats.telt_mee(request, antwoord):
+            return antwoord
+        nu = datetime.now()
+        code, nieuw = bezoekstats.bezoeker_code(
+            request.cookies.get(bezoekstats.COOKIE), request.remote_addr or "",
+            request.headers.get("User-Agent", ""), app.secret_key, nu)
+        if nieuw:
+            antwoord.set_cookie(bezoekstats.COOKIE, code,
+                                max_age=bezoekstats.COOKIE_DUUR, httponly=True,
+                                samesite="Lax", secure=request.is_secure)
+        bezoekstats.noteer(nu, code, session.get("speler_id"),
+                           bezoekstats.bron_van(request.referrer,
+                                                request.headers.get("User-Agent", ""),
+                                                request.host.split(":")[0]))
+        if bezoekstats.moet_schrijven():
+            bezoekstats.schrijf_weg(get_db())
+    except Exception as fout:
+        print(f"Let op: bezoek niet geteld ({fout}).")
+    return antwoord
 
 
 def instelling(db, sleutel, standaard=None):
@@ -3385,6 +3412,26 @@ def admin_instellingen():
                            backup_map=BACKUP_MAP)
 
 
+@app.route("/admin/bezoekers")
+@login_vereist
+@eigenaar_vereist
+def admin_bezoekers():
+    """Hoeveel volk er op de site komt. Enkel voor de eigenaar."""
+    db = get_db()
+    bezoekstats.schrijf_weg(db)
+    cijfers = bezoekstats.overzicht(db, datetime.now())
+    ids = [a["speler_id"] for a in cijfers["actief"]]
+    spelers = {}
+    if ids:
+        spelers = {r["id"]: r for r in db.execute(
+            f"SELECT * FROM players WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    # Gewiste accounts vallen weg; de rest krijgt zijn naam.
+    cijfers["actief"] = [{**a, "speler": spelers[a["speler_id"]]}
+                         for a in cijfers["actief"] if a["speler_id"] in spelers][:15]
+    return render_template("admin_bezoekers.html", c=cijfers,
+                           bewaren=bezoekstats.RUW_BEWAREN_DAGEN)
+
+
 @app.route("/admin/seizoenen/nieuw", methods=["POST"])
 @login_vereist
 def seizoen_nieuw():
@@ -3652,6 +3699,7 @@ def speler_definitief_verwijderen(speler_id):
     # Ook zijn regels uit het claimlogboek: die zouden anders naar een profiel
     # verwijzen dat niet meer bestaat.
     db.execute("DELETE FROM claim_log WHERE player_id = ?", (speler_id,))
+    db.execute("UPDATE bezoeken SET speler_id = NULL WHERE speler_id = ?", (speler_id,))
     db.execute("DELETE FROM rating_history WHERE entity_type = 'speler' "
                "AND entity_id = ?", (speler_id,))
     db.execute("DELETE FROM season_ratings WHERE entity_type = 'speler' "
@@ -4400,7 +4448,11 @@ def database_legen():
     db.execute("PRAGMA foreign_keys = OFF")
     for tabel in tabellen:
         db.execute(f"DELETE FROM {tabel}")
-    if not alles:
+    if alles:
+        # De bezoekersstatistieken blijven, maar los van de gewiste accounts:
+        # een nieuwe speler kan later hetzelfde nummer krijgen.
+        db.execute("UPDATE bezoeken SET speler_id = NULL")
+    else:
         # Spelers en teams blijven, maar beginnen weer van nul.
         db.execute("UPDATE players SET elo = ?", (START_ELO,))
         db.execute("UPDATE teams SET elo = ?", (START_ELO,))

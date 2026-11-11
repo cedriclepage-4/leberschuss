@@ -302,6 +302,37 @@ CREATE TABLE IF NOT EXISTS claim_log (
     moment     TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+-- Bezoekersstatistieken (enkel voor de eigenaar, zie bezoekers.py). Geen
+-- IP-adressen en geen adressen van pagina's. Losse paginabezoeken blijven een
+-- maand staan; daarna blijven enkel de dagtotalen in bezoeken_dag over.
+-- speler_id is bewust geen foreign key: de bezoeken worden in groepjes
+-- weggeschreven, en een speler die intussen gewist werd mag dat niet blokkeren.
+CREATE TABLE IF NOT EXISTS bezoeken (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    moment    TEXT NOT NULL,
+    bezoeker  TEXT NOT NULL,
+    speler_id INTEGER,
+    bron      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bezoeken_moment ON bezoeken(moment);
+
+-- Wanneer een bezoeker (cookiecode) voor het eerst en laatst langskwam: zo
+-- weten we wie nieuw is en wie terugkomt.
+CREATE TABLE IF NOT EXISTS bezoekers (
+    id     TEXT PRIMARY KEY,
+    eerst  TEXT NOT NULL,
+    laatst TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bezoeken_dag (
+    datum     TEXT PRIMARY KEY,
+    paginas   INTEGER NOT NULL,
+    bezoekers INTEGER NOT NULL,
+    bezoeken  INTEGER NOT NULL,
+    ingelogd  INTEGER NOT NULL,
+    nieuw     INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_toernooi ON games(tournament_id);
 CREATE INDEX IF NOT EXISTS idx_games_speeldag ON games(matchday_id);
 CREATE INDEX IF NOT EXISTS idx_rh_game ON rating_history(game_id, scope);
@@ -638,6 +669,7 @@ _SPELER_VERWIJZINGEN = [
     ("coupon_inlossingen", "ingelost_door", None),
     ("coupon_inlossingen", "speler_id", None),
     ("players", "aangemaakt_door", None),
+    ("bezoeken", "speler_id", None),
 ]
 
 

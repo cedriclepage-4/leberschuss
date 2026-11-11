@@ -6,8 +6,8 @@
     ('admin_toernooien', 'Toernooien', '🥇'),
     ('admin_klassement', 'Rangen &amp; statistieken', '📊'),
   ] %}
-  {# Instellingen raakt aan de hele database: enkel de eigenaar komt daar. #}
-  {% if is_eigenaar %}{% set paginas = paginas + [('admin_instellingen', 'Instellingen', '⚙️')] %}{% endif %}
+  {# Instellingen raakt aan de hele database en Bezoekers is privé: enkel de eigenaar komt daar. #}
+  {% if is_eigenaar %}{% set paginas = paginas + [('admin_bezoekers', 'Bezoekers', '📈'), ('admin_instellingen', 'Instellingen', '⚙️')] %}{% endif %}
   {% set league_paginas = ['admin_seizoenen'] %}
   {% for endpoint, label, icoon in paginas %}
   <a href="{{ url_for(endpoint) }}"

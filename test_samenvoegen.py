@@ -29,7 +29,7 @@ import tempfile
 WERKMAP = tempfile.mkdtemp(prefix="schuss_samen_")
 BRON = os.path.dirname(os.path.abspath(__file__))
 for naam in ("app.py", "database.py", "elo.py", "tournament.py", "league.py", "dop.py",
-             "samenvoegen.py"):
+             "samenvoegen.py", "bezoekers.py"):
     shutil.copy(os.path.join(BRON, naam), WERKMAP)
 shutil.copytree(os.path.join(BRON, "templates"), os.path.join(WERKMAP, "templates"))
 shutil.copytree(os.path.join(BRON, "static"), os.path.join(WERKMAP, "static"),
