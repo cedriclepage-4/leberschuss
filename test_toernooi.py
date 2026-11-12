@@ -637,6 +637,64 @@ check("Nieuwe Speler" not in gast.get("/claimen").get_data(as_text=True),
       "een opgeëist account staat niet meer in de lijst")
 zet_claim(False)
 
+# Registreren met exact de naam van een klaargezet account eist het meteen op,
+# ook met het opeisvenster dicht.
+conn.execute("INSERT INTO players (id, name, nickname, elo) VALUES (4343, 'Klaar Gezet', 'KG', 1234)")
+conn.commit()
+nieuwkomer = shuss.app.test_client()
+antwoord = nieuwkomer.post("/registreren", data={
+    "naam": "klaar  gezet", "bijnaam": "", "wachtwoord": "geheim99", "herhaal": "geheim99"})
+rij = conn.execute("SELECT name, nickname, password_hash, elo FROM players WHERE id = 4343").fetchone()
+check(rij["password_hash"] is not None, "registreren met de naam van een klaargezet account eist het op")
+check(antwoord.status_code == 302 and "/speler/4343" in antwoord.headers.get("Location", ""),
+      "en je komt meteen op dat profiel terecht")
+check(rij["name"] == "Klaar Gezet" and rij["nickname"] == "KG" and rij["elo"] == 1234,
+      "naam, bijnaam en Aura van het klaargezette account blijven behouden")
+check(conn.execute("SELECT COUNT(*) FROM players WHERE name = 'Klaar Gezet' COLLATE NOCASE")
+      .fetchone()[0] == 1, "er komt geen tweede account bij")
+check(conn.execute("SELECT COUNT(*) FROM claim_log WHERE player_id = 4343 "
+                   "AND soort = 'claim'").fetchone()[0] == 1, "ook deze claim staat in het logboek")
+nieuwkomer.post("/registreren", data={
+    "naam": "Klaar Gezet", "bijnaam": "", "wachtwoord": "kaper999", "herhaal": "kaper999"})
+check(conn.execute("SELECT password_hash FROM players WHERE id = 4343").fetchone()[0]
+      == rij["password_hash"], "nog eens registreren met die naam neemt het niet over")
+
+# Door een ploegmaat klaargezet: één bevestiging, zonder alles opnieuw in te tikken.
+from werkzeug.security import check_password_hash as _ww_klopt
+conn.execute("INSERT INTO players (id, name, elo, aangemaakt_door) VALUES (4444, 'Ploeg Maat', 1000, 4242)")
+conn.execute("INSERT INTO players (id, name, elo, aangemaakt_door) VALUES (4545, 'Nele Testman', 1000, 4242)")
+conn.commit()
+maat = shuss.app.test_client()
+html = maat.post("/registreren", data={"naam": "Ploeg Maat", "bijnaam": "PM",
+                                       "wachtwoord": "maatje12", "herhaal": "maatje12"}).get_data(as_text=True)
+check("heeft je al ingeschreven" in html, "een klaargezet account van een ploegmaat vraagt eerst bevestiging")
+check('type="password"' not in html and 'name="naam"' not in html,
+      "dat tussenscherm vraagt naam en wachtwoord niet opnieuw")
+check(conn.execute("SELECT password_hash FROM players WHERE id = 4444").fetchone()[0] is None,
+      "zonder bevestiging is het account nog niet overgenomen")
+antwoord = maat.post("/registreren", data={"bevestig": "1", "dat_ben_ik": "ja"})
+rij = conn.execute("SELECT nickname, password_hash, aangemaakt_door FROM players WHERE id = 4444").fetchone()
+check(rij["password_hash"] and _ww_klopt(rij["password_hash"], "maatje12"),
+      "na bevestigen geldt het wachtwoord van het eerste formulier")
+check(rij["nickname"] == "PM" and rij["aangemaakt_door"] is None, "ook de bijnaam is overgenomen")
+check(antwoord.status_code == 302 and "/speler/4444" in antwoord.headers.get("Location", ""),
+      "en je komt op je profiel terecht")
+
+gelijk = shuss.app.test_client()
+html = gelijk.post("/registreren", data={"naam": "Nele Testmann", "bijnaam": "",
+                                         "wachtwoord": "nele1234", "herhaal": "nele1234"}).get_data(as_text=True)
+check('name="gelijkend"' in html and 'type="password"' not in html,
+      "een gelijkende naam toont de keuze, zonder de velden opnieuw")
+gelijk.post("/registreren", data={"bevestig": "1", "gelijkend": "4545"})
+rij = conn.execute("SELECT name, password_hash FROM players WHERE id = 4545").fetchone()
+check(rij["name"] == "Nele Testmann" and _ww_klopt(rij["password_hash"], "nele1234"),
+      "kiezen neemt het account over met je eigen naam en wachtwoord")
+
+zonder = shuss.app.test_client()
+antwoord = zonder.post("/registreren", data={"bevestig": "1", "dat_ben_ik": "ja"})
+check(antwoord.status_code == 302 and antwoord.headers.get("Location", "").endswith("/registreren"),
+      "bevestigen zonder sessie stuurt je terug naar het formulier")
+
 print("\n" + "=" * 60)
 if FOUTEN:
     print(f"❌ {len(FOUTEN)} test(s) gefaald:")

@@ -2377,24 +2377,41 @@ def registreren():
     eerste = db.execute("SELECT COUNT(*) AS n FROM players").fetchone()["n"] == 0
     volgende = _volgende()
     if request.method == "POST":
-        naam = " ".join((request.form.get("naam") or "").split())
-        bijnaam = (request.form.get("bijnaam") or "").strip()
-        ww = request.form.get("wachtwoord") or ""
-        # Twee keer hetzelfde wachtwoord, tegen tikfouten. Klopt het niet, dan
-        # tonen we het formulier opnieuw (met je naam er al in).
-        if ww != (request.form.get("herhaal") or ""):
-            flash("De twee wachtwoorden zijn niet hetzelfde. Tik ze nog eens in.", "fout")
-            return render_template("registreren.html", eerste=eerste, volgende=volgende,
-                                   overname=None, ingevuld={"naam": naam, "bijnaam": bijnaam})
+        # Bevestig je op een tussenscherm ("Ben jij dat?"), dan hoef je niets
+        # opnieuw in te tikken: naam, bijnaam en (de hash van) je wachtwoord
+        # bewaarden we bij het eerste formulier in je sessie.
+        wacht = session.pop("aanmelding", None) if request.form.get("bevestig") else None
+        if wacht:
+            naam, bijnaam, ww_hash = wacht["naam"], wacht["bijnaam"], wacht["hash"]
+        elif request.form.get("bevestig"):
+            # Tussenscherm bevestigd, maar je sessie is weg (te lang open laten staan).
+            flash("Dat duurde even te lang. Vul het formulier nog eens in.", "fout")
+            return redirect(request.full_path.rstrip("?"))
+        else:
+            naam = " ".join((request.form.get("naam") or "").split())
+            bijnaam = (request.form.get("bijnaam") or "").strip()
+            ww = request.form.get("wachtwoord") or ""
+            # Twee keer hetzelfde wachtwoord, tegen tikfouten. Klopt het niet, dan
+            # tonen we het formulier opnieuw (met je naam er al in).
+            if ww != (request.form.get("herhaal") or ""):
+                flash("De twee wachtwoorden zijn niet hetzelfde. Tik ze nog eens in.", "fout")
+                return render_template("registreren.html", eerste=eerste, volgende=volgende,
+                                       overname=None, ingevuld={"naam": naam, "bijnaam": bijnaam})
+            ww_hash = generate_password_hash(ww) if len(ww) >= 6 else None
+
+        def onthoud():
+            """Bewaar het ingevulde voor het tussenscherm."""
+            session["aanmelding"] = {"naam": naam, "bijnaam": bijnaam, "hash": ww_hash}
+
         bestaand = db.execute("SELECT * FROM players WHERE name = ? COLLATE NOCASE",
                               (naam,)).fetchone() if naam else None
         if (bestaand is not None and not bestaand["password_hash"]
-                and bestaand["aangemaakt_door"] and len(ww) >= 6 and len(bijnaam) <= 30):
+                and bestaand["aangemaakt_door"] and ww_hash and len(bijnaam) <= 30):
             # Een ploegmaat schreef je al in en maakte zo een account op jouw naam.
             if request.form.get("dat_ben_ik") == "ja":
                 db.execute("UPDATE players SET password_hash = ?, nickname = ?, "
                            "aangemaakt_door = NULL WHERE id = ?",
-                           (generate_password_hash(ww), bijnaam, bestaand["id"]))
+                           (ww_hash, bijnaam, bestaand["id"]))
                 _log_claim(db, bestaand, "claim")
                 db.commit()
                 session["speler_id"] = bestaand["id"]
@@ -2403,21 +2420,44 @@ def registreren():
                 flash(f"Welkom bij Leberschuss Tonzent, {bijnaam or bestaand['name']}! "
                       f"Je account (spelersnummer #{bestaand['id']}) is nu van jou.", "ok")
                 return redirect(volgende or url_for("speler_profiel", speler_id=bestaand["id"]))
+            onthoud()
             return render_template("registreren.html", eerste=eerste, volgende=volgende,
                                    overname=_overname_info(db, bestaand),
                                    ingevuld={"naam": bestaand["name"], "bijnaam": bijnaam})
+        if (bestaand is not None and not bestaand["password_hash"]
+                and ww_hash and len(bijnaam) <= 30):
+            # De organisatie zette dit account klaar (of gaf het vrij) en je tikt
+            # exact die naam: dan eis je het meteen op, zonder omweg via /claimen.
+            # Bewust ook als het opeisvenster dicht staat: kleine, gekende groep,
+            # en een verkeerde claim is in het logboek te zien en vrij te geven.
+            # Zelfde bewaakte UPDATE als bij /claimen: de eerste wint altijd.
+            klaar = db.execute("UPDATE players SET password_hash = ?, nickname = ? "
+                               "WHERE id = ? AND password_hash IS NULL",
+                               (ww_hash,
+                                bijnaam or bestaand["nickname"], bestaand["id"])).rowcount
+            if klaar:
+                _log_claim(db, bestaand, "claim")
+                db.commit()
+                session["speler_id"] = bestaand["id"]
+                session.permanent = True        # ingelogd blijven op dit toestel
+                g.pop("ik", None)
+                flash(f"Welkom bij Leberschuss Tonzent, {bijnaam or weergave(bestaand)}! "
+                      f"Er stond al een account op jouw naam klaar (spelersnummer "
+                      f"#{bestaand['id']}); dat is nu van jou.", "ok")
+                return redirect(volgende or url_for("speler_profiel", speler_id=bestaand["id"]))
+            db.rollback()                       # net iemand anders voor: zie hieronder
         # Lijkt je naam sterk op een account dat een ploegmaat voor je klaarzette
         # (met een tikfout, bv.)? Dan vragen we eerst of jij dat bent.
         keuze = request.form.get("gelijkend") or ""
         if (bestaand is None and keuze != "nee" and 3 <= len(naam) <= 40
-                and len(bijnaam) <= 30 and len(ww) >= 6):
+                and len(bijnaam) <= 30 and ww_hash):
             kandidaten = gelijkende_klaargezette_accounts(db, naam)
             gekozen = next((k for k in kandidaten if str(k["id"]) == keuze), None)
             if gekozen is not None:
                 # Je eigen naam (zoals jij hem tikt) wint van die van je ploegmaat.
                 db.execute("UPDATE players SET name = ?, password_hash = ?, nickname = ?, "
                            "aangemaakt_door = NULL WHERE id = ?",
-                           (naam, generate_password_hash(ww), bijnaam, gekozen["id"]))
+                           (naam, ww_hash, bijnaam, gekozen["id"]))
                 # Stond de verkeerd getikte naam in een automatische teamnaam
                 # ("Nele & Kobe Testman")? Dan verbeteren we die ook.
                 for team in db.execute("SELECT id, name FROM teams WHERE player1_id = ? OR player2_id = ?",
@@ -2436,6 +2476,7 @@ def registreren():
                       f"klaarstond (spelersnummer #{gekozen['id']}) is nu van jou.", "ok")
                 return redirect(volgende or url_for("speler_profiel", speler_id=gekozen["id"]))
             if kandidaten:
+                onthoud()
                 return render_template(
                     "registreren.html", eerste=eerste, volgende=volgende, overname=None,
                     gelijkend=[dict(id=k["id"], naam=k["name"], **_overname_info(db, k))
@@ -2445,14 +2486,14 @@ def registreren():
             flash("Vul je echte voor- en achternaam in (3 tot 40 tekens).", "fout")
         elif len(bijnaam) > 30:
             flash("Hou je bijnaam korter dan 30 tekens.", "fout")
-        elif len(ww) < 6:
+        elif not ww_hash:
             flash("Kies een wachtwoord van minstens 6 tekens.", "fout")
         else:
             try:
                 nummer = vrij_spelernummer(db)
                 db.execute("INSERT INTO players (id, name, nickname, password_hash, "
                            "role, elo) VALUES (?, ?, ?, ?, ?, ?)",
-                           (nummer, naam, bijnaam, generate_password_hash(ww),
+                           (nummer, naam, bijnaam, ww_hash,
                             ROL_EIGENAAR if eerste else ROL_SPELER, START_ELO))
                 db.commit()
                 session["speler_id"] = nummer
@@ -2467,13 +2508,8 @@ def registreren():
                 return redirect(volgende or url_for("speler_profiel", speler_id=nummer))
             except Exception:
                 db.rollback()
-                if bestaand is not None and not bestaand["password_hash"]:
-                    flash("Er staat al een account op jouw naam klaar, aangemaakt door de "
-                          "organisatie. Vraag hen om het opeisvenster te openen; dan kies "
-                          "je er zelf een wachtwoord voor.", "fout")
-                else:
-                    flash("Er bestaat al een account met die naam. Ben jij dat? Log dan "
-                          "in. Anders: zet er iets bij, bv. je tweede voornaam.", "fout")
+                flash("Er bestaat al een account met die naam. Ben jij dat? Log dan "
+                      "in. Anders: zet er iets bij, bv. je tweede voornaam.", "fout")
     return render_template("registreren.html", eerste=eerste, volgende=volgende,
                            overname=None, ingevuld={})
 
@@ -2986,16 +3022,23 @@ def wedstrijd_melden(game_id):
     # Op volgorde spelen: eerst je vorige wedstrijd afwerken. Dit geldt voor
     # iedereen die meespeelt, ook voor een organisator — die heeft het
     # organisatiepaneel als uitweg en hoeft hier geen voorrang te krijgen.
+    eigen_team = game["team1_id"] if speler_id in (game["a1"], game["a2"]) else game["team2_id"]
+    tegen_team = game["team2_id"] if eigen_team == game["team1_id"] else game["team1_id"]
+
     vorige = toernooi_motor.eerdere_wedstrijd(db, game)
     if vorige is not None:
         namen = teamnamen(db)
-        flash(f"Werk eerst je vorige wedstrijd af: {namen[vorige['team1_id']]} tegen "
-              f"{namen[vorige['team2_id']]} uit speelronde {vorige['ronde']}. "
-              "De wedstrijden worden op volgorde gespeeld.", "fout")
+        paar = (f"{namen[vorige['team1_id']]} tegen {namen[vorige['team2_id']]} "
+                f"uit speelronde {vorige['ronde']}")
+        if eigen_team in (vorige["team1_id"], vorige["team2_id"]):
+            flash(f"Werk eerst je vorige wedstrijd af: {paar}. "
+                  "De wedstrijden worden op volgorde gespeeld.", "fout")
+        else:
+            # De vroegere wedstrijd is die van je tegenstander tegen een ander team.
+            flash(f"Nog even wachten: je tegenstander speelt eerst nog {paar}. "
+                  "Daar speel je zelf niet in mee; zodra die uitslag gemeld is, "
+                  "kan je deze wedstrijd melden.", "fout")
         return redirect(terug)
-
-    eigen_team = game["team1_id"] if speler_id in (game["a1"], game["a2"]) else game["team2_id"]
-    tegen_team = game["team2_id"] if eigen_team == game["team1_id"] else game["team1_id"]
 
     keuze = request.form.get("winnaar")
     if keuze not in ("wij", "zij"):

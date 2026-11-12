@@ -45,7 +45,8 @@
     <details class="toevoeg-blok">
       <summary class="knop klein">+ Speler toevoegen</summary>
       <p class="stil klein-tekst">Voor wie zich buiten de site om inschreef. De speler kan nog
-         niet inloggen: hij kiest zelf een wachtwoord via <em>Accounts opeisen</em>.</p>
+         niet inloggen: hij kiest zelf een wachtwoord via <em>Accounts opeisen</em>, of door
+         zich te registreren met exact dezelfde naam.</p>
       <form method="post" action="{{ url_for('speler_toevoegen') }}" class="rij-form">
         <input type="text" name="naam" placeholder="Echte voor- en achternaam" maxlength="40" required>
         <input type="text" name="bijnaam" placeholder="Bijnaam (optioneel)" maxlength="30">

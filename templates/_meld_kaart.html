@@ -52,11 +52,15 @@
      open tot de meldingen overeenkomen of een organisator beslist.</p>
   {% endif %}
 
-  {% if m.wacht_op %}
-  <p class="klein-tekst wacht-tekst">Deze wedstrijd komt later. Speel en meld eerst
-     <strong>{{ namen[m.wacht_op['team1_id']] }} tegen {{ namen[m.wacht_op['team2_id']] }}</strong>
-     uit speelronde {{ m.wacht_op['ronde'] }}. De wedstrijden worden op volgorde
-     gespeeld.</p>
+  {% if m.wacht_op and m.eigen_team in (m.wacht_op['team1_id'], m.wacht_op['team2_id']) %}
+  <p class="klein-tekst wacht-tekst">Deze wedstrijd komt later. Speel en meld eerst je
+     vorige wedstrijd: <strong>{{ namen[m.wacht_op['team1_id']] }} tegen
+     {{ namen[m.wacht_op['team2_id']] }}</strong> uit speelronde {{ m.wacht_op['ronde'] }}.
+     De wedstrijden worden op volgorde gespeeld.</p>
+  {% elif m.wacht_op %}
+  <p class="klein-tekst wacht-tekst">Nog even wachten:
+     <strong>{{ namen[m.wacht_op['team1_id']] }}</strong> speelt eerst nog tegen <strong>{{ namen[m.wacht_op['team2_id']] }}</strong>
+     in speelronde {{ m.wacht_op['ronde'] }}. Zodra die uitslag gemeld is, kan je deze wedstrijd spelen.</p>
   {% else %}
   <form method="post" action="{{ url_for('wedstrijd_melden', game_id=m.game['id']) }}" class="resultaat-form">
     {% if volgende %}<input type="hidden" name="volgende" value="{{ volgende }}">{% endif %}
