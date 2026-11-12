@@ -312,6 +312,151 @@ for zaad in (1, 2, 3):
     os.remove(pad)
 print("  drie avonden met twee afwezige ploegen doorgerekend")
 
+
+def vrijgegeven(db):
+    """Open wedstrijden die de site nu al laat spelen (niets vroegers meer open)."""
+    return {g["id"]: dict(g) for g in db.execute(
+        "SELECT * FROM games WHERE tournament_id = 1 AND fase = 'bracket' "
+        "AND status = 'gepland'").fetchall() if tm.eerdere_wedstrijd(db, g) is None}
+
+
+def half_gespeelde_beurt(db):
+    """Speel de eerste speelbeurt, op één wedstrijd na: die is nog bezig. Wie
+    klaar is, mag dan al aan zijn volgende wedstrijd beginnen."""
+    slot = min(r["scheduled_at"] for r in db.execute(
+        "SELECT scheduled_at FROM games WHERE tournament_id = 1 AND status = 'gepland'"))
+    rijen = db.execute("SELECT * FROM games WHERE tournament_id = 1 AND fase = 'bracket' "
+                       "AND scheduled_at = ? ORDER BY id", (slot,)).fetchall()
+    for g in rijen[:-1]:
+        db.execute("UPDATE games SET status = 'gespeeld', winner_team_id = ?, played_at = ? "
+                   "WHERE id = ?", (g["team1_id"], slot, g["id"]))
+    db.commit()
+    schuss.herbereken_alles(db)
+    tm.evalueer(db, 1)
+
+
+print("\n== 5. Wedstrijden die al vrijgegeven zijn, blijven staan ==")
+# Is de vorige speelbeurt elders nog bezig, dan staan teams die klaar zijn al
+# aan hun volgende wedstrijd — ook al staat die in een latere speelbeurt.
+# Die mag niet geschrapt, verplaatst of opnieuw op slot gezet worden.
+bekeken = 0
+for n, ronden, ko, tafels in [(12, 5, 8, 4), (14, 5, 8, 7), (16, 4, 8, 5), (13, 4, 4, 4)]:
+    for zaad in range(1, 7):
+        db, pad = bouw(n, ronden, ko, tafels, zaad)
+        if db is None:
+            continue
+        half_gespeelde_beurt(db)
+        vrij = vrijgegeven(db)
+        bezig = {x for g in vrij.values() for x in (g["team1_id"], g["team2_id"])}
+        kandidaten = [x for x in range(1, n + 1) if x not in bezig]
+        weg = random.Random(zaad).choice(kandidaten or list(range(1, n + 1)))
+        etiket = f"n={n} t={tafels} zaad={zaad}"
+        ok, boodschap = tm.terugtrekken(db, 1, weg, rng=random.Random(zaad))
+        if ok:
+            for gid, g in vrij.items():
+                if weg in (g["team1_id"], g["team2_id"]):
+                    continue
+                h = db.execute("SELECT * FROM games WHERE id = ?", (gid,)).fetchone()
+                meld(h is not None and (h["team1_id"], h["team2_id"]) == (g["team1_id"], g["team2_id"]),
+                     f"{etiket}: vrijgegeven wedstrijd {gid} werd geschrapt of herloot")
+                if h is None:
+                    continue
+                # (wie nog op een vrije tafel wachtte, mag er intussen eentje krijgen)
+                meld(h["scheduled_at"] == g["scheduled_at"] and (
+                         g["location_id"] is None or h["location_id"] == g["location_id"]),
+                     f"{etiket}: vrijgegeven wedstrijd {gid} kreeg een ander moment of andere tafel")
+                meld(tm.eerdere_wedstrijd(db, h) is None,
+                     f"{etiket}: vrijgegeven wedstrijd {gid} staat nu weer op slot")
+            controleer(db, n, weg, ronden, etiket)
+            speel_uit(db, random.Random(zaad))
+            meld(tm.toernooi(db, 1)["status"] in ("knockout", "afgelopen"),
+                 f"{etiket}: toernooi raakt niet af")
+            bekeken += 1
+        else:
+            meld("te laat" in boodschap, f"{etiket}: onverwachte weigering — {boodschap}")
+        db.close()
+        os.remove(pad)
+print(f"  {bekeken} avonden met een half gespeelde speelbeurt doorgerekend")
+
+print("\n== 6. Na het terugtrekken: elke speelbare wedstrijd een eigen tafel ==")
+bekeken = 0
+for n, ronden, ko, tafels in [(12, 5, 8, 3), (14, 5, 8, 4), (16, 4, 8, 5), (13, 4, 4, 4)]:
+    for zaad in (1, 2, 3):
+        db, pad = bouw(n, ronden, ko, tafels, zaad)
+        if db is None:
+            continue
+        rng = random.Random(zaad * 11 + n)
+        for _ in range(rng.randrange(2, 3 * tafels)):     # door elkaar uitspelen
+            nu = [g for g in vrijgegeven(db).values() if g["location_id"] is not None]
+            if not nu:
+                break
+            g = rng.choice(nu)
+            db.execute("UPDATE games SET status = 'gespeeld', winner_team_id = ?, played_at = ? "
+                       "WHERE id = ?", (g["team1_id"], g["scheduled_at"], g["id"]))
+            db.commit()
+            tm.evalueer(db, 1)
+        voor = {gid: g["location_id"] for gid, g in vrijgegeven(db).items()
+                if g["location_id"] is not None}
+        weg = rng.randrange(1, n + 1)
+        etiket = f"tafels n={n} t={tafels} zaad={zaad}"
+        ok, boodschap = tm.terugtrekken(db, 1, weg, rng=random.Random(zaad))
+        meld(not db.in_transaction, f"{etiket}: de transactie bleef open staan")
+        if ok:
+            nu = list(vrijgegeven(db).values())
+            met = [g for g in nu if g["location_id"] is not None]
+            meld(len({g["location_id"] for g in met}) == len(met),
+                 f"{etiket}: twee speelbare wedstrijden op dezelfde tafel")
+            for g in nu:
+                if g["id"] in voor:
+                    meld(g["location_id"] == voor[g["id"]],
+                         f"{etiket}: speelbare wedstrijd {g['id']} moest van tafel veranderen")
+            if any(g["location_id"] is None for g in nu):
+                meld(len(met) == tafels,
+                     f"{etiket}: een wedstrijd wacht op een tafel terwijl er nog eentje vrij is")
+            bekeken += 1
+        db.close()
+        os.remove(pad)
+print(f"  {bekeken} terugtrekkingen midden in een rommelige avond nagekeken")
+
+print("\n== 7. Geen uitslag tussendoor tijdens het herloten ==")
+import sqlite3                                                  # noqa: E402
+db, pad = bouw(14, 5, 8, 7, 1)
+speel_slots(db, 1, 4, random.Random(1))
+geblokkeerd = []
+origineel = tm._aanvulparen
+
+
+def met_indringer(*args, **kwargs):
+    ander = sqlite3.connect(pad, timeout=0)
+    try:
+        ander.execute("UPDATE games SET status = 'gespeeld' WHERE status = 'gepland'")
+        ander.commit()
+        geblokkeerd.append(False)
+    except sqlite3.OperationalError:
+        geblokkeerd.append(True)
+    finally:
+        ander.close()
+    return origineel(*args, **kwargs)
+
+
+tm._aanvulparen = met_indringer
+try:
+    ok, bericht = tm.terugtrekken(db, 1, 4, rng=random.Random(1))
+finally:
+    tm._aanvulparen = origineel
+meld(ok, f"schrijfslot: terugtrekken mislukte — {bericht}")
+meld(geblokkeerd and all(geblokkeerd),
+     f"schrijfslot: een andere schrijver kwam ertussen ({geblokkeerd})")
+meld(not db.in_transaction, "schrijfslot: de transactie bleef open staan")
+voor = db.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+ok, _ = tm.terugtrekken(db, 1, 4)                              # al teruggetrokken: weigering
+meld(not ok and not db.in_transaction, "schrijfslot: na een weigering bleef het slot hangen")
+meld(voor == db.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+     "schrijfslot: een weigering veranderde toch iets")
+db.close()
+os.remove(pad)
+print("  schrijfslot gecontroleerd")
+
 print("\n" + "=" * 62)
 if FOUTEN:
     print(f"❌ {len(FOUTEN)} probleem(en):")

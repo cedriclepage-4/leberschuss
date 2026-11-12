@@ -750,6 +750,7 @@ def genereer(db, tid, rng=None):
                 VALUES (?, ?, ?, 'bracket', ?, ?, ?)
             """, (a, b, tid, nummer, moment.strftime(TIJDFORMAAT), loc))
     db.execute("UPDATE tournaments SET status = 'bracket' WHERE id = ?", (tid,))
+    tafels_toewijzen(db, tid)
     db.commit()
     aantal = len(games)
     tafels = (f"op {len(tafel_ids)} tafel{'' if len(tafel_ids) == 1 else 's'}" if tafel_ids
@@ -797,13 +798,257 @@ def _aanvulparen(deficit, ontmoet, rng, pogingen=4000):
     return None
 
 
-def _terugtrek_situatie(db, tid, blijvers, bracket, bevries_lopende):
-    """Wat ligt er vast als deze ploeg wegvalt, en wie speelde al tegen wie?"""
-    open_slots = sorted({g["scheduled_at"] for g in bracket if g["status"] == "gepland"})
-    huidige = open_slots[0] if open_slots else None
+def _huidige_beurt(db, tid):
+    """Het tijdstip van de vroegste open bracketwedstrijd (de speelbeurt die nu
+    bezig is), of None als alles gespeeld is."""
+    rij = db.execute("SELECT MIN(scheduled_at) AS m FROM games WHERE tournament_id = ? "
+                     "AND fase = 'bracket' AND status = 'gepland'", (tid,)).fetchone()
+    return rij["m"] if rij else None
+
+
+def _vrijgegeven(db, tid, zonder=None):
+    """De open bracketwedstrijden die nu al gespeeld kúnnen worden.
+
+    Een wedstrijd gaat open zodra geen van beide teams nog een vroegere
+    wedstrijd moet afwerken (zie eerdere_wedstrijd) — dat is per team, niet per
+    speelbeurt. Wie snel klaar is, mag dus al aan zijn volgende partij beginnen
+    terwijl elders de vorige speelbeurt nog loopt. Zo'n wedstrijd kan op dit
+    eigen moment gespeeld worden: die verschuiven of herloten we nooit.
+
+    De wedstrijden van `zonder` (de ploeg die er niet is) tellen niet: die
+    worden niet gespeeld. Geeft een set id's.
+    """
+    vrij = set()
+    for g in db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket' "
+                        "AND status = 'gepland'", (tid,)).fetchall():
+        if zonder in (g["team1_id"], g["team2_id"]):
+            continue
+        if eerdere_wedstrijd(db, g) is None:
+            vrij.add(g["id"])
+    return vrij
+
+
+def tafels_toewijzen(db, tid):
+    """Geef elke speelbare wedstrijd een tafel waar op dat moment niemand anders staat.
+
+    Een wedstrijd gaat open per team (zie eerdere_wedstrijd), niet per
+    speelbeurt. Wie snel klaar is, mag dus al aan zijn volgende wedstrijd
+    beginnen terwijl de vorige speelbeurt elders nog loopt — en die volgende
+    wedstrijd staat in de kalender misschien op een tafel die nog bezet is.
+    Dan zouden twee ploegen naar dezelfde tafel gestuurd worden.
+
+    Daarom: wie al een tafel heeft sinds hij vrijgegeven werd (`tafel_vast`),
+    houdt die — daar wordt misschien al gespeeld. Een wedstrijd die nét
+    vrijkomt, houdt zijn geplande tafel als die vrij is; anders krijgt hij een
+    andere vrije tafel (en ruilt die met een latere, nog geblokkeerde
+    wedstrijd in dezelfde speelbeurt). Is er geen enkele tafel vrij, dan
+    krijgt hij voorlopig géén tafel: "wacht op een vrije tafel". Na de
+    volgende uitslag komt er een tafel vrij en wordt opnieuw gekeken.
+
+    Schrijft enkel; de oproeper commit.
+    """
+    tafel_ids = [l["id"] for l in locaties(db, tid)]
+    if not tafel_ids:
+        return
+    open_ = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket' "
+                       "AND status = 'gepland' ORDER BY scheduled_at, id", (tid,)).fetchall()
+    vrij, dicht = [], []
+    for g in open_:
+        (vrij if eerdere_wedstrijd(db, g) is None else dicht).append(g)
+    # Weer op slot (bv. een gewiste uitslag): die heeft zijn tafel niet meer vast.
+    for g in dicht:
+        if g["tafel_vast"]:
+            db.execute("UPDATE games SET tafel_vast = NULL WHERE id = ?", (g["id"],))
+
+    in_gebruik, nieuw = set(), []
+    for g in sorted(vrij, key=lambda g: (g["tafel_vast"] or "~", g["scheduled_at"] or "", g["id"])):
+        if g["tafel_vast"] and g["location_id"] is not None and g["location_id"] not in in_gebruik:
+            in_gebruik.add(g["location_id"])
+        else:
+            nieuw.append(g)
+
+    # Wat staat er per tafel en per speelbeurt (om mee te ruilen)?
+    op_moment = {}
+    for g in db.execute("SELECT id, status, scheduled_at, location_id FROM games WHERE "
+                        "tournament_id = ? AND fase = 'bracket'", (tid,)):
+        op_moment.setdefault((g["scheduled_at"], g["location_id"]), []).append(dict(g))
+    vrij_ids = {g["id"] for g in vrij}
+    nu = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    def verhuis(h, van, naar):
+        db.execute("UPDATE games SET location_id = ? WHERE id = ?", (naar, h["id"]))
+        op_moment[(h["scheduled_at"], van)].remove(h)
+        h["location_id"] = naar
+        op_moment.setdefault((h["scheduled_at"], naar), []).append(h)
+
+    def vrije_tafel_op(moment):
+        return next((l for l in tafel_ids if not op_moment.get((moment, l))), None)
+
+    try:
+        _wijs_toe(db, tafel_ids, nieuw, in_gebruik, op_moment, vrij_ids, nu, verhuis)
+    finally:
+        # Een geblokkeerde wedstrijd zonder tafel (bv. na een ruil met eentje
+        # die wachtte) krijgt een tafel die in zijn speelbeurt nog vrij is.
+        for (moment, loc), lijst in list(op_moment.items()):
+            if loc is not None:
+                continue
+            for h in list(lijst):
+                if h["status"] == "gepland" and h["id"] not in vrij_ids:
+                    tafel = vrije_tafel_op(moment)
+                    if tafel is not None:
+                        verhuis(h, None, tafel)
+
+
+def _wijs_toe(db, tafel_ids, nieuw, in_gebruik, op_moment, vrij_ids, nu, verhuis):
+    """Het eigenlijke toewijzen voor tafels_toewijzen (zie daar)."""
+    def zoek(g):
+        return next(h for h in op_moment[(g["scheduled_at"], g["location_id"])]
+                    if h["id"] == g["id"])
+
+    for g in sorted(nieuw, key=lambda g: (g["scheduled_at"] or "", g["id"])):
+        g = zoek(g)
+        eigen = g["location_id"]
+        if eigen is not None and eigen not in in_gebruik:
+            in_gebruik.add(eigen)
+            db.execute("UPDATE games SET tafel_vast = ? WHERE id = ?", (nu, g["id"]))
+            continue
+
+        def kost(l):
+            anderen = [h for h in op_moment.get((g["scheduled_at"], l), []) if h["id"] != g["id"]]
+            if not anderen:
+                return 0                            # niemand anders op dat moment
+            if all(h["status"] == "gepland" and h["id"] not in vrij_ids for h in anderen):
+                return 1                            # ruilen met een geblokkeerde wedstrijd
+            return 2                                # naast een gespeelde wedstrijd
+        kandidaten = sorted((l for l in tafel_ids if l not in in_gebruik),
+                            key=lambda l: (kost(l), tafel_ids.index(l)))
+        if not kandidaten:                          # wacht op een vrije tafel
+            if eigen is not None:
+                verhuis(g, eigen, None)
+            db.execute("UPDATE games SET tafel_vast = NULL WHERE id = ?", (g["id"],))
+            continue
+        tafel = kandidaten[0]
+        for h in [h for h in op_moment.get((g["scheduled_at"], tafel), []) if h["id"] != g["id"]]:
+            if h["status"] == "gepland" and h["id"] not in vrij_ids:
+                verhuis(h, tafel, eigen)            # ruilen; geen tafel → zie hieronder
+        verhuis(g, eigen, tafel)
+        db.execute("UPDATE games SET tafel_vast = ? WHERE id = ?", (nu, g["id"]))
+        in_gebruik.add(tafel)
+
+
+def wacht_op_tafel(db, game):
+    """Mag deze wedstrijd gespeeld worden, maar is er nog geen tafel vrij?"""
+    if (not game["tournament_id"] or game["fase"] != "bracket"
+            or game["status"] != "gepland" or game["location_id"] is not None):
+        return False
+    if not db.execute("SELECT 1 FROM tournament_locations WHERE tournament_id = ?",
+                      (game["tournament_id"],)).fetchone():
+        return False
+    return eerdere_wedstrijd(db, game) is None
+
+
+def _schrijfslot(db):
+    """Neem meteen het schrijfslot van de database.
+
+    Tussen het bekijken van wat er vrijgegeven is en het wegschrijven van het
+    nieuwe schema mag er geen uitslag binnenkomen: anders gaat er net een
+    wedstrijd open die wij nog als 'op slot' zagen, en die zouden we dan
+    verschuiven of herloten. Andere schrijvers wachten even (busy_timeout);
+    deze bewerkingen duren een fractie van een seconde.
+    """
+    if db.in_transaction:
+        db.commit()
+    db.execute("BEGIN IMMEDIATE")
+
+
+def _inpassen(db, tid, vast, nieuw, wacht, rng, huidige, standaard_start):
+    """Leg wedstrijden op de kalender rond wedstrijden die blijven staan.
+
+    `vast`   = bracketwedstrijden die niet bewegen (gespeeld of vrijgegeven);
+               hun tijdstip en tafel blijven exact zoals ze zijn.
+    `nieuw`  = lijst (team_a, team_b, sleutel) die een plaats moeten krijgen.
+    `wacht`  = {team: eerste speelbeurt, geteld vanaf de huidige} voor wie later komt.
+
+    Elke speelbeurt vanaf de huidige waarin al een vaste wedstrijd staat, wordt
+    aangevuld met de tafels en teams die daar nog vrij zijn. Een team speelt
+    zijn nieuwe wedstrijden altijd ná zijn vaste: zo komt er nooit een
+    wedstrijd vóór eentje die al open staat, en gaat die dus niet op slot.
+
+    Geeft een lijst (sleutel, team_a, team_b, tijdstip, tafel_id) terug.
+    """
+    tafel_ids = [l["id"] for l in locaties(db, tid)]
+    tijden = sorted({g["scheduled_at"] for g in vast
+                     if huidige and g["scheduled_at"] and g["scheduled_at"] >= huidige}
+                    | ({huidige} if huidige else set()))
+    index = {t_: i for i, t_ in enumerate(tijden)}
+    bezet, vol, tafels_bezet = {}, {}, {}
+    wacht_tot = dict(wacht)
+    for g in vast:
+        i = index.get(g["scheduled_at"])
+        if i is None:
+            continue
+        bezet.setdefault(i, set()).update((g["team1_id"], g["team2_id"]))
+        vol[i] = vol.get(i, 0) + 1
+        tafels_bezet.setdefault(i, set()).add(g["location_id"])
+        for kant in (g["team1_id"], g["team2_id"]):
+            wacht_tot[kant] = max(wacht_tot.get(kant, 0), i + 1)
+    # Een vrijgegeven wedstrijd uit een latere speelbeurt kan nú al op zijn tafel
+    # gespeeld worden. Die tafel geven we in de speelbeurten ervóór dus niet
+    # aan een nieuwe wedstrijd: anders staan er twee ploegen tegelijk op.
+    if tafel_ids:
+        for g in vast:
+            j = index.get(g["scheduled_at"])
+            if j is None or g["status"] != "gepland":
+                continue
+            for i in range(j):
+                tafels_bezet.setdefault(i, set()).add(g["location_id"])
+        for i in range(len(tijden)):
+            vol[i] = max(vol.get(i, 0),
+                         sum(1 for l in tafel_ids if l in tafels_bezet.get(i, set())))
+    sloten = _sloten_met_wachttijd(nieuw, len(tafel_ids) or None, wacht_tot, rng,
+                                   bezet=bezet, vol=vol, vaste_sloten=len(tijden),
+                                   laatkomers={t_ for t_, w in wacht.items() if w > 0})
+    if tijden:
+        laatste = datetime.fromisoformat(tijden[-1])
+    else:
+        laatste = standaard_start - timedelta(minutes=STAP_MINUTEN)
+    per_sleutel = {g[2]: g for g in nieuw}
+    # Een nieuwe wedstrijd die meteen speelbaar is (geen van beide teams heeft
+    # nog iets open ervoor), krijgt liefst een tafel waar nu niemand op staat.
+    in_gebruik = {g["location_id"] for g in vast if g["status"] == "gepland"}
+    eerste = {}
+    for g in vast:
+        if g["status"] == "gepland":
+            for kant in (g["team1_id"], g["team2_id"]):
+                eerste[kant] = min(eerste.get(kant, -1), -1)
+    for i, slot in enumerate(sloten):
+        for sleutel in slot:
+            for kant in per_sleutel[sleutel][:2]:
+                eerste[kant] = min(eerste.get(kant, i), i)
+    resultaat = []
+    for i, slot in enumerate(sloten):
+        if i < len(tijden):
+            moment = tijden[i]
+            vrij = [l for l in tafel_ids if l not in tafels_bezet.get(i, set())]
+        else:
+            moment = (laatste + timedelta(minutes=STAP_MINUTEN * (i - len(tijden) + 1))
+                      ).strftime(TIJDFORMAAT)
+            vrij = list(tafel_ids)
+        vrij.sort(key=lambda l: l in in_gebruik)
+        slot = sorted(slot, key=lambda s: not all(eerste[k] == i for k in per_sleutel[s][:2]))
+        for j, sleutel in enumerate(slot):
+            a, b, _ = per_sleutel[sleutel]
+            resultaat.append((sleutel, a, b, moment, vrij[j] if j < len(vrij) else None))
+    return resultaat
+
+
+def _terugtrek_situatie(blijvers, bracket, vrij_ids):
+    """Wat ligt er vast als deze ploeg wegvalt, en wie speelde al tegen wie?
+
+    Vast = alles wat gespeeld is, plus elke wedstrijd die al vrijgegeven is
+    (die kan op dit eigen moment op tafel liggen)."""
     vast = [g for g in bracket
-            if g["status"] == "gespeeld"
-            or (bevries_lopende and g["scheduled_at"] == huidige)]
+            if g["status"] == "gespeeld" or g["id"] in vrij_ids]
     ontmoet = {b: set() for b in blijvers}
     aantal = {b: 0 for b in blijvers}
     for g in vast:
@@ -825,8 +1070,8 @@ def terugtrek_opties(db, tid, team_id):
     kan het aantal gelijk blijven of er eentje bij.
 
     Elke optie wordt echt doorgerekend: wat hier in de lijst staat, kan ook.
-    De ronde die op dat moment gespeeld wordt, blijft altijd staan: een lopende
-    wedstrijd afbreken doen we niet. Past er daardoor geen enkel schema meer,
+    Elke wedstrijd die al vrijgegeven is (en dus misschien al gespeeld wordt),
+    blijft altijd staan: een lopende wedstrijd afbreken doen we niet. Past er daardoor geen enkel schema meer,
     dan is de lijst leeg en kan er niet meer teruggetrokken worden.
     """
     t = toernooi(db, tid)
@@ -842,12 +1087,12 @@ def terugtrek_opties(db, tid, team_id):
     m = len(blijvers)
     tafels = max(1, len(locaties(db, tid)))
 
-    # De ronde die nu op tafel ligt blijft altijd staan. Een lopende wedstrijd
-    # afbreken is het ergste wat je kan doen: die mensen staan te spelen. Komt
-    # het daarmee niet uit, dan is terugtrekken gewoon geen optie meer — in de
-    # laatste ronde weet je toch al lang dat die ploeg niet meer komt.
-    _, ontmoet, aantal, ondergrens = _terugtrek_situatie(db, tid, blijvers,
-                                                         bracket, True)
+    # Elke wedstrijd die al vrijgegeven is, blijft altijd staan. Een lopende
+    # wedstrijd afbreken is het ergste wat je kan doen: die mensen staan te
+    # spelen. Komt het daarmee niet uit, dan is terugtrekken gewoon geen optie
+    # meer — in de laatste ronde weet je toch al lang dat die ploeg niet meer komt.
+    _, ontmoet, aantal, ondergrens = _terugtrek_situatie(
+        blijvers, bracket, _vrijgegeven(db, tid, zonder=team_id))
     opties = []
     for doel in range(max(ondergrens, t["bracket_ronden"] - 1), t["bracket_ronden"] + 2):
         if doel > m - 1 or (m * doel) % 2:
@@ -876,6 +1121,17 @@ def terugtrek_opties(db, tid, team_id):
 
 
 def terugtrekken(db, tid, team_id, doel=None, rng=None):
+    """Een team komt niet (meer) opdagen — zie _terugtrekken. Alles gebeurt
+    onder het schrijfslot: lukt het niet, dan verandert er niets."""
+    _schrijfslot(db)
+    try:
+        return _terugtrekken(db, tid, team_id, doel, rng)
+    finally:
+        if db.in_transaction:
+            db.rollback()
+
+
+def _terugtrekken(db, tid, team_id, doel=None, rng=None):
     """Een team komt niet (meer) opdagen: schrap het en loot de rest opnieuw.
 
     Een forfaitzege is geen echte zege. Wie toevallig tegen de afwezige ploeg
@@ -887,8 +1143,10 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
       * alle wedstrijden van de afwezige ploeg vervallen — ook de forfaits die al
         ingevuld waren, want anders houdt wie vroeg tegen hen speelde een
         voordeel op wie laat tegen hen zou spelen;
-      * gespeelde wedstrijden en de ronde die nu bezig is blijven staan;
-      * alle latere affiches worden opnieuw geloot, zodat elk overblijvend team
+      * gespeelde wedstrijden en elke wedstrijd die al vrijgegeven is (die kan
+        nu op tafel liggen, ook als de vorige speelbeurt elders nog loopt)
+        blijven exact staan: zelfde tegenstander, zelfde tafel, zelfde plaats;
+      * alle andere affiches worden opnieuw geloot, zodat elk overblijvend team
         op hetzelfde aantal wedstrijden uitkomt.
 
     Dat aantal kan niet altijd gelijk blijven: met 13 ploegen die elk 5 partijen
@@ -930,7 +1188,21 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
             return False, (f"{doel} wedstrijden per team kan hier niet. Mogelijk is: "
                            + " of ".join(str(x) for x in haalbaar) + ".")
 
-    # 1. De afwezige ploeg valt volledig weg.
+    # Wat er nu vrijgegeven is, bepalen we vóór er iets geschrapt wordt: een
+    # wedstrijd die op slot zat omdat er eerst nog tegen de afwezige ploeg
+    # gespeeld moest worden, kan nog niet bezig zijn en mag dus herloot worden.
+    huidige = _huidige_beurt(db, tid)
+    vrij_ids = _vrijgegeven(db, tid, zonder=team_id)
+    gemeld = db.execute(
+        "SELECT g.id FROM games g JOIN game_reports r ON r.game_id = g.id "
+        "WHERE g.tournament_id = ? AND g.fase = 'bracket' AND g.status = 'gepland' "
+        "AND g.team1_id != ? AND g.team2_id != ?", (tid, team_id, team_id)).fetchall()
+    if any(r["id"] not in vrij_ids for r in gemeld):
+        return False, ("Er is al een uitslag gemeld voor een wedstrijd die herloot zou "
+                       "worden. Bevestig of wis die melding eerst.")
+
+    # 1. De afwezige ploeg valt volledig weg. (Alles in één transactie: lukt
+    #    de nieuwe loting niet, dan draaien we alles terug.)
     db.execute("UPDATE tournament_teams SET teruggetrokken = 1 WHERE tournament_id = ? "
                "AND team_id = ?", (tid, team_id))
     db.execute("DELETE FROM game_reports WHERE game_id IN (SELECT id FROM games "
@@ -941,72 +1213,53 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
     db.execute("DELETE FROM games WHERE tournament_id = ? AND fase IN ('shootout','knockout')",
                (tid,))
     db.execute("UPDATE tournaments SET status = 'bracket' WHERE id = ?", (tid,))
-    db.commit()
 
     if t["status"] == "opzet":
+        db.commit()
         return True, "Het team is verwijderd; het toernooi was nog niet geloot."
 
-    # 2. Wat ligt vast? Alles wat al gespeeld is, en liefst ook de ronde die nu
-    #    op tafel ligt — die wil je niet onder de spelers vandaan trekken. Lukt
-    #    het daarmee niet (bv. als de ploeg pas in de làatste ronde afhaakt),
-    #    dan geven we die lopende ronde alsnog vrij: beter een affiche die
-    #    verandert dan een avond die vastloopt.
+    # 2. Wat ligt vast? Alles wat al gespeeld is, en elke wedstrijd die al
+    #    vrijgegeven is — die kan nu op tafel liggen, en die trek je niet
+    #    onder de spelers vandaan. (terugtrek_opties rekende al na dat er met
+    #    die vaste wedstrijden een eerlijk schema bestaat.)
     bracket = db.execute("SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket' "
                          "ORDER BY scheduled_at, id", (tid,)).fetchall()
 
-    vast_ids, ontmoet, aantal, ondergrens = _terugtrek_situatie(
-        db, tid, blijvers, bracket, True)
+    vast_ids, ontmoet, aantal, ondergrens = _terugtrek_situatie(blijvers, bracket, vrij_ids)
     if doel < ondergrens:
         db.rollback()
         return False, "Er zijn al teams die meer wedstrijden gespeeld hebben dan dat."
     later = [g for g in bracket if g["id"] not in vast_ids]
 
-    # 4. De latere affiches vervallen; er komt een nieuwe loting voor in de plaats.
-    for g in later:
-        db.execute("DELETE FROM game_reports WHERE game_id = ?", (g["id"],))
-        db.execute("DELETE FROM games WHERE id = ?", (g["id"],))
-    db.commit()
-
+    # 3. De andere affiches vervallen; er komt een nieuwe loting voor in de plaats.
     deficit = {b: doel - aantal[b] for b in blijvers}
     nieuw = _aanvulparen(deficit, ontmoet, rng) if any(deficit.values()) else []
     if nieuw is None:
         db.rollback()
         return False, ("Er is geen schema te vinden waarin iedereen even veel speelt "
                        "zonder dezelfde tegenstander twee keer te treffen.")
+    for g in later:
+        db.execute("DELETE FROM game_reports WHERE game_id = ?", (g["id"],))
+        db.execute("DELETE FROM games WHERE id = ?", (g["id"],))
 
-    # 5. Inplannen ná wat er al staat.
+    # 4. Inplannen rond wat blijft staan: vrijgekomen tafels in de huidige en
+    #    volgende speelbeurten worden aangevuld, maar elk team speelt zijn
+    #    nieuwe wedstrijden pas ná zijn vaste.
     if nieuw:
-        tafel_ids = [l["id"] for l in locaties(db, tid)]
-        start = _laatste_moment(db, tid, _starttijd(t)) + timedelta(minutes=STAP_MINUTEN)
-        # Voorlopige speelrondes, enkel om de volgorde per team te bewaken bij het
-        # inplannen: altijd ná de hoogste speelronde die het team al heeft.
-        # Daarna wordt alles netjes hernummerd (zie hernummer_speelrondes).
-        teller = {b: 0 for b in blijvers}
-        for g in db.execute("SELECT team1_id, team2_id, ronde FROM games WHERE "
-                            "tournament_id = ? AND fase = 'bracket'", (tid,)):
-            for kant in (g["team1_id"], g["team2_id"]):
-                if kant in teller:
-                    teller[kant] = max(teller[kant], g["ronde"] or 0)
-        games = []
-        for ronde in verdeel_in_rondes(nieuw, rng):
-            for a, b in ronde:
-                nummer = max(teller[a], teller[b]) + 1
-                teller[a] = teller[b] = nummer
-                games.append((a, b, nummer))
-        sloten = _tijdsloten(games, len(tafel_ids) or None, rng)
-        gepland, _ = _plan([[(a, b) for a, b, _nr in slot] for slot in sloten],
-                           tafel_ids, start)
-        for slot, paren in zip(sloten, gepland):
-            for (a, b, nummer), (_a, _b, moment, loc) in zip(slot, paren):
-                db.execute("""
-                    INSERT INTO games (team1_id, team2_id, tournament_id, fase, ronde,
-                                       scheduled_at, location_id)
-                    VALUES (?, ?, ?, 'bracket', ?, ?, ?)
-                """, (a, b, tid, nummer, moment.strftime(TIJDFORMAAT), loc))
-    hernummer_speelrondes(db, tid)
+        vast = [g for g in bracket if g["id"] in vast_ids]
+        for _sleutel, a, b, moment, loc in _inpassen(
+                db, tid, vast, [(a, b, i) for i, (a, b) in enumerate(nieuw)], {},
+                rng, huidige, _laatste_moment(db, tid, _starttijd(t))
+                + timedelta(minutes=STAP_MINUTEN)):
+            db.execute("""
+                INSERT INTO games (team1_id, team2_id, tournament_id, fase, ronde,
+                                   scheduled_at, location_id)
+                VALUES (?, ?, ?, 'bracket', 0, ?, ?)
+            """, (a, b, tid, moment, loc))
     if doel != t["bracket_ronden"]:
         db.execute("UPDATE tournaments SET bracket_ronden = ? WHERE id = ?", (doel, tid))
-    db.commit()
+    tafels_toewijzen(db, tid)
+    hernummer_speelrondes(db, tid)        # commit
 
     naam = db.execute("SELECT name FROM teams WHERE id = ?", (team_id,)).fetchone()["name"]
     stuk = (f"iedereen speelt nu {doel} wedstrijden in plaats van "
@@ -1017,13 +1270,17 @@ def terugtrekken(db, tid, team_id, doel=None, rng=None):
                   f"{len(nieuw)} nieuwe affiches geloot, zodat {stuk}.")
 
 
-def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, pogingen=300):
+def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet=None, vol=None,
+                          vaste_sloten=1, laatkomers=None, pogingen=300):
     """Leg wedstrijden op tijdsloten terwijl sommige teams pas later kunnen.
 
-    `games`  = lijst (team_a, team_b, game_id); de affiches liggen vast.
+    `games`  = lijst (team_a, team_b, sleutel); de affiches liggen vast.
     `wacht`  = {team: eerste tijdslot waarin het mag spelen} (0 = meteen).
-    `bezet0` / `vol0` = teams en aantal wedstrijden die het eerste tijdslot al
-               innemen (de ronde die nu bezig is en blijft staan).
+    `bezet` / `vol` = {tijdslot: teams} en {tijdslot: aantal wedstrijden} die
+               er al staan en blijven staan (gespeeld of vrijgegeven).
+    `vaste_sloten` = zoveel tijdsloten bestaan al (er staan vaste wedstrijden
+               in); die komen altijd terug, ook leeg, zodat tijdslot i in het
+               resultaat ook echt tijdslot i is.
 
     Per tijdslot kiezen we gretig: eerst de wedstrijden van wie nog het meest
     moet spelen (de laatkomer haalt zo zijn achterstand in zodra hij er is),
@@ -1032,13 +1289,16 @@ def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, poginge
     na elkaar moeten aantreden — de laatkomer zelf niet meegerekend, die heeft
     zijn rust al gehad.
 
-    Geeft een lijst tijdsloten terug, elk een lijst game_id's. Tijdslot 0 is het
-    huidige; enkel niet-lege tijdsloten worden teruggegeven.
+    Geeft een lijst tijdsloten terug, elk een lijst sleutels. Tijdslot 0 is het
+    huidige; na de vaste tijdsloten worden enkel niet-lege teruggegeven.
     """
     if not games:
         return []
-    plafond = plafond or (len(games) + vol0)
-    laatkomers = {t_ for t_, w in wacht.items() if w > 0}
+    bezet = bezet or {}
+    vol = vol or {}
+    plafond = plafond or (len(games) + max(vol.values(), default=0))
+    if laatkomers is None:
+        laatkomers = {t_ for t_, w in wacht.items() if w > 0}
     beste, beste_sleutel = None, None
     for _ in range(pogingen):
         open_ = list(games)
@@ -1048,8 +1308,8 @@ def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, poginge
             rest[b] = rest.get(b, 0) + 1
         sloten, bezettingen, vorig, i = [], [], set(), 0
         while open_:
-            bezet = set(bezet0) if i == 0 else set()
-            ruimte = plafond - (vol0 if i == 0 else 0)
+            al = set(bezet.get(i, ()))
+            ruimte = plafond - vol.get(i, 0)
             kandidaten = [g for g in open_
                           if wacht.get(g[0], 0) <= i and wacht.get(g[1], 0) <= i]
             sleutel = {g: (-max(rest[g[0]], rest[g[1]]), -(rest[g[0]] + rest[g[1]]),
@@ -1060,18 +1320,18 @@ def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, poginge
             for g in kandidaten:
                 if len(slot) >= ruimte:
                     break
-                if g[0] in bezet or g[1] in bezet:
+                if g[0] in al or g[1] in al:
                     continue
                 slot.append(g)
-                bezet.update(g[:2])
+                al.update(g[:2])
             for g in slot:
                 open_.remove(g)
                 rest[g[0]] -= 1
                 rest[g[1]] -= 1
-            if slot or i == 0:
+            if slot or i < vaste_sloten:
                 sloten.append([g[2] for g in slot])
-                bezettingen.append(bezet)
-            vorig = bezet
+                bezettingen.append(al)
+            vorig = al
             i += 1
         na_elkaar = sum(len((x & y) - laatkomers)
                         for x, y in zip(bezettingen, bezettingen[1:]))
@@ -1082,6 +1342,17 @@ def _sloten_met_wachttijd(games, plafond, wacht, rng, bezet0=(), vol0=0, poginge
 
 
 def later_inplannen(db, tid, team_id, beurten, rng=None):
+    """Een team komt later — zie _later_inplannen. Alles gebeurt onder het
+    schrijfslot: lukt het niet, dan verandert er niets."""
+    _schrijfslot(db)
+    try:
+        return _later_inplannen(db, tid, team_id, beurten, rng)
+    finally:
+        if db.in_transaction:
+            db.rollback()
+
+
+def _later_inplannen(db, tid, team_id, beurten, rng=None):
     """Een team komt later: schuif zijn wedstrijden op in plaats van ze te schrappen.
 
     Een forfait voor wie toevallig vroeg tegen de laatkomer geloot was, is drie
@@ -1093,10 +1364,12 @@ def later_inplannen(db, tid, team_id, beurten, rng=None):
     `beurten` = hoeveel speelbeurten het team mist, de huidige meegerekend
     (bij 2 speelt het op zijn vroegst in de tweede speelbeurt ná de huidige).
 
-    Wat vast blijft: alles wat gespeeld is, en de wedstrijden van de huidige
-    speelbeurt waar de laatkomer niet in zit (die staan misschien al te spelen).
-    Een vrijgekomen tafel in de huidige speelbeurt wordt meteen opnieuw gevuld
-    als er twee vrije teams voor zijn. Er wordt niets herloot en niemand speelt
+    Wat vast blijft: alles wat gespeeld is, en elke wedstrijd die al
+    vrijgegeven is en waar de laatkomer niet in zit (die staan misschien al te
+    spelen, ook als ze in een latere speelbeurt staan). Zo'n wedstrijd houdt
+    zijn moment en zijn tafel, en geen van beide teams krijgt er een wedstrijd
+    vóór — anders ging hij weer op slot. Een vrijgekomen tafel wordt meteen
+    opnieuw gevuld als er twee vrije teams voor zijn. Er wordt niets herloot en niemand speelt
     meer of minder wedstrijden; enkel de volgorde verandert.
 
     Geeft (gelukt, boodschap) terug.
@@ -1121,10 +1394,12 @@ def later_inplannen(db, tid, team_id, beurten, rng=None):
         return False, f"“{naam}” heeft geen wedstrijden meer op het programma."
 
     huidige = open_[0]["scheduled_at"]
-    vast = [g for g in open_ if g["scheduled_at"] == huidige
-            and team_id not in (g["team1_id"], g["team2_id"])]
-    vast_ids = {g["id"] for g in vast}
-    te_plannen = [g for g in open_ if g["id"] not in vast_ids]
+    # Wat er al vrijgegeven is, kan nu op tafel liggen — ook in een latere
+    # speelbeurt, als een team sneller klaar was dan de rest. Die wedstrijden
+    # blijven exact staan (zelfde moment, zelfde tafel); enkel die van de
+    # laatkomer zelf niet, want die is er nog niet.
+    vrij_ids = _vrijgegeven(db, tid, zonder=team_id)
+    te_plannen = [g for g in open_ if g["id"] not in vrij_ids]
 
     # Een wedstrijd waarvoor al een uitslag gemeld is, wordt (of werd) gespeeld:
     # die verschuiven we niet onder de spelers vandaan.
@@ -1134,29 +1409,20 @@ def later_inplannen(db, tid, team_id, beurten, rng=None):
         return False, ("Er is al een uitslag gemeld voor een wedstrijd die zou "
                        "verschuiven. Bevestig of wis die melding eerst.")
 
-    tafel_ids = [l["id"] for l in locaties(db, tid)]
-    bezet0 = {x for g in vast for x in (g["team1_id"], g["team2_id"])}
-    sloten = _sloten_met_wachttijd(
-        [(g["team1_id"], g["team2_id"], g["id"]) for g in te_plannen],
-        len(tafel_ids) or None, {team_id: beurten}, rng,
-        bezet0=bezet0, vol0=len(vast))
-
-    start = datetime.fromisoformat(huidige)
-    vrij0 = [l for l in tafel_ids if l not in {g["location_id"] for g in vast}]
-    for i, slot in enumerate(sloten):
-        moment = (start + timedelta(minutes=STAP_MINUTEN * i)).strftime(TIJDFORMAAT)
-        tafels = vrij0 if i == 0 else tafel_ids
-        for j, gid in enumerate(slot):
-            loc = tafels[j] if j < len(tafels) else None
-            db.execute("UPDATE games SET scheduled_at = ?, location_id = ? WHERE id = ?",
-                       (moment, loc, gid))
-    hernummer_speelrondes(db, tid)
-    db.commit()
+    vast = [g for g in db.execute(
+        "SELECT * FROM games WHERE tournament_id = ? AND fase = 'bracket'", (tid,))
+        if g["status"] == "gespeeld" or g["id"] in vrij_ids]
+    for gid, _a, _b, moment, loc in _inpassen(
+            db, tid, vast, [(g["team1_id"], g["team2_id"], g["id"]) for g in te_plannen],
+            {team_id: beurten}, rng, huidige, datetime.fromisoformat(huidige)):
+        db.execute("UPDATE games SET scheduled_at = ?, location_id = ?, tafel_vast = NULL "
+                   "WHERE id = ? AND status = 'gepland'", (moment, loc, gid))
+    tafels_toewijzen(db, tid)
+    hernummer_speelrondes(db, tid)        # commit
 
     voor = len({g["scheduled_at"] for g in open_})
-    # Tijdslot 0 komt altijd terug, ook leeg; leeg én zonder vaste wedstrijden
-    # is het geen echte speelbeurt.
-    na = len(sloten) - (1 if sloten and not sloten[0] and not vast else 0)
+    na = db.execute("SELECT COUNT(DISTINCT scheduled_at) FROM games WHERE tournament_id = ? "
+                    "AND fase = 'bracket' AND status = 'gepland'", (tid,)).fetchone()[0]
     eigen = sum(1 for g in te_plannen if team_id in (g["team1_id"], g["team2_id"]))
     if na > voor:
         duur = (f"Het programma telt nu {na} speelbeurten in plaats van {voor}: "
@@ -2111,6 +2377,9 @@ def _evalueer(db, tid):
     t = toernooi(db, tid)
     if not t or t["status"] == "opzet":
         return []
+    if t["status"] == "bracket":
+        tafels_toewijzen(db, tid)
+        db.commit()
     meldingen = []
 
     # 1. Winnaars doorschuiven in het knockoutschema.

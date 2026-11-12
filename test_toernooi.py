@@ -113,8 +113,15 @@ for g in games:
 check(all(len(v) <= 3 for v in bezet.values()), "nooit meer dan 3 wedstrijden tegelijk")
 check(len(bezet) == 10, f"30 wedstrijden op 3 tafels = 10 speelrondes, het "
                         f"theoretische minimum (gekregen: {len(bezet)})")
-check(all(len({x["location_id"] for x in v}) == len(v) for v in bezet.values()),
+check(all(len({x["location_id"] for x in v if x["location_id"] is not None})
+          == sum(1 for x in v if x["location_id"] is not None) for v in bezet.values()),
       "elke tafel is per tijdslot maar één keer bezet")
+# Zonder tafel enkel als de wedstrijd al speelbaar is en alle tafels bezet zijn.
+check(all(tm.wacht_op_tafel(conn, g) for g in games if g["location_id"] is None),
+      "een wedstrijd zonder tafel is altijd een speelbare die op een vrije tafel wacht")
+speelbaar = [g for g in games if tm.eerdere_wedstrijd(conn, g) is None and g["location_id"]]
+check(len({g["location_id"] for g in speelbaar}) == len(speelbaar),
+      "speelbare wedstrijden staan nooit op dezelfde tafel")
 check(all(len({x["team1_id"] for x in v} | {x["team2_id"] for x in v}) == 2 * len(v)
           for v in bezet.values()), "geen team speelt twee wedstrijden tegelijk")
 

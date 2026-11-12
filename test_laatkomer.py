@@ -158,13 +158,24 @@ def controleer(db, voor, laat, beurten, tafels, etiket):
     tafels_per_slot = collections.defaultdict(list)
     for g in na.values():
         per_slot[g["scheduled_at"]] += [g["team1_id"], g["team2_id"]]
-        tafels_per_slot[g["scheduled_at"]].append(g["location_id"])
+        if g["location_id"] is not None:
+            tafels_per_slot[g["scheduled_at"]].append(g["location_id"])
+        else:
+            # Geen tafel mag enkel als hij speelbaar is en alle tafels bezet zijn.
+            meld(tm.wacht_op_tafel(db, db.execute("SELECT * FROM games WHERE id = ?",
+                                                  (g["id"],)).fetchone()),
+                 f"{etiket}: wedstrijd {g['id']} heeft geen tafel zonder reden")
     for slot, teams in per_slot.items():
         meld(len(set(teams)) == len(teams), f"{etiket}: een team speelt dubbel om {slot}")
         meld(len(teams) // 2 <= tafels, f"{etiket}: meer wedstrijden dan tafels om {slot}")
         locs = tafels_per_slot[slot]
-        meld(None not in locs and len(set(locs)) == len(locs),
-             f"{etiket}: tafels dubbel of leeg om {slot}: {locs}")
+        meld(len(set(locs)) == len(locs),
+             f"{etiket}: tafels dubbel om {slot}: {locs}")
+    speelbaar = [g for g in db.execute("SELECT * FROM games WHERE tournament_id = 1 AND "
+                                       "fase = 'bracket' AND status = 'gepland'").fetchall()
+                 if tm.eerdere_wedstrijd(db, g) is None and g["location_id"] is not None]
+    meld(len({g["location_id"] for g in speelbaar}) == len(speelbaar),
+         f"{etiket}: twee speelbare wedstrijden op dezelfde tafel")
 
     # Speelrondes per team stijgen in kalendervolgorde.
     vorige = {}
@@ -292,6 +303,160 @@ antwoord = klant.post("/admin/toernooi/1/teams/6/later", data={"beurten": "x"},
 meld("minstens 1" in antwoord.get_data(as_text=True), "ongeldige invoer niet netjes geweigerd")
 db.close()
 print("  pagina en knop gecontroleerd")
+
+print("\n== 5. Wedstrijden die al vrijgegeven zijn, blijven staan ==")
+# Is de vorige speelbeurt elders nog bezig, dan staan teams die klaar zijn al
+# aan hun volgende wedstrijd — ook al staat die in een latere speelbeurt. Die
+# mag niet verschuiven, van tafel veranderen of opnieuw op slot gaan.
+bekeken = 0
+for n, ronden, ko, tafels in [(12, 5, 8, 4), (14, 5, 8, 7), (16, 4, 8, 5), (13, 4, 4, 4)]:
+    for zaad in range(1, 7):
+        db, pad = bouw(n, ronden, ko, tafels, zaad)
+        if db is None:
+            continue
+        slot = open_tijden(db)[0]
+        rijen = db.execute("SELECT * FROM games WHERE tournament_id = 1 AND fase = 'bracket' "
+                           "AND scheduled_at = ? ORDER BY id", (slot,)).fetchall()
+        for g in rijen[:-1]:                         # één wedstrijd is nog bezig
+            db.execute("UPDATE games SET status = 'gespeeld', winner_team_id = ?, "
+                       "played_at = ? WHERE id = ?", (g["team1_id"], slot, g["id"]))
+        db.commit()
+        schuss.herbereken_alles(db)
+        tm.evalueer(db, 1)
+        vrij = {g["id"]: dict(g) for g in db.execute(
+            "SELECT * FROM games WHERE tournament_id = 1 AND fase = 'bracket' "
+            "AND status = 'gepland'").fetchall() if tm.eerdere_wedstrijd(db, g) is None}
+        bezig = {x for g in vrij.values() for x in (g["team1_id"], g["team2_id"])}
+        rng = random.Random(zaad)
+        laat = rng.choice([x for x in range(1, n + 1) if x not in bezig]
+                          or list(range(1, n + 1)))
+        etiket = f"vrijgegeven n={n} t={tafels} zaad={zaad}"
+        voor = bracket(db)
+        ok, boodschap = tm.later_inplannen(db, 1, laat, 2, rng=random.Random(zaad))
+        meld(ok, f"{etiket}: geweigerd — {boodschap}")
+        if ok:
+            for gid, g in vrij.items():
+                if laat in (g["team1_id"], g["team2_id"]):
+                    continue
+                h = db.execute("SELECT * FROM games WHERE id = ?", (gid,)).fetchone()
+                # (wie nog op een vrije tafel wachtte, mag er intussen eentje krijgen)
+                meld(h["scheduled_at"] == g["scheduled_at"] and (
+                         g["location_id"] is None or h["location_id"] == g["location_id"]),
+                     f"{etiket}: vrijgegeven wedstrijd {gid} kreeg een ander moment of andere tafel")
+                meld(tm.eerdere_wedstrijd(db, h) is None,
+                     f"{etiket}: vrijgegeven wedstrijd {gid} staat nu weer op slot")
+            controleer(db, voor, laat, 2, tafels, etiket)
+            speel_uit(db, rng)
+            meld(tm.toernooi(db, 1)["status"] in ("knockout", "afgelopen"),
+                 f"{etiket}: toernooi raakt niet af")
+            bekeken += 1
+        db.close()
+        os.remove(pad)
+print(f"  {bekeken} avonden met een half gespeelde speelbeurt doorgerekend")
+
+
+def speelbaar_nu(db):
+    return [g for g in db.execute("SELECT * FROM games WHERE tournament_id = 1 AND "
+                                  "fase = 'bracket' AND status = 'gepland'").fetchall()
+            if tm.eerdere_wedstrijd(db, g) is None]
+
+
+def tafels_kloppen(db, etiket, had_tafel):
+    """Twee speelbare wedstrijden nooit op dezelfde tafel; wie een tafel had
+    sinds hij speelbaar werd, houdt die; zonder tafel enkel als alles bezet is."""
+    nu = speelbaar_nu(db)
+    met = [g for g in nu if g["location_id"] is not None]
+    meld(len({g["location_id"] for g in met}) == len(met),
+         f"{etiket}: twee speelbare wedstrijden op dezelfde tafel")
+    for g in nu:
+        if g["id"] in had_tafel:
+            meld(g["location_id"] == had_tafel[g["id"]],
+                 f"{etiket}: speelbare wedstrijd {g['id']} moest van tafel veranderen")
+    if any(g["location_id"] is None for g in nu):
+        meld(len(met) == len(tm.locaties(db, 1)),
+             f"{etiket}: een wedstrijd wacht op een tafel terwijl er nog eentje vrij is")
+    return {g["id"]: g["location_id"] for g in met}
+
+
+print("\n== 6. Uitslagen één voor één: elke speelbare wedstrijd een eigen tafel ==")
+# Zo loopt het echt: wedstrijden eindigen door elkaar, wie klaar is begint al
+# aan zijn volgende. Halverwege komt er ook nog een ploeg later.
+stappen = 0
+for n, ronden, ko, tafels in [(12, 5, 8, 3), (14, 5, 8, 4), (16, 4, 8, 5), (13, 4, 4, 4), (10, 3, 4, 2)]:
+    for zaad in (1, 2, 3):
+        db, pad = bouw(n, ronden, ko, tafels, zaad)
+        if db is None:
+            continue
+        rng = random.Random(zaad * 101 + n)
+        etiket = f"willekeurig n={n} t={tafels} zaad={zaad}"
+        had = tafels_kloppen(db, etiket + " (na de loting)", {})
+        laat_gedaan = False
+        while tm.toernooi(db, 1)["status"] == "bracket":
+            nu = speelbaar_nu(db)
+            met_tafel = [g for g in nu if g["location_id"] is not None]
+            if not met_tafel:
+                break
+            if not laat_gedaan and stappen % 7 == 3:
+                laat = rng.choice([x for x in range(1, n + 1)])
+                ok, _ = tm.later_inplannen(db, 1, laat, 2, rng=random.Random(zaad))
+                laat_gedaan = True
+                had = {k: v for k, v in had.items() if k in {g["id"] for g in speelbaar_nu(db)}}
+                if ok:
+                    # De laatkomer zelf mag wel weg van zijn tafel.
+                    had = {k: v for k, v in had.items()
+                           if laat not in (db.execute("SELECT team1_id, team2_id FROM games "
+                                                      "WHERE id = ?", (k,)).fetchone())}
+                had = tafels_kloppen(db, etiket + " (na later_inplannen)", had)
+                continue
+            g = rng.choice(met_tafel)                # enkel wie aan een tafel staat, speelt
+            db.execute("UPDATE games SET status = 'gespeeld', winner_team_id = ?, played_at = ? "
+                       "WHERE id = ?", (rng.choice([g["team1_id"], g["team2_id"]]),
+                                        g["scheduled_at"], g["id"]))
+            db.commit()
+            tm.evalueer(db, 1)
+            had.pop(g["id"], None)
+            had = tafels_kloppen(db, f"{etiket} stap {stappen}", had)
+            stappen += 1
+        db.close()
+        os.remove(pad)
+print(f"  {stappen} uitslagen na elkaar nagekeken")
+
+print("\n== 7. Geen uitslag tussendoor tijdens het opschuiven ==")
+# Komt er een uitslag binnen terwijl het schema herberekend wordt, dan gaat er
+# misschien net een wedstrijd open die wij nog 'op slot' zagen. Daarom houdt
+# later_inplannen het schrijfslot vast: een andere schrijver moet wachten.
+import sqlite3                                                  # noqa: E402
+db, pad = bouw(14, 5, 8, 7, 1)
+geblokkeerd = []
+origineel = tm._sloten_met_wachttijd
+
+
+def met_indringer(*args, **kwargs):
+    ander = sqlite3.connect(pad, timeout=0)
+    try:
+        ander.execute("UPDATE games SET status = 'gespeeld' WHERE id = 1")
+        ander.commit()
+        geblokkeerd.append(False)
+    except sqlite3.OperationalError:
+        geblokkeerd.append(True)
+    finally:
+        ander.close()
+    return origineel(*args, **kwargs)
+
+
+tm._sloten_met_wachttijd = met_indringer
+try:
+    ok, bericht = tm.later_inplannen(db, 1, 5, 2, rng=random.Random(1))
+finally:
+    tm._sloten_met_wachttijd = origineel
+meld(ok, f"schrijfslot: opschuiven mislukte — {bericht}")
+meld(geblokkeerd == [True], f"schrijfslot: een andere schrijver kwam ertussen ({geblokkeerd})")
+meld(not db.in_transaction, "schrijfslot: de transactie bleef open staan")
+ok, _ = tm.later_inplannen(db, 1, 5, 0)                        # geweigerd
+meld(not db.in_transaction, "schrijfslot: na een weigering bleef het slot hangen")
+db.close()
+os.remove(pad)
+print("  schrijfslot gecontroleerd")
 
 print("\n" + "=" * 62)
 if FOUTEN:

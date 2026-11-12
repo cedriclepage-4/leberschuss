@@ -665,6 +665,7 @@ def actieve_wedstrijd(db, speler_id):
     """
     g_ = db.execute("""
         SELECT g.id, g.scheduled_at, g.tournament_id, g.team1_id, g.team2_id,
+               g.fase, g.status, g.location_id,
                tn.name AS toernooi, loc.name AS locatie,
                t1.player1_id AS a1, t1.player2_id AS a2,
                t2.player1_id AS b1, t2.player2_id AS b2
@@ -694,8 +695,11 @@ def actieve_wedstrijd(db, speler_id):
         doel = url_for("toernooi_detail", toernooi_id=g_["tournament_id"])
     else:
         doel = url_for("speler_profiel", speler_id=speler_id) + "#melden"
+    locatie = g_["locatie"]
+    if g_["tournament_id"] and toernooi_motor.wacht_op_tafel(db, g_):
+        locatie = "wacht op een vrije tafel"
     return {"tegenstander": naam_rij["name"] if naam_rij else "?",
-            "locatie": g_["locatie"],
+            "locatie": locatie,
             "wanneer": g_["scheduled_at"], "toernooi": g_["toernooi"],
             "gemeld": gemeld, "url": doel, "game_id": g_["id"]}
 
@@ -778,6 +782,8 @@ def speler_wedstrijd_meldingen(db, speler_id, toernooi_id=None, alleen_liga=Fals
         # Nog een vroegere wedstrijd open? Dan tonen we deze wel, maar op slot.
         vorige = toernooi_motor.eerdere_wedstrijd(db, g_)
         context = wedstrijd_context(g_)
+        if vorige is None and toernooi_motor.wacht_op_tafel(db, g_):
+            context["locatie"] = "Wacht op een vrije tafel"
         if wedstrijdnummer and g_["fase"] == "bracket" and g_["ronde"]:
             nummer = db.execute("""
                 SELECT COUNT(*) FROM games

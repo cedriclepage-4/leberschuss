@@ -444,6 +444,13 @@ def _migreer_league(conn):
         _voeg_kolom_toe(conn, "matchdays", "tafels", "INTEGER NOT NULL DEFAULT 2")
 
 
+def _migreer_tafel_vast(conn):
+    """Kolom die onthoudt sinds wanneer een vrijgegeven toernooiwedstrijd zijn
+    tafel echt voor zich heeft (zie tafels_toewijzen in tournament.py)."""
+    if _kolommen(conn, "games"):
+        _voeg_kolom_toe(conn, "games", "tafel_vast", "TEXT")
+
+
 def _migreer_laatst_online(conn):
     """Voeg de kolom toe die bijhoudt wanneer een speler laatst online was."""
     _voeg_kolom_toe(conn, "players", "last_seen", "TEXT")
@@ -745,6 +752,7 @@ def init_db(pad: str = DB_PATH) -> None:
     _migreer_coupons_per_team(conn)
     _migreer_onvolledige_teams(conn, pad)
     _migreer_terugtrekken(conn)
+    _migreer_tafel_vast(conn)
     _migreer_laatst_online(conn)
     _migreer_league(conn)
     _migreer_speelrondes(conn)
