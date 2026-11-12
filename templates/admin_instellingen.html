@@ -55,21 +55,28 @@
     </form>
   </p>
   {% if backups %}
-  <table class="tabel compact">
-    <thead><tr><th>Bestand</th><th>Gemaakt op</th><th class="kol-num">Grootte</th></tr></thead>
+  <table class="tabel compact backup-tabel">
+    <thead><tr><th>Bestand</th><th>Gemaakt op</th><th class="kol-num">Grootte</th><th></th></tr></thead>
     <tbody>
       {% for b in backups %}
       <tr>
         <td class="naam stil">{{ b.naam }}</td>
         <td>{{ b.moment.strftime('%d/%m/%Y %H:%M') }}</td>
         <td class="kol-num stil">{{ (b.grootte / 1024)|round|int }} kB</td>
+        <td class="kol-actie">
+          <a class="knop klein download-knop" href="{{ url_for('backup_download_bestaand', naam=b.naam) }}"
+             title="Download {{ b.naam }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+            Download
+          </a>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="stil klein-tekst">Ze staan in <code>{{ backup_map }}</code>. Enkel de
-     20 nieuwste worden bewaard. Terugzetten doe je door zo'n bestand te hernoemen
-     naar <code>shuss.db</code> en de site te herstarten.</p>
+  <p class="stil klein-tekst">Dit zijn de {{ backups|length }} nieuwste kopieën op de
+     server (de {{ backups_bewaren }} nieuwste worden bewaard). Terugzetten doe je door
+     zo'n bestand te downloaden en hieronder weer op te laden.</p>
   {% else %}
   <p class="stil klein-tekst">Er staan nog geen back-ups op de server.</p>
   {% endif %}

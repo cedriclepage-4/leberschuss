@@ -3451,8 +3451,8 @@ def admin_instellingen():
                            k_speler=instelling(db, "k_speler", "32"),
                            k_team=instelling(db, "k_team", "32"),
                            start_elo=f"{START_ELO:.0f}",
-                           backups=backup_lijst()[:6],
-                           backup_map=BACKUP_MAP)
+                           backups=backup_lijst()[:15],
+                           backups_bewaren=BACKUPS_BEWAREN)
 
 
 @app.route("/admin/bezoekers")
@@ -4374,6 +4374,18 @@ def backup_download():
     return send_from_directory(BACKUP_MAP, os.path.basename(pad),
                                as_attachment=True,
                                download_name=f"shuss_{date.today():%Y-%m-%d}.db")
+
+
+@app.route("/admin/backup/download/<naam>")
+@login_vereist
+@eigenaar_vereist
+def backup_download_bestaand(naam):
+    """Een back-up die al op de server staat downloaden. Enkel namen uit de
+    lijst zijn toegelaten, zodat er nooit iets anders uit de map lekt."""
+    if naam not in {b["naam"] for b in backup_lijst()}:
+        abort(404)
+    return send_from_directory(BACKUP_MAP, naam, as_attachment=True,
+                               download_name=naam)
 
 
 @app.route("/admin/league", methods=["POST"])

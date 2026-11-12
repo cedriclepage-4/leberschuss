@@ -264,6 +264,12 @@ label input, label select { margin-top: 4px; }
 .knop.gevaar { background: #fff; border-color: #fecaca; color: var(--rood); }
 .knop.gevaar:hover { background: var(--rood); border-color: var(--rood); color: #fff; }
 .knop.klein { min-height: 32px; padding: 4px 12px; font-size: .84rem; }
+.kol-actie { text-align: right; white-space: nowrap; width: 1%; }
+.download-knop svg {
+  width: 15px; height: 15px; fill: none; stroke: currentColor;
+  stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round;
+}
+.download-knop:hover { background: var(--navy-donker); border-color: var(--navy-donker); color: #fff; }
 .knop.breed { width: 100%; }
 /* Twee formulieren onder elkaar (bv. "Resultaat opslaan" en "Verwijderen")
    mogen niet tegen elkaar plakken — behalve in een flexrij, daar staan ze naast
@@ -3150,4 +3156,12 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
   .bz-tegels { grid-template-columns: 1fr 1fr; gap: 10px; }
   .bz-tegel-cijfer { font-size: 2rem; }
   .bz-grafiek { height: 150px; gap: 1px; }
+}
+
+/* Back-uplijst: op een smal scherm moet de downloadknop zichtbaar blijven. */
+@media (max-width: 600px) {
+  .backup-tabel td.naam { word-break: break-all; font-size: .82rem; }
+  .backup-tabel th:nth-child(2), .backup-tabel td:nth-child(2),
+  .backup-tabel th:nth-child(3), .backup-tabel td:nth-child(3) { display: none; }
+  .backup-tabel .download-knop { padding: 4px 10px; }
 }
