@@ -472,6 +472,7 @@
   function maakKaart(g, extraKlasse) {
     var kaart = el("div", "bm-game " + (extraKlasse || ""));
     kaart.dataset.id = g.id;
+    kaart.dataset.flip = "game-" + g.id;
     [1, 2].forEach(function (slot) {
       var kant = el("div", "bm-kant");
       kant.dataset.slot = slot;
@@ -483,24 +484,47 @@
     return kaart;
   }
 
+  /* Meer dan acht teams in de knockout (achtste finale, voorronde, ...)? Dan
+     is het schema druk. Zodra alle kwartfinalisten bekend zijn, tonen we enkel
+     nog de kwartfinale tot de finale, alsof het een knockout met acht was.
+     Een "vroege" wedstrijd is er een van vóór de kwartfinale (ronde > 8). */
+  var koCompact = false;      // toont het scherm nu het ingekorte schema?
+  function isVroeg(g) { return g.ronde > 8; }
+  function compactSchema(d) {
+    var kolommen = d.knockout.kolommen;
+    var heeftKwart = kolommen.some(function (k) { return k.ronde === 8; });
+    var vroeg = kolommen.filter(function (k) { return k.ronde > 8; });
+    return heeftKwart && vroeg.length > 0 && vroeg.every(function (k) {
+      return k.games.every(function (g) { return g.gespeeld; });
+    });
+  }
+
   function bouwBracket(d) {
     paneelKo.textContent = "";
     kaarten = {};
     var ko = d.knockout;
+    koCompact = false;
     if (!ko.kolommen.length) {
       paneelKo.appendChild(el("p", "bm-leeg",
         "Het knockoutschema verschijnt zodra de bracketfase gespeeld is."));
       return;
     }
+    koCompact = compactSchema(d);
+    var kolommen = koCompact
+      ? ko.kolommen.filter(function (k) { return k.ronde <= 8; })
+      : ko.kolommen;
     /* Het aantal wedstrijden in de eerste ronde bepaalt hoe groot de kaartjes zijn.
        Een voorronde telt zoveel vakken als de ronde erna plaatsen heeft. */
-    var eerste = ko.kolommen[0];
+    var eerste = kolommen[0];
     paneelKo.style.setProperty("--ko-n", Math.max(4, eerste.plaatsen || eerste.games.length));
     var rij = el("div", "bm-kolommen");
-    ko.kolommen.forEach(function (kolom, i) {
-      var laatste = i === ko.kolommen.length - 1;
+    kolommen.forEach(function (kolom, i) {
+      var laatste = i === kolommen.length - 1;
       var k = el("div", "bm-kolom" + (laatste ? " bm-kolom-finale" : ""));
-      k.appendChild(el("div", "bm-kolom-titel", kolom.titel));
+      if (kolom.ronde > 8) k.classList.add("bm-kolom-vroeg");
+      var titel = el("div", "bm-kolom-titel", kolom.titel);
+      titel.dataset.flip = "titel-" + kolom.ronde;
+      k.appendChild(titel);
       var vak = el("div", "bm-kolom-vak");
       if (kolom.voorronde) {
         /* Voorronde: één vak per plaats in de ronde erna, leeg waar een team
@@ -518,7 +542,9 @@
       }
       if (laatste && ko.kleine_finale) {
         var klein = el("div", "bm-klein");
-        klein.appendChild(el("div", "bm-kolom-titel", "Kleine finale"));
+        var kleinTitel = el("div", "bm-kolom-titel", "Kleine finale");
+        kleinTitel.dataset.flip = "titel-klein";
+        klein.appendChild(kleinTitel);
         klein.appendChild(maakKaart(ko.kleine_finale, "bm-kleine-finale"));
         vak.appendChild(klein);
       }
@@ -527,9 +553,12 @@
     });
     /* De kampioen, helemaal rechts. */
     var kamp = el("div", "bm-kolom bm-kolom-kampioen");
-    kamp.appendChild(el("div", "bm-kolom-titel", "Kampioen"));
+    var kampTitel = el("div", "bm-kolom-titel", "Kampioen");
+    kampTitel.dataset.flip = "titel-kampioen";
+    kamp.appendChild(kampTitel);
     var kvak = el("div", "bm-kolom-vak");
     var kaart = el("div", "bm-kampioen" + (ko.kampioen ? " heeft" : ""));
+    kaart.dataset.flip = "kampioen";
     kaart.innerHTML = BEKER;
     kaart.appendChild(el("strong", null, ko.kampioen ? ko.kampioen.naam : "?"));
     if (ko.kampioen) kaart.appendChild(el("small", null, ko.kampioen.spelers));
@@ -542,6 +571,58 @@
     svg.setAttribute("class", "bm-lijnen");
     paneelKo.appendChild(svg);
     requestAnimationFrame(tekenLijnen);
+  }
+
+  /* Van het drukke schema naar het ingekorte: de vroege rondes vervagen naar
+     links, daarna schuiven en groeien de overige kaartjes vloeiend naar hun
+     nieuwe plaats (FLIP: eerst de oude plaatsen meten, dan herschikken, dan
+     elk kaartje vanuit zijn oude plaats laten vertrekken). Werkt op het schema
+     dat er nu staat, dus ook halverwege een reeks uitslagen. */
+  async function naarCompact() {
+    var vroeg = paneelKo.querySelectorAll(".bm-kolom-vroeg");
+    if (koCompact || !vroeg.length) return;
+    var lijnen = paneelKo.querySelector(".bm-lijnen");
+    var kwart = paneelKo.querySelector('[data-flip="titel-8"]');
+    var kwartN = kwart ? kwart.parentNode.querySelectorAll(".bm-game").length : 4;
+    function herschik() {
+      vroeg.forEach(function (k) {
+        k.querySelectorAll(".bm-game").forEach(function (g) { delete kaarten[g.dataset.id]; });
+        k.remove();
+      });
+      paneelKo.style.setProperty("--ko-n", Math.max(4, kwartN));
+      koCompact = true;
+    }
+    if (rustig || !paneelKo.animate || paneelKo.hidden) { herschik(); tekenLijnen(); return; }
+
+    var GLIJ = "cubic-bezier(.6, 0, .25, 1)";
+    var weg = Array.prototype.slice.call(vroeg).concat(lijnen ? [lijnen] : []);
+    await Promise.all(weg.map(function (e) {
+      return e.animate([{ opacity: 1, transform: "none" },
+                        { opacity: 0, transform: "translateX(-3vh)" }],
+                       { duration: 700, easing: "ease-in", fill: "forwards" }).finished;
+    }));
+    var oud = {};
+    paneelKo.querySelectorAll("[data-flip]").forEach(function (e) {
+      oud[e.dataset.flip] = e.getBoundingClientRect();
+    });
+    herschik();
+    paneelKo.querySelectorAll("[data-flip]").forEach(function (e) {
+      var a = oud[e.dataset.flip], b = e.getBoundingClientRect();
+      if (!a || !b.width || !b.height) return;
+      e.animate([
+        { transformOrigin: "0 0", transform: "translate(" + (a.left - b.left) + "px, " + (a.top - b.top) +
+          "px) scale(" + (a.width / b.width) + ", " + (a.height / b.height) + ")" },
+        { transformOrigin: "0 0", transform: "none" }
+      ], { duration: 1400, easing: GLIJ });
+    });
+    await wacht(1450);
+    /* De lijnen opnieuw tekenen nu alles op zijn plaats staat, en zacht tonen. */
+    if (lijnen) {
+      lijnen.getAnimations().forEach(function (a) { a.cancel(); });
+      tekenLijnen();
+      lijnen.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 700, easing: "ease-out" });
+    }
+    await wacht(500);
   }
 
   /* Verbindingslijnen tussen de rondes, berekend uit de echte posities. */
@@ -782,7 +863,10 @@
     });
 
     for (var i = 0; i < nieuweUitslagen.length; i++) {
-      var g = nieuweUitslagen[i], begin = performance.now();
+      var g = nieuweUitslagen[i];
+      /* Alle kwartfinalisten bekend: eerst naar het ingekorte schema. */
+      if (!isVroeg(g) && !koCompact && compactSchema(nieuw)) await naarCompact();
+      var begin = performance.now();
       var kaart = kaarten[g.id];
       if (!kaart) continue;
       /* Teams die intussen pas binnenkwamen, eerst invullen. */
@@ -825,6 +909,7 @@
          heel veel tegelijk binnenkwamen). */
       await wacht(Math.max(500, (nieuweUitslagen.length <= 6 ? 5500 : 4200) - (performance.now() - begin)));
     }
+    if (!koCompact && compactSchema(nieuw)) await naarCompact();
     data = nieuw;              // zodat de lijnen de nieuwe toestand volgen
     bouwBracket(nieuw);
     if (!oud.knockout.kampioen && nieuw.knockout.kampioen) await feest(nieuw.knockout.kampioen);
@@ -1217,9 +1302,8 @@
   /* Een organisator stuurt een VAR-review door (foto + beslissing). Los van
      de stand vragen we elke paar seconden /var.json op: zo verschijnt een
      review meteen, en niet pas bij de volgende ververs. Het verloop (± 15 s):
-       intro    "VAR" knalt in beeld met de wedstrijd eronder
-       beeld    de foto, groot, met een scanlijn erover
-       verdict  de beslissing stempelt zich over de foto
+       intro    de aankondiging: het VAR-logo met de wedstrijd, een balk vult zich
+       beeld    de foto, met meteen de beslissing eronder
      Een review die dit scherm al toonde (ook na herladen) komt niet terug. */
   var varPaneel = document.querySelector("[data-var]");
   var VAR_ELKE = 2500;
@@ -1247,6 +1331,7 @@
       var match = [v.team1, v.team2].filter(Boolean).join("  vs  ");
       if (v.tafel) match += (match ? "  ·  " : "") + v.tafel;
       varPaneel.querySelector("[data-var-match]").textContent = match;
+      varPaneel.querySelector("[data-var-aank-match]").textContent = match;
       var stempel = varPaneel.querySelector("[data-var-stempel]");
       stempel.textContent = v.label;
       varPaneel.className = "bm-var bm-var-" + v.beslissing;
@@ -1254,12 +1339,10 @@
       void varPaneel.offsetWidth;
       varPaneel.classList.add("intro");
       geluid("var");
-      await pauze(3400);
+      await pauze(3800);
       varPaneel.classList.add("beeld");
-      await pauze(5200);
-      varPaneel.classList.add("verdict");
       geluid("var_beslissing");
-      await pauze(v.beslissing === "adje" ? 6000 : 5200);
+      await pauze(10500);
       varPaneel.classList.add("weg");
       await pauze(800);
     } finally {
