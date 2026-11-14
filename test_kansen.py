@@ -195,6 +195,39 @@ eind = sorted(kansen.eindfase(u5, x)["label"] for x in u5["kansen"])
 meld(eind.count("Finale") == 1 and eind.count("Halve finale") == 2 and eind.count("Bracketfase") == 6,
      f"eindfases sluiten ({eind})")
 
+print("6. Verloop doorheen het toernooi")
+kansen.AFLOOPJES_VERLOOP = 300
+v = kansen.verloop(db, 1)
+gespeeld = kansen._gespeeld_in_volgorde(db, 1)
+meld(len(v["momenten"]) == len(gespeeld) + 1,
+     f"één moment per gespeelde wedstrijd plus de aftrap ({len(v['momenten'])})")
+meld(v["momenten"][0]["kansen"] == kansen.bereken_vooraf(db, 1)["kansen"],
+     "eerste moment = de voorspelling van vóór de aftrap")
+meld(v["momenten"][-1]["kansen"] == kansen.bereken(db, 1)["kansen"],
+     "laatste moment = de kansen van nu")
+for i, mo in enumerate(v["momenten"]):
+    k = mo["kansen"]
+    if abs(sum(x[4] for x in k.values()) - 4) > 1e-9 or abs(sum(x[1] for x in k.values()) - 1) > 1e-9:
+        meld(False, f"moment {i} sluit niet")
+        break
+else:
+    meld(True, "elk moment sluit: 4 knockouttickets en één kampioen")
+# Na de laatste bracketwedstrijd en shootout ligt de knockout vast.
+laatste_bracket = max(i for i, mo in enumerate(v["momenten"])
+                      if mo["game"] and mo["game"]["fase"] in ("bracket", "shootout"))
+meld(all((v["momenten"][laatste_bracket]["kansen"][x][4] == 1.0) == (x in in_ko)
+         for x in in_ko | set(v["momenten"][laatste_bracket]["kansen"])),
+     "na de bracketfase staan precies de knockoutteams op 100%")
+# Wie een knockoutwedstrijd verloor, staat vanaf dat moment op 0% voor de titel.
+for i, mo in enumerate(v["momenten"]):
+    g = mo["game"]
+    if g and g["fase"] == "knockout":
+        verl = g["team1_id"] if g["winner_team_id"] == g["team2_id"] else g["team2_id"]
+        meld(all(v["momenten"][j]["kansen"][verl][1] == 0.0 for j in range(i, len(v["momenten"]))),
+             f"verliezer van knockoutwedstrijd {g['id']} staat daarna op 0% voor de titel")
+meld(kansen.verloop(db, 1)["momenten"][1]["kansen"] is v["momenten"][1]["kansen"],
+     "tweede keer: elk moment uit de bewaarde berekening")
+
 print()
 if FOUTEN:
     print(f"{len(FOUTEN)} fout(en).")

@@ -278,6 +278,22 @@
     </ol>
   </div>
 
+  {% if toon_verloop %}
+  <div class="kaart verloop" data-verloop="{{ url_for('toernooi_kansverloop', toernooi_id=t['id']) }}">
+    <h3>Kansen doorheen het toernooi</h3>
+    <p class="klein-tekst stil verloop-uitleg">Hoe de kansen na elke uitslag meeschoven. Kies een ronde en
+      één of meer teams om te vergelijken.</p>
+    <div class="verloop-rondes" role="group" aria-label="Kans op"></div>
+    <div class="verloop-teams" role="group" aria-label="Teams"></div>
+    <div class="verloop-grafiek">
+      <p class="klein-tekst stil verloop-laden">Kansen van elk moment worden berekend…</p>
+    </div>
+    <p class="klein-tekst stil ruimte-boven">Elk punt is een gespeelde wedstrijd: de computer speelde het
+      toernooi op dat moment opnieuw na, met de uitslagen en de Aura van toen. Het eerste punt is de
+      voorspelling van vóór de aftrap, het laatste zijn de kansen van nu.</p>
+  </div>
+  {% endif %}
+
   <div class="kaart">
     <h3>Hoe ver geraakt elk team?</h3>
     <table class="tabel compact kans-tabel">
@@ -544,4 +560,276 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+{% if toon_verloop and kans_rijen %}
+<script>
+/* Kansen doorheen het toernooi: een lijn per gekozen team, een punt per
+   gespeelde wedstrijd. De gegevens komen pas binnen als het tabblad open gaat
+   (zie /toernooi/<id>/kansverloop.json en kansen.verloop). */
+(function () {
+  "use strict";
+  var kaart = document.querySelector("[data-verloop]");
+  if (!kaart) return;
+  var KLEUREN = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+  var MAX = KLEUREN.length;
+  var NS = "http://www.w3.org/2000/svg";
+  var rondesVak = kaart.querySelector(".verloop-rondes");
+  var teamsVak = kaart.querySelector(".verloop-teams");
+  var grafiek = kaart.querySelector(".verloop-grafiek");
+  var data = null, ronde = "1", gekozen = [];   /* gekozen: [{id, kleur}] */
+  var bezig = false, vast = null;
+
+  function pct(k) {
+    if (k >= 1) return "100%";
+    if (k <= 0) return "0%";
+    if (k > 0.99) return ">99%";
+    if (k < 0.01) return "<1%";
+    return Math.round(k * 100) + "%";
+  }
+  function el(ns, tag, attrs, tekst) {
+    var e = ns ? document.createElementNS(NS, tag) : document.createElement(tag);
+    for (var a in attrs) e.setAttribute(a, attrs[a]);
+    if (tekst != null) e.textContent = tekst;
+    return e;
+  }
+  function team(id) {
+    for (var i = 0; i < data.teams.length; i++) if (data.teams[i].id === id) return data.teams[i];
+    return null;
+  }
+  function kleurVan(id) {
+    for (var i = 0; i < gekozen.length; i++) if (gekozen[i].id === id) return KLEUREN[gekozen[i].kleur];
+    return null;
+  }
+
+  function laden() {
+    if (bezig || data) return;
+    bezig = true;
+    fetch(kaart.dataset.verloop, { credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) { data = d; begin(); })
+      .catch(function () {
+        bezig = false;
+        grafiek.innerHTML = '<p class="klein-tekst stil">Het verloop kon niet geladen worden. Ververs de pagina om het opnieuw te proberen.</p>';
+      });
+  }
+
+  function begin() {
+    /* Standaard: je eigen team en de grootste kanshebbers, samen drie. */
+    var ids = [];
+    if (data.mijn_team && team(data.mijn_team)) ids.push(data.mijn_team);
+    for (var i = 0; i < data.teams.length && ids.length < 3; i++)
+      if (ids.indexOf(data.teams[i].id) < 0) ids.push(data.teams[i].id);
+    gekozen = ids.map(function (id, i) { return { id: id, kleur: i }; });
+    data.rondes.forEach(function (r) {
+      var knop = el(false, "button", { type: "button", "class": "verloop-ronde", "data-ronde": r.grootte }, r.label);
+      knop.addEventListener("click", function () { ronde = String(r.grootte); knoppen(); teken(); });
+      rondesVak.appendChild(knop);
+    });
+    data.teams.forEach(function (t) {
+      var knop = el(false, "button", { type: "button", "class": "verloop-team", "data-team": t.id });
+      knop.appendChild(el(false, "span", { "class": "verloop-stip", "aria-hidden": "true" }));
+      knop.appendChild(document.createTextNode(t.naam));
+      knop.addEventListener("click", function () { wissel(t.id); });
+      teamsVak.appendChild(knop);
+    });
+    teamsVak.appendChild(el(false, "span", { "class": "verloop-melding klein-tekst stil", "aria-live": "polite" }));
+    knoppen();
+    teken();
+    var wacht = null;
+    window.addEventListener("resize", function () { clearTimeout(wacht); wacht = setTimeout(teken, 100); });
+  }
+
+  function wissel(id) {
+    var melding = teamsVak.querySelector(".verloop-melding");
+    melding.textContent = "";
+    var plek = -1;
+    gekozen.forEach(function (g, i) { if (g.id === id) plek = i; });
+    if (plek >= 0) {
+      gekozen.splice(plek, 1);
+    } else if (gekozen.length >= MAX) {
+      melding.textContent = "Hoogstens " + MAX + " teams tegelijk.";
+      return;
+    } else {
+      /* De kleur volgt het team: de laagste vrije kleur, en wie al gekozen
+         was, houdt de zijne. */
+      var bezet = gekozen.map(function (g) { return g.kleur; });
+      var k = 0;
+      while (bezet.indexOf(k) >= 0) k++;
+      gekozen.push({ id: id, kleur: k });
+    }
+    knoppen();
+    teken();
+  }
+
+  function knoppen() {
+    rondesVak.querySelectorAll(".verloop-ronde").forEach(function (k) {
+      k.setAttribute("aria-pressed", k.dataset.ronde === ronde ? "true" : "false");
+    });
+    teamsVak.querySelectorAll(".verloop-team").forEach(function (k) {
+      var kleur = kleurVan(Number(k.dataset.team));
+      k.setAttribute("aria-pressed", kleur ? "true" : "false");
+      if (kleur) k.style.setProperty("--kleur", kleur); else k.style.removeProperty("--kleur");
+    });
+  }
+
+  function teken() {
+    if (!data) return;
+    grafiek.innerHTML = "";
+    var n = data.momenten.length;
+    var w = Math.max(grafiek.clientWidth, 260);
+    var smal = w < 520;
+    var h = smal ? 230 : 290;
+    var m = { l: 40, r: smal ? 14 : 112, t: 10, b: 30 };
+    var stap = n > 1 ? (w - m.l - m.r) / (n - 1) : 0;
+    function x(i) { return m.l + i * stap; }
+    function y(k) { return m.t + (1 - k) * (h - m.t - m.b); }
+    var svg = el(true, "svg", { viewBox: "0 0 " + w + " " + h, width: w, height: h, "class": "verloop-svg",
+                                role: "img", "aria-label": "Kansverloop per team" });
+
+    /* Rasterlijnen en de y-as. */
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (k) {
+      svg.appendChild(el(true, "line", { x1: m.l, x2: w - m.r, y1: y(k), y2: y(k), "class": k === 0 ? "verloop-as" : "verloop-raster" }));
+      svg.appendChild(el(true, "text", { x: m.l - 6, y: y(k) + 4, "text-anchor": "end", "class": "verloop-tik" }, Math.round(k * 100) + "%"));
+    });
+
+    /* De fasen onderaan: bracket, shootouts, knockout. */
+    var namen = { bracket: "Bracket", shootout: "Shootouts", knockout: "Knockout" };
+    var fasen = [];
+    data.momenten.forEach(function (mo, i) {
+      if (mo.fase === "aftrap") return;
+      var laatste = fasen[fasen.length - 1];
+      if (laatste && laatste.fase === mo.fase) laatste.tot = i;
+      else fasen.push({ fase: mo.fase, van: i, tot: i });
+    });
+    fasen.forEach(function (f, j) {
+      if (j > 0) {
+        var sx = x(f.van - 0.5);
+        svg.appendChild(el(true, "line", { x1: sx, x2: sx, y1: m.t, y2: h - m.b, "class": "verloop-scheiding" }));
+      }
+      var van = j === 0 ? 0 : f.van - 0.5, tot = j === fasen.length - 1 ? n - 1 : f.tot + 0.5;
+      var label = namen[f.fase] || f.fase;
+      if ((tot - van) * stap >= label.length * 6.5) {
+        svg.appendChild(el(true, "text", { x: (x(van) + x(tot)) / 2, y: h - 10,
+                                           "text-anchor": "middle", "class": "verloop-tik" }, label));
+      }
+    });
+
+    /* De lijnen zelf, met een stip op het laatste punt. */
+    var reeksen = gekozen.map(function (g) {
+      var t = team(g.id);
+      return { id: g.id, naam: t ? t.naam : "?", kleur: KLEUREN[g.kleur],
+               k: t ? t.kansen[ronde] : [] };
+    });
+    reeksen.forEach(function (r) {
+      var d = r.k.map(function (k, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(k).toFixed(1); }).join("");
+      svg.appendChild(el(true, "path", { d: d, "class": "verloop-lijn", stroke: r.kleur }));
+      svg.appendChild(el(true, "circle", { cx: x(n - 1), cy: y(r.k[n - 1]), r: 4, fill: r.kleur, "class": "verloop-stip-eind" }));
+    });
+
+    /* Namen aan het eind van de lijnen (niet op een smal scherm): van boven
+       naar onder, en uit elkaar geduwd als ze elkaar zouden raken. */
+    if (!smal && reeksen.length) {
+      var labels = reeksen.map(function (r) { return { r: r, y: y(r.k[n - 1]) }; })
+                          .sort(function (a, b) { return a.y - b.y; });
+      for (var i = 1; i < labels.length; i++) labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 15);
+      var over = labels[labels.length - 1].y - (h - m.b);
+      if (over > 0) {
+        for (var j = labels.length - 1; j >= 0; j--) {
+          labels[j].y = Math.min(labels[j].y - over, j < labels.length - 1 ? labels[j + 1].y - 15 : Infinity);
+        }
+      }
+      labels.forEach(function (l) {
+        var naam = l.r.naam.length > 13 ? l.r.naam.slice(0, 12) + "…" : l.r.naam;
+        svg.appendChild(el(true, "text", { x: x(n - 1) + 9, y: l.y + 4, "class": "verloop-eindlabel" }, naam));
+      });
+    }
+
+    /* Aanwijzen: een verticale lijn en een kaartje met de kansen op dat moment. */
+    var lijn = el(true, "line", { y1: m.t, y2: h - m.b, "class": "verloop-kruis", visibility: "hidden" });
+    svg.appendChild(lijn);
+    var stippen = reeksen.map(function (r) {
+      var c = el(true, "circle", { r: 5, fill: r.kleur, "class": "verloop-stip-aan", visibility: "hidden" });
+      svg.appendChild(c);
+      return c;
+    });
+    var vlak = el(true, "rect", { x: Math.max(0, m.l - stap / 2), y: 0, width: w - m.l - m.r + stap, height: h, fill: "transparent" });
+    svg.appendChild(vlak);
+    grafiek.appendChild(svg);
+    var kaartje = el(false, "div", { "class": "verloop-tip", hidden: "" });
+    grafiek.appendChild(kaartje);
+
+    if (!reeksen.length) {
+      grafiek.appendChild(el(false, "p", { "class": "verloop-leeg klein-tekst stil" }, "Kies hierboven één of meer teams."));
+    }
+
+    function toon(i) {
+      i = Math.max(0, Math.min(n - 1, i));
+      vast = i;
+      lijn.setAttribute("x1", x(i)); lijn.setAttribute("x2", x(i));
+      lijn.setAttribute("visibility", "visible");
+      reeksen.forEach(function (r, j) {
+        stippen[j].setAttribute("cx", x(i)); stippen[j].setAttribute("cy", y(r.k[i]));
+        stippen[j].setAttribute("visibility", "visible");
+      });
+      var mo = data.momenten[i];
+      kaartje.innerHTML = "";
+      kaartje.appendChild(el(false, "div", { "class": "verloop-tip-fase" },
+                             mo.fase === "aftrap" ? "Start" : (mo.fase_label + " · wedstrijd " + i)));
+      kaartje.appendChild(el(false, "div", { "class": "verloop-tip-titel" }, mo.label));
+      reeksen.slice().sort(function (a, b) { return b.k[i] - a.k[i]; }).forEach(function (r) {
+        var rij = el(false, "div", { "class": "verloop-tip-rij" + (mo.teams && mo.teams.indexOf(r.id) >= 0 ? " speelde" : "") });
+        var stip = el(false, "span", { "class": "verloop-stip" });
+        stip.style.background = r.kleur;
+        rij.appendChild(stip);
+        rij.appendChild(el(false, "span", { "class": "verloop-tip-naam" }, r.naam));
+        if (i > 0) {
+          var v = Math.round((r.k[i] - r.k[i - 1]) * 100);
+          if (v) rij.appendChild(el(false, "span", { "class": "verloop-tip-delta " + (v > 0 ? "op" : "neer") },
+                                    (v > 0 ? "▲ +" : "▼ ") + v));
+        }
+        rij.appendChild(el(false, "strong", {}, pct(r.k[i])));
+        kaartje.appendChild(rij);
+      });
+      kaartje.hidden = false;
+      var schaal = svg.getBoundingClientRect().width / w || 1;
+      var tw = kaartje.offsetWidth, px = x(i) * schaal, breedte = grafiek.clientWidth;
+      var left = px + 14;
+      if (left + tw > breedte) left = px - tw - 14;
+      kaartje.style.left = Math.max(0, left) + "px";
+    }
+    function verberg() {
+      vast = null;
+      lijn.setAttribute("visibility", "hidden");
+      stippen.forEach(function (s) { s.setAttribute("visibility", "hidden"); });
+      kaartje.hidden = true;
+    }
+    function punt(e) {
+      var box = svg.getBoundingClientRect();
+      var px = (e.clientX - box.left) * (w / box.width);
+      return stap ? Math.round((px - m.l) / stap) : 0;
+    }
+    vlak.addEventListener("pointermove", function (e) { toon(punt(e)); });
+    vlak.addEventListener("pointerdown", function (e) { toon(punt(e)); });
+    vlak.addEventListener("pointerleave", function (e) { if (e.pointerType === "mouse") verberg(); });
+    if (vast !== null) toon(vast);
+  }
+
+  /* Pas laden als het tabblad Kansen open gaat of de kaart in beeld komt. */
+  document.querySelectorAll('.tab[data-tab="kansen"]').forEach(function (knop) {
+    knop.addEventListener("click", function () { if (data) teken(); else laden(); });
+  });
+  if (window.location.hash === "#kansen") laden();
+  if ("IntersectionObserver" in window) {
+    var kijker = new IntersectionObserver(function (items) {
+      if (items.some(function (i) { return i.isIntersecting; })) { kijker.disconnect(); laden(); }
+    });
+    kijker.observe(kaart);
+  } else {
+    laden();
+  }
+})();
+</script>
+{% endif %}
 {% endblock %}

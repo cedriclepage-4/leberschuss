@@ -73,11 +73,17 @@ def sterktes_vooraf(db, tid):
         ORDER BY g.played_at DESC, g.id DESC, rh.id DESC
     """, (tid,)):
         voor[(r["entity_type"], r["entity_id"])] = r["elo_voor"]   # de vroegste wint
+    return _sterktes_met(db, tid, voor)
+
+
+def _sterktes_met(db, tid, gekend):
+    """De sterkte van elk team, met de ratings uit `gekend`
+    ({("team"|"speler", id): rating}); wie daar niet in staat, op zijn huidige."""
     spelers = {r["id"]: r["elo"] for r in db.execute("SELECT id, elo FROM players")}
     uit = {}
     for x in tm.deelnemers(db, tid, ook_teruggetrokken=True):
-        team = voor.get(("team", x["id"]), x["elo"])
-        aura = [voor.get(("speler", pid), spelers.get(pid))
+        team = gekend.get(("team", x["id"]), x["elo"])
+        aura = [gekend.get(("speler", pid), spelers.get(pid))
                 for pid in (x["player1_id"], x["player2_id"]) if pid in spelers]
         uit[x["id"]] = zijde_rating(team, [sum(aura) / len(aura)] if aura else [team])
     return uit
@@ -165,7 +171,9 @@ def bereken_vooraf(db, tid):
         return uitkomst
 
 
-def _reken(db, t, sterkte, rng, vooraf=False):
+def _reken(db, t, sterkte, rng, vooraf=False, toestand=None, aantal=None):
+    """Speel het toernooi na en tel. Met `toestand` (zie `_toestand_na`) niet
+    vanuit de database maar vanuit een vroeger moment, met `aantal` afloopjes."""
     tid, cut = t["id"], t["ko_teams"]
     # Bij een knockout met voorronde (bv. 12) eerst "in de knockout" (12), dan
     # de eerste volle ronde (8), 4, 2, 1.
@@ -187,25 +195,36 @@ def _reken(db, t, sterkte, rng, vooraf=False):
             return a if b is None else b
         return a if rng.random() < winstkans(sterkte, a, b) else b
 
-    if t["status"] in ("knockout", "afgelopen") and not vooraf:
-        afloopje = _knockout_afloopje(db, tid, speel, tel)
+    if toestand is not None:
+        knockout = toestand["knockout_bezig"]
+    else:
+        knockout = t["status"] in ("knockout", "afgelopen") and not vooraf
+    if knockout:
+        afloopje = _knockout_afloopje(db, tid, speel, tel,
+                                      toestand["knockout"] if toestand else None)
         deelnemers = set(_knockout_teams(db, tid)) | {x["id"] for x in tm.deelnemers(db, tid)}
     else:
-        afloopje = _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf)
+        afloopje = _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf, toestand)
         deelnemers = {x["id"] for x in tm.deelnemers(db, tid)}
 
     # Niets meer te spelen? Dan is één afloopje het hele verhaal.
-    open_games = db.execute("SELECT COUNT(*) FROM games WHERE tournament_id = ? AND "
-                            "status = 'gepland' AND NOT (fase = 'knockout' AND ronde = ?)",
-                            (tid, KLEINE_FINALE)).fetchone()[0]
-    maximum = AFLOOPJES_VOORAF if vooraf else (MAX_AFLOOPJES if open_games else 1)
+    if toestand is not None:
+        open_games = toestand["open"]
+    else:
+        open_games = db.execute("SELECT COUNT(*) FROM games WHERE tournament_id = ? AND "
+                                "status = 'gepland' AND NOT (fase = 'knockout' AND ronde = ?)",
+                                (tid, KLEINE_FINALE)).fetchone()[0]
+    if aantal is not None:
+        maximum = aantal if open_games else 1
+    else:
+        maximum = AFLOOPJES_VOORAF if vooraf else (MAX_AFLOOPJES if open_games else 1)
 
     n = 0
     begin = time.perf_counter()
     while n < maximum:
         afloopje()
         n += 1
-        if (not vooraf and n >= MIN_AFLOOPJES and n % 100 == 0
+        if (not vooraf and aantal is None and n >= MIN_AFLOOPJES and n % 100 == 0
                 and time.perf_counter() - begin > REKENTIJD):
             break
 
@@ -225,9 +244,12 @@ def _knockout_teams(db, tid):
                 yield kant
 
 
-def _knockout_afloopje(db, tid, speel, tel):
-    """Eén afloopje van een lopende knockout, op het echte schema."""
-    games = [g for g in tm.games_van(db, tid, "knockout") if g["ronde"] != KLEINE_FINALE]
+def _knockout_afloopje(db, tid, speel, tel, games=None):
+    """Eén afloopje van een lopende knockout, op het echte schema (of op de
+    meegegeven knockoutwedstrijden, voor een vroeger moment)."""
+    if games is None:
+        games = tm.games_van(db, tid, "knockout")
+    games = [g for g in games if g["ronde"] != KLEINE_FINALE]
     games.sort(key=lambda g: (-g["ronde"], g["positie"]))
     # Enkel de vakken van de eerste ronde zijn vast; de rest vult het afloopje
     # zelf in met zijn eigen winnaars (bij gespeelde wedstrijden de echte).
@@ -263,14 +285,17 @@ def _knockout_afloopje(db, tid, speel, tel):
     return afloopje
 
 
-def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False):
+def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False, toestand=None):
     """Eén afloopje vanuit de bracketfase: rest van de bracket, eventuele
     shootouts en daarna de hele knockout. Met `vooraf` alsof er nog niets
-    gespeeld is."""
+    gespeeld is, met `toestand` vanuit een vroeger moment."""
     tid, cut = t["id"], t["ko_teams"]
     teams = {x["id"]: x for x in tm.deelnemers(db, tid)}
-    bracket = [dict(g) for g in tm.games_van(db, tid, "bracket")]
-    shootouts = [dict(g) for g in tm.games_van(db, tid, "shootout")]
+    if toestand is not None:
+        bracket, shootouts = toestand["bracket"], toestand["shootouts"]
+    else:
+        bracket = [dict(g) for g in tm.games_van(db, tid, "bracket")]
+        shootouts = [dict(g) for g in tm.games_van(db, tid, "shootout")]
     if vooraf:
         bracket = [dict(g, status="gepland", winner_team_id=None) for g in bracket]
         shootouts = []
@@ -279,7 +304,10 @@ def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False):
     vast_s = [g for g in shootouts if g["status"] == "gespeeld"]
     open_s = [g for g in shootouts if g["status"] != "gespeeld"
               and g["team1_id"] and g["team2_id"]]
-    basis_kracht = {} if vooraf else tm.elo_na_bracketfase(db, tid)
+    if toestand is not None:
+        basis_kracht = toestand["kracht"]
+    else:
+        basis_kracht = {} if vooraf else tm.elo_na_bracketfase(db, tid)
     # De toernooikracht (de Aura die je vanavond won of verloor) is een van de
     # laatste tiebreaks. Voor verzonnen wedstrijden schatten we hem met dezelfde
     # formule als de echte Aura van een team, aan het bracketgewicht.
@@ -328,6 +356,130 @@ def _bracket_afloopje(db, t, sterkte, speel, tel, rng, vooraf=False):
             grootte //= 2
         tel(veld[0], 1)
     return afloopje
+
+
+# ------------------------------------------------------------- verloop --
+#
+# Hoe schoven de kansen van een team mee doorheen de avond? Na elke gespeelde
+# wedstrijd rekenen we het toernooi opnieuw door, zoals de motor het op dat
+# moment gedaan zou hebben: met de uitslagen tot dan, en de ratings van net na
+# die wedstrijd (uit de ratinggeschiedenis). Het eerste punt is de voorspelling
+# van vóór de aftrap (bereken_vooraf), het laatste de huidige kansen (bereken),
+# zodat de grafiek klopt met de rest van het tabblad.
+#
+# Een moment uit het verleden verandert niet meer, dus elk punt wordt apart
+# bewaard: na een nieuwe uitslag komt er enkel één punt bij.
+
+AFLOOPJES_VERLOOP = 1000
+_cache_verloop = {}      # {(tid, vingerafdruk van het moment): kansen}
+_slot_verloop = threading.Lock()
+
+
+def _gespeeld_in_volgorde(db, tid):
+    """De gespeelde wedstrijden die iets aan de kansen kunnen veranderen
+    (alles behalve de kleine finale), in de volgorde waarin ze gespeeld zijn."""
+    return db.execute("""
+        SELECT * FROM games
+        WHERE tournament_id = ? AND status = 'gespeeld' AND winner_team_id IS NOT NULL
+          AND NOT (fase = 'knockout' AND ronde = ?)
+        ORDER BY played_at, id
+    """, (tid, KLEINE_FINALE)).fetchall()
+
+
+def _toestand_na(alle, gespeeld_ids, kracht):
+    """Het toernooi zoals het erbij lag toen enkel `gespeeld_ids` gespeeld waren.
+
+    Wat later gespeeld werd, staat weer open. Shootouts die er nu staan, zijn
+    pas geloot toen de bracketfase rond was; daarvoor rekent het afloopje zelf
+    de shootouts uit, net als de gewone kansberekening.
+    """
+    def op_moment(g):
+        if g["id"] in gespeeld_ids:
+            return dict(g)
+        return dict(g, status="gepland", winner_team_id=None)
+
+    bracket = [op_moment(g) for g in alle if g["fase"] == "bracket"]
+    bracket_rond = all(g["status"] == "gespeeld" for g in bracket)
+    shootouts = [op_moment(g) for g in alle if g["fase"] == "shootout"
+                 and (bracket_rond or g["id"] in gespeeld_ids)]
+    knockout = [op_moment(g) for g in alle if g["fase"] == "knockout"]
+    open_ = sum(1 for g in alle if g["fase"] in ("bracket", "knockout")
+                and g["id"] not in gespeeld_ids
+                and not (g["fase"] == "knockout" and g["ronde"] == KLEINE_FINALE))
+    open_ += sum(1 for g in shootouts if g["status"] != "gespeeld")
+    return {"bracket": bracket, "shootouts": shootouts, "knockout": knockout,
+            "kracht": kracht, "open": open_,
+            "knockout_bezig": any(g["id"] in gespeeld_ids for g in knockout)}
+
+
+def verloop(db, tid):
+    """De kansen van elk team na elke gespeelde wedstrijd, of None.
+
+    Geeft een dict:
+      rondes      zoals bij `bereken`
+      momenten    [{"game": wedstrijd of None (de aftrap), "kansen":
+                   {team_id: {grootte: kans}}}, ...] — de aftrap eerst
+    """
+    nu = bereken(db, tid)
+    vooraf = bereken_vooraf(db, tid)
+    if not nu or not vooraf:
+        return None
+    t = tm.toernooi(db, tid)
+    gespeeld = _gespeeld_in_volgorde(db, tid)
+    alle = [dict(g) for g in db.execute("SELECT * FROM games WHERE tournament_id = ?",
+                                        (tid,))]
+    ko_vorm = ";".join(f"{g['id']}:{g['team1_id']}:{g['team2_id']}:{g['volgende_game_id']}"
+                       for g in sorted(alle, key=lambda g: g["id"])
+                       if g["fase"] == "knockout")
+
+    # De ratings vóór de aftrap, en per wedstrijd wat ze erna werden.
+    gekend, na_game = {}, {}
+    for r in db.execute("""
+        SELECT rh.game_id, rh.entity_type, rh.entity_id, rh.elo_voor, rh.elo_na,
+               g.fase
+        FROM rating_history rh JOIN games g ON g.id = rh.game_id
+        WHERE g.tournament_id = ? AND rh.scope = 'permanent'
+        ORDER BY g.played_at, g.id, rh.id
+    """, (tid,)):
+        gekend.setdefault((r["entity_type"], r["entity_id"]), r["elo_voor"])
+        na_game.setdefault(r["game_id"], []).append(r)
+
+    # Eén tegelijk: kijken tien gsm's tegelijk voor het eerst, dan rekent de
+    # eerste en vinden de anderen alles klaar in de cache.
+    with _slot_verloop:
+        momenten = _momenten(db, t, tid, gespeeld, alle, ko_vorm, gekend, na_game,
+                             vooraf, nu)
+    return {"rondes": nu["rondes"], "momenten": momenten}
+
+
+def _momenten(db, t, tid, gespeeld, alle, ko_vorm, gekend, na_game, vooraf, nu):
+    momenten = [{"game": None, "kansen": vooraf["kansen"]}]
+    gespeeld_ids, kracht = set(), {}
+    h = hashlib.sha1(f"verloop:{tid}:{t['ko_teams']}:{ko_vorm}".encode())
+    for i, g in enumerate(gespeeld):
+        gespeeld_ids.add(g["id"])
+        h.update(f"{g['id']}:{g['winner_team_id']};".encode())
+        for r in na_game.get(g["id"], []):
+            gekend[(r["entity_type"], r["entity_id"])] = r["elo_na"]
+            if r["entity_type"] == "team" and r["fase"] == "bracket":
+                kracht[r["entity_id"]] = (kracht.get(r["entity_id"], 0.0)
+                                          + r["elo_na"] - r["elo_voor"])
+        if i == len(gespeeld) - 1:
+            momenten.append({"game": dict(g), "kansen": nu["kansen"]})
+            break
+        sterkte = _sterktes_met(db, tid, gekend)
+        afdruk = h.copy()
+        for team_id in sorted(sterkte):
+            afdruk.update(f"{team_id}:{sterkte[team_id]:.4f};".encode())
+        sleutel = (tid, afdruk.hexdigest())
+        kansen = _cache_verloop.get(sleutel)
+        if kansen is None:
+            toestand = _toestand_na(alle, gespeeld_ids, dict(kracht))
+            kansen = _reken(db, t, sterkte, random.Random(sleutel[1]), toestand=toestand,
+                            aantal=AFLOOPJES_VERLOOP)["kansen"]
+            _cache_verloop[sleutel] = kansen
+        momenten.append({"game": dict(g), "kansen": kansen})
+    return momenten
 
 
 # ------------------------------------------------------------ weergave --

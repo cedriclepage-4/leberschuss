@@ -4700,6 +4700,55 @@ def toernooien():
     return render_template("toernooien.html", lijst=lijst)
 
 
+@app.route("/toernooi/<int:toernooi_id>/kansverloop.json")
+def toernooi_kansverloop(toernooi_id):
+    """Hoe de kansen van elk team meeschoven na elke uitslag (kansen.verloop),
+    voor de grafiek op het tabblad Kansen. Pas opgehaald als dat tabblad open
+    gaat: de eerste keer na een herstart kan het rekenen enkele seconden duren."""
+    from elo import ko_label
+    db = get_db()
+    _toernooi_of_404(db, toernooi_id)
+    v = kansmotor.verloop(db, toernooi_id)
+    if not v:
+        return jsonify({"ok": False}), 404
+    teams = {x["id"]: x for x in toernooi_motor.deelnemers(db, toernooi_id)}
+    nu = v["momenten"][-1]["kansen"]
+    volgorde = sorted((x for x in nu if x in teams),
+                      key=lambda x: tuple(-nu[x][r["grootte"]] for r in reversed(v["rondes"]))
+                      + (teams[x]["naam"].lower(),))
+
+    def naam(team_id):
+        return teams[team_id]["naam"] if team_id in teams else "?"
+
+    momenten = []
+    for m in v["momenten"]:
+        g = m["game"]
+        if g is None:
+            momenten.append({"label": "Vóór de aftrap", "fase": "aftrap"})
+            continue
+        verliezer = g["team2_id"] if g["winner_team_id"] == g["team1_id"] else g["team1_id"]
+        fase = {"bracket": f"Ronde {g['ronde']}" if g["ronde"] else "Bracketfase",
+                "shootout": "Shootout",
+                "knockout": ko_label(g["ronde"], "knockout")}.get(g["fase"], g["fase"])
+        momenten.append({"label": f"{naam(g['winner_team_id'])} wint van {naam(verliezer)}",
+                         "fase_label": fase, "fase": g["fase"],
+                         "teams": [g["team1_id"], g["team2_id"]]})
+    rondes = [{"grootte": r["grootte"], "label": "Knockout" if i == 0 else r["label"]}
+              for i, r in enumerate(v["rondes"])]
+    ik = session.get("speler_id")
+    mijn_team = next((x for x in teams.values() if ik and ik in (x["player1_id"], x["player2_id"])),
+                     None)
+    return jsonify({
+        "ok": True, "rondes": rondes, "momenten": momenten,
+        "teams": [{"id": x, "naam": teams[x]["naam"],
+                   "kansen": {str(r["grootte"]): [round(m["kansen"].get(x, {}).get(r["grootte"], 0.0), 4)
+                                                  for m in v["momenten"]]
+                              for r in v["rondes"]}}
+                  for x in volgorde],
+        "mijn_team": mijn_team["id"] if mijn_team else None,
+    })
+
+
 @app.route("/toernooi/<int:toernooi_id>")
 def toernooi_detail(toernooi_id):
     db = get_db()
@@ -4838,7 +4887,7 @@ def toernooi_detail(toernooi_id):
                            actieve_types=actieve_types,
                            kans_uitkomst=kans_uitkomst, kans_rijen=kans_rijen,
                            game_kans=game_kans, mijn_kansen=mijn_kansen,
-                           vergelijking=vergelijking,
+                           vergelijking=vergelijking, toon_verloop=bool(al_gespeeld),
                            namen=namen, loc_namen=loc_namen, kolommen=kolommen,
                            stand=rangschikking, beslissend=beslissend, deltas=deltas,
                            tiebreaks=(toernooi_motor.tiebreak_groepen(db, toernooi_id)
