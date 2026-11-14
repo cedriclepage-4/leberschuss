@@ -74,12 +74,13 @@
       <span class="bz-enkel-bezoekers">Unieke bezoekers per {{ per }}{% if hoogste %} · hoogste: <strong>{{ hoogste }}</strong>{% endif %}.</span>
       <span class="bz-enkel-paginas">Geopende pagina's per {{ per }}{% if hoogste_p %} · hoogste: <strong>{{ hoogste_p }}</strong>{% endif %}.</span>
       Wijs een balk aan voor details.</p>
+    <p class="bz-legende klein-tekst"><span><i class="bz-sw bz-sw-a"></i>Ingelogd</span><span><i class="bz-sw bz-sw-rest"></i>Niet ingelogd</span></p>
     <div class="bz-grafiek" role="img"
          aria-label="Unieke bezoekers en pagina's per {{ per }}">
       {% for e in emmers %}
       <div class="bz-kolom" tabindex="0"
-           data-tip="{{ e.tip }} · {{ e.bezoekers }} bezoeker{{ 's' if e.bezoekers != 1 }} · {{ e.paginas }} pagina's">
-        <div class="bz-balk" style="--h-b: {{ e.hoogte }}%; --h-p: {{ e.hoogte_p }}%"></div>
+           data-tip="{{ e.tip }} · {{ e.bezoekers }} bezoeker{{ 's' if e.bezoekers != 1 }} ({{ e.ingelogd }} ingelogd) · {{ e.paginas }} pagina's ({{ e.paginas_in }} ingelogd)">
+        <div class="bz-balk" style="--h-b: {{ e.hoogte }}%; --h-p: {{ e.hoogte_p }}%; --d-b: {{ e.deel_in }}%; --d-p: {{ e.deel_in_p }}%"><div class="bz-balk-in"></div></div>
         <span class="bz-as-label">{{ e.label if e.toon_label }}</span>
       </div>
       {% endfor %}

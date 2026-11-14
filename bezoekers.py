@@ -507,7 +507,17 @@ def _kolommen(emmers):
     for e in emmers:
         e["hoogte"] = round(100 * e["bezoekers"] / hoogste, 1)
         e["hoogte_p"] = round(100 * e["paginas"] / hoogste_p, 1)
+        # Welk deel van de balk ingelogd was (in % van de balk zelf).
+        e["deel_in"] = round(100 * e["ingelogd"] / e["bezoekers"], 1) if e["bezoekers"] else 0
+        e["deel_in_p"] = round(100 * e["paginas_in"] / e["paginas"], 1) if e["paginas"] else 0
     return emmers
+
+
+def _emmer_tellen(deel):
+    """Bezoekers en pagina's in één balk, en hoeveel daarvan ingelogd."""
+    return {"bezoekers": len({r[1] for r in deel}), "paginas": len(deel),
+            "ingelogd": len({r[1] for r in deel if r[2]}),
+            "paginas_in": sum(1 for r in deel if r[2])}
 
 
 def _grafiek_uren(rijen, nu):
@@ -518,8 +528,7 @@ def _grafiek_uren(rijen, nu):
         sleutel = van.strftime("%Y-%m-%d %H")
         deel = [r for r in rijen if r[0][:13] == sleutel]
         emmers.append({"label": f"{van:%H}u", "tip": f"{van:%H}:00–{van:%H}:59",
-                       "bezoekers": len({r[1] for r in deel}), "paginas": len(deel),
-                       "toon_label": van.hour % 3 == 0})
+                       **_emmer_tellen(deel), "toon_label": van.hour % 3 == 0})
     return _kolommen(emmers)
 
 
@@ -532,7 +541,6 @@ def _grafiek_dagen(rijen, nu, aantal):
         naam = f"{DAGNAMEN[dag.weekday()]} {dag.day} {MAANDEN[dag.month - 1]}"
         emmers.append({"label": (DAGNAMEN[dag.weekday()] if aantal <= 7
                                  else f"{dag.day}/{dag.month}"),
-                       "tip": naam,
-                       "bezoekers": len({r[1] for r in deel}), "paginas": len(deel),
+                       "tip": naam, **_emmer_tellen(deel),
                        "toon_label": aantal <= 7 or i % 5 == 0})
     return _kolommen(emmers)

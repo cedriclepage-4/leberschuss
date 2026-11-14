@@ -3134,6 +3134,15 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
 [data-maat="paginas"] .bz-balk { height: var(--h-p); background: var(--navy); }
 [data-maat="paginas"] .bz-kolom:hover .bz-balk, [data-maat="paginas"] .bz-kolom:focus .bz-balk { background: var(--navy-donker); }
 .bz-kolom:hover .bz-balk, .bz-kolom:focus .bz-balk { background: var(--amber-donker); }
+/* Ingelogd deel onderaan elke balk (navy, zoals bij "Wie"). */
+.bz-balk { display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.bz-balk-in { height: var(--d-b); background: var(--navy); transition: height .2s; }
+[data-maat="paginas"] .bz-balk { background: color-mix(in srgb, var(--navy) 35%, #fff); }
+[data-maat="paginas"] .bz-kolom:hover .bz-balk, [data-maat="paginas"] .bz-kolom:focus .bz-balk { background: color-mix(in srgb, var(--navy) 50%, #fff); }
+[data-maat="paginas"] .bz-balk-in { height: var(--d-p); }
+.bz-legende { display: flex; gap: 14px; margin: -6px 0 10px; color: var(--stil); }
+.bz-sw-rest { background: var(--amber); }
+[data-maat="paginas"] .bz-sw-rest { background: color-mix(in srgb, var(--navy) 35%, #fff); }
 .bz-kolom:hover, .bz-kolom:focus { background: rgba(15, 23, 42, .04); border-radius: 4px; }
 .bz-as-label { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-size: .72rem; color: var(--stil); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
