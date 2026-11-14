@@ -4479,7 +4479,7 @@ def speler_vrijgeven(speler_id):
 GESCHIEDENIS_TABELLEN = ["game_stats", "game_reports", "rating_history",
                          "season_ratings", "games", "tournament_teams",
                          "tournament_locations", "tournaments", "matchdays",
-                         "seasons"]
+                         "seasons", "kansverloop"]
 # Daarbovenop bij "alles wissen":
 ALLES_TABELLEN = GESCHIEDENIS_TABELLEN + ["claim_log", "teams", "players"]
 

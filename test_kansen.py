@@ -228,6 +228,31 @@ for i, mo in enumerate(v["momenten"]):
 meld(kansen.verloop(db, 1)["momenten"][1]["kansen"] is v["momenten"][1]["kansen"],
      "tweede keer: elk moment uit de bewaarde berekening")
 
+print("7. Verloop bewaard in de database")
+rijen = db.execute("SELECT COUNT(*) FROM kansverloop WHERE tournament_id = 1").fetchone()[0]
+# De aftrap en het laatste punt komen uit bereken_vooraf en bereken.
+meld(rijen == len(v["momenten"]) - 2, f"één rij per tussenliggend moment ({rijen})")
+db.execute("INSERT INTO kansverloop (tournament_id, afdruk, kansen) VALUES (1, 'oud', '{}')")
+db.commit()
+kansen._cache_verloop.clear()                     # alsof de server herstart is
+echt_reken = kansen._reken
+gerekend = []
+kansen._reken = lambda *a, **k: (gerekend.append(k.get("toestand") is not None), echt_reken(*a, **k))[1]
+v2 = kansen.verloop(db, 1)
+kansen._reken = echt_reken
+meld(not any(gerekend), "na een herstart: niets opnieuw berekend, alles uit de tabel")
+meld([m["kansen"] for m in v2["momenten"]] == [m["kansen"] for m in v["momenten"]],
+     "uit de tabel komen exact dezelfde kansen")
+meld(not db.execute("SELECT 1 FROM kansverloop WHERE afdruk = 'oud'").fetchone(),
+     "een rij die bij geen enkel moment meer hoort, is opgeruimd")
+db.execute("UPDATE kansverloop SET kansen = 'kapot' WHERE tournament_id = 1")
+db.commit()
+kansen._cache_verloop.clear()
+v3 = kansen.verloop(db, 1)
+meld(len(v3["momenten"]) == len(v["momenten"]) and all(
+         abs(sum(x[1] for x in m["kansen"].values()) - 1) < 1e-6 for m in v3["momenten"]),
+     "kapotte rijen: gewoon opnieuw berekend")
+
 print()
 if FOUTEN:
     print(f"{len(FOUTEN)} fout(en).")

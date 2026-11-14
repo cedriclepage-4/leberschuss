@@ -26,7 +26,9 @@ rekenen.
 """
 
 import hashlib
+import json
 import random
+import sqlite3
 import threading
 import time
 
@@ -428,9 +430,18 @@ def verloop(db, tid):
     gespeeld = _gespeeld_in_volgorde(db, tid)
     alle = [dict(g) for g in db.execute("SELECT * FROM games WHERE tournament_id = ?",
                                         (tid,))]
-    ko_vorm = ";".join(f"{g['id']}:{g['team1_id']}:{g['team2_id']}:{g['volgende_game_id']}"
-                       for g in sorted(alle, key=lambda g: g["id"])
-                       if g["fase"] == "knockout")
+    # Het vaste schema van de knockout: welke wedstrijd waarin uitmondt, en
+    # wie in de vakken zit waar geen wedstrijd in uitmondt. De vakken die later
+    # gevuld worden met winnaars horen er níet bij: anders zou elke uitslag in
+    # de knockout alle vorige punten ongeldig maken.
+    gevoed = {(g["volgende_game_id"], g["volgende_slot"]) for g in alle
+              if g["fase"] == "knockout" and g["volgende_game_id"]}
+    ko_vorm = ";".join(
+        f"{g['id']}:{g['ronde']}:{g['volgende_game_id']}:{g['volgende_slot']}:"
+        + ",".join(str(g[f"team{s}_id"]) for s in (1, 2) if (g["id"], s) not in gevoed)
+        for g in sorted(alle, key=lambda g: g["id"]) if g["fase"] == "knockout")
+    deelnemers = ",".join(str(x["id"]) for x in sorted(tm.deelnemers(db, tid),
+                                                       key=lambda x: x["id"]))
 
     # De ratings vóór de aftrap, en per wedstrijd wat ze erna werden.
     gekend, na_game = {}, {}
@@ -447,15 +458,31 @@ def verloop(db, tid):
     # Eén tegelijk: kijken tien gsm's tegelijk voor het eerst, dan rekent de
     # eerste en vinden de anderen alles klaar in de cache.
     with _slot_verloop:
-        momenten = _momenten(db, t, tid, gespeeld, alle, ko_vorm, gekend, na_game,
-                             vooraf, nu)
+        momenten = _momenten(db, t, tid, gespeeld, alle, ko_vorm, deelnemers, gekend,
+                             na_game, vooraf, nu)
     return {"rondes": nu["rondes"], "momenten": momenten}
 
 
-def _momenten(db, t, tid, gespeeld, alle, ko_vorm, gekend, na_game, vooraf, nu):
+def _uit_json(tekst):
+    """{team_id: {grootte: kans}} terug uit JSON, waar sleutels tekst worden."""
+    return {int(team_id): {int(gr): kans for gr, kans in per.items()}
+            for team_id, per in json.loads(tekst).items()}
+
+
+def _momenten(db, t, tid, gespeeld, alle, ko_vorm, deelnemers, gekend, na_game,
+              vooraf, nu):
+    # Wat al eens berekend is, staat in de tabel kansverloop: zo overleeft het
+    # een herstart van de server, en delen de werkprocessen van gunicorn het.
+    try:
+        bewaard = {r["afdruk"]: r["kansen"] for r in db.execute(
+            "SELECT afdruk, kansen FROM kansverloop WHERE tournament_id = ?", (tid,))}
+    except sqlite3.Error:
+        bewaard = {}
+    nieuw, gebruikt = [], set()
+
     momenten = [{"game": None, "kansen": vooraf["kansen"]}]
     gespeeld_ids, kracht = set(), {}
-    h = hashlib.sha1(f"verloop:{tid}:{t['ko_teams']}:{ko_vorm}".encode())
+    h = hashlib.sha1(f"verloop:{tid}:{t['ko_teams']}:{deelnemers}".encode())
     for i, g in enumerate(gespeeld):
         gespeeld_ids.add(g["id"])
         h.update(f"{g['id']}:{g['winner_team_id']};".encode())
@@ -471,15 +498,49 @@ def _momenten(db, t, tid, gespeeld, alle, ko_vorm, gekend, na_game, vooraf, nu):
         afdruk = h.copy()
         for team_id in sorted(sterkte):
             afdruk.update(f"{team_id}:{sterkte[team_id]:.4f};".encode())
+        toestand = _toestand_na(alle, gespeeld_ids, dict(kracht))
+        # In de bracketfase doet de knockout er nog niet toe; zodra hij loopt,
+        # telt zijn vaste schema mee.
+        if toestand["knockout_bezig"]:
+            afdruk.update(f"ko:{ko_vorm}".encode())
         sleutel = (tid, afdruk.hexdigest())
+        gebruikt.add(sleutel[1])
         kansen = _cache_verloop.get(sleutel)
+        if kansen is None and sleutel[1] in bewaard:
+            try:
+                kansen = _uit_json(bewaard[sleutel[1]])
+            except (ValueError, AttributeError):
+                kansen = None                    # kapotte rij: gewoon opnieuw rekenen
+            if kansen is not None:
+                _cache_verloop[sleutel] = kansen
         if kansen is None:
-            toestand = _toestand_na(alle, gespeeld_ids, dict(kracht))
             kansen = _reken(db, t, sterkte, random.Random(sleutel[1]), toestand=toestand,
                             aantal=AFLOOPJES_VERLOOP)["kansen"]
             _cache_verloop[sleutel] = kansen
+            nieuw.append((tid, sleutel[1], json.dumps(kansen, separators=(",", ":"))))
         momenten.append({"game": dict(g), "kansen": kansen})
+    _bewaar(db, tid, nieuw, set(bewaard) - gebruikt)
     return momenten
+
+
+def _bewaar(db, tid, nieuw, verouderd):
+    """Schrijf nieuwe punten weg en ruim punten op die niet meer kloppen (een
+    uitslag die rechtgezet werd, herberekende ratings...). Lukt het niet
+    (database even bezet), dan rekenen we de volgende keer gewoon opnieuw:
+    dit is enkel een cache en mag een pagina nooit doen mislukken."""
+    if not nieuw and not verouderd:
+        return
+    try:
+        db.executemany("INSERT OR IGNORE INTO kansverloop (tournament_id, afdruk, kansen) "
+                       "VALUES (?, ?, ?)", nieuw)
+        db.executemany("DELETE FROM kansverloop WHERE tournament_id = ? AND afdruk = ?",
+                       [(tid, a) for a in verouderd])
+        db.commit()
+    except sqlite3.Error:
+        try:
+            db.rollback()
+        except sqlite3.Error:
+            pass
 
 
 # ------------------------------------------------------------ weergave --

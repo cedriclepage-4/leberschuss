@@ -259,6 +259,19 @@ CREATE TABLE IF NOT EXISTS rating_history (
     season_id   INTEGER
 );
 
+-- Kansverloop (kansen.verloop): de kansen van elk team na één gespeelde
+-- wedstrijd, als JSON {team_id: {grootte: kans}}. Enkel een cache: de
+-- vingerafdruk dekt alle uitslagen tot dan en de ratings van dat moment, dus
+-- verandert er iets, dan past de oude rij gewoon niet meer (en wordt ze
+-- opgeruimd). Leegmaken mag altijd; alles wordt dan opnieuw berekend.
+CREATE TABLE IF NOT EXISTS kansverloop (
+    tournament_id INTEGER NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    afdruk        TEXT NOT NULL,
+    kansen        TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    PRIMARY KEY (tournament_id, afdruk)
+);
+
 -- Zelf te definiëren rangen, bv. "Zilver" van 900 tot 1000 Aura.
 CREATE TABLE IF NOT EXISTS ranks (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
