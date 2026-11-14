@@ -288,6 +288,7 @@
     <div class="verloop-grafiek">
       <p class="klein-tekst stil verloop-laden">Kansen van elk moment worden berekend…</p>
     </div>
+    <p class="klein-tekst stil verloop-schaal-uitleg"></p>
     <p class="klein-tekst stil ruimte-boven">Elk punt is een gespeelde wedstrijd: de computer speelde het
       toernooi op dat moment opnieuw na, met de uitslagen en de Aura van toen. Het eerste punt is de
       voorspelling van vóór de aftrap, het laatste zijn de kansen van nu.</p>
@@ -578,7 +579,10 @@
   var rondesVak = kaart.querySelector(".verloop-rondes");
   var teamsVak = kaart.querySelector(".verloop-teams");
   var grafiek = kaart.querySelector(".verloop-grafiek");
+  var uitleg = kaart.querySelector(".verloop-schaal-uitleg");
   var data = null, ronde = "1", gekozen = [];   /* gekozen: [{id, kleur}] */
+  var zoom = true;
+  try { zoom = window.localStorage.getItem("verloop-zoom") !== "nee"; } catch (e) { /* geen opslag */ }
   var bezig = false, vast = null;
 
   function pct(k) {
@@ -627,6 +631,17 @@
       knop.addEventListener("click", function () { ronde = String(r.grootte); knoppen(); teken(); });
       rondesVak.appendChild(knop);
     });
+    var schaal = el(false, "span", { "class": "verloop-schaal", role: "group", "aria-label": "Schaal" });
+    [["ja", "Ingezoomd"], ["nee", "0–100%"]].forEach(function (s) {
+      var knop = el(false, "button", { type: "button", "class": "verloop-schaal-knop", "data-zoom": s[0] }, s[1]);
+      knop.addEventListener("click", function () {
+        zoom = s[0] === "ja";
+        try { window.localStorage.setItem("verloop-zoom", s[0]); } catch (e) { /* geen opslag */ }
+        knoppen(); teken();
+      });
+      schaal.appendChild(knop);
+    });
+    rondesVak.appendChild(schaal);
     data.teams.forEach(function (t) {
       var knop = el(false, "button", { type: "button", "class": "verloop-team", "data-team": t.id });
       knop.appendChild(el(false, "span", { "class": "verloop-stip", "aria-hidden": "true" }));
@@ -667,6 +682,9 @@
     rondesVak.querySelectorAll(".verloop-ronde").forEach(function (k) {
       k.setAttribute("aria-pressed", k.dataset.ronde === ronde ? "true" : "false");
     });
+    rondesVak.querySelectorAll(".verloop-schaal-knop").forEach(function (k) {
+      k.setAttribute("aria-pressed", (k.dataset.zoom === "ja") === zoom ? "true" : "false");
+    });
     teamsVak.querySelectorAll(".verloop-team").forEach(function (k) {
       var kleur = kleurVan(Number(k.dataset.team));
       k.setAttribute("aria-pressed", kleur ? "true" : "false");
@@ -684,15 +702,57 @@
     var m = { l: 40, r: smal ? 14 : 112, t: 10, b: 30 };
     var stap = n > 1 ? (w - m.l - m.r) / (n - 1) : 0;
     function x(i) { return m.l + i * stap; }
-    function y(k) { return m.t + (1 - k) * (h - m.t - m.b); }
+    var reeksen = gekozen.map(function (g) {
+      var t = team(g.id);
+      return { id: g.id, naam: t ? t.naam : "?", kleur: KLEUREN[g.kleur],
+               k: t ? t.kansen[ronde] : [] };
+    });
+
+    /* Ingezoomd: de meeste kansen liggen lang tussen 5 en 30%, en pas op het
+       einde schiet er één naar 100%. Het bereik waar de meeste punten liggen
+       (0 tot `top`) krijgt dan drie kwart van de hoogte; daarboven tot 100% is
+       de schaal samengedrukt (de grijze band). Zo blijft 100% in beeld en
+       liggen de lijnen eronder niet op elkaar. */
+    var top = 1;
+    if (zoom) {
+      var alle = [];
+      reeksen.forEach(function (r) { r.k.forEach(function (k) { if (k > 0 && k < 1) alle.push(k); }); });
+      alle.sort(function (a, b) { return a - b; });
+      if (alle.length) {
+        var doel = alle[Math.floor(0.85 * (alle.length - 1))] * 1.15;
+        top = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5].filter(function (v) { return v >= doel; })[0] || 1;
+      }
+    }
+    var DEEL = top < 1 ? 0.75 : 1;
+    function f(k) { return top >= 1 ? k : (k <= top ? k / top * DEEL : DEEL + (k - top) / (1 - top) * (1 - DEEL)); }
+    function y(k) { return m.t + (1 - f(k)) * (h - m.t - m.b); }
+    function tik(k) { return String(Math.round(k * 1000) / 10).replace(".", ",") + "%"; }
     var svg = el(true, "svg", { viewBox: "0 0 " + w + " " + h, width: w, height: h, "class": "verloop-svg",
                                 role: "img", "aria-label": "Kansverloop per team" });
 
     /* Rasterlijnen en de y-as. */
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (k) {
+    var tikken = [0, 0.25, 0.5, 0.75, 1];
+    if (top < 1) {
+      var s = [0.1, 0.05, 0.025, 0.01].filter(function (s) { return top / s >= 3; })[0] || 0.01;
+      tikken = [];
+      for (var t = 0; t <= top + 1e-9; t += s) tikken.push(Math.round(t * 1000) / 1000);
+      svg.appendChild(el(true, "rect", { x: m.l, y: y(1), width: w - m.l - m.r, height: y(top) - y(1), "class": "verloop-band" }));
+      if (top <= 0.3 && y(top) - y(1) >= 50) tikken.push(0.5);
+      tikken.push(1);
+    }
+    tikken.forEach(function (k) {
       svg.appendChild(el(true, "line", { x1: m.l, x2: w - m.r, y1: y(k), y2: y(k), "class": k === 0 ? "verloop-as" : "verloop-raster" }));
-      svg.appendChild(el(true, "text", { x: m.l - 6, y: y(k) + 4, "text-anchor": "end", "class": "verloop-tik" }, Math.round(k * 100) + "%"));
+      svg.appendChild(el(true, "text", { x: m.l - 6, y: y(k) + 4, "text-anchor": "end", "class": "verloop-tik" }, tik(k)));
     });
+    if (top < 1) {
+      /* Breukteken op de as: hier springt de schaal. */
+      var by = y(top) - 5;
+      svg.appendChild(el(true, "path", { d: "M" + (m.l - 5) + " " + (by + 3) + "l10 -4M" + (m.l - 5) + " " + (by + 7) + "l10 -4",
+                                         "class": "verloop-breuk" }));
+    }
+    uitleg.textContent = top < 1
+      ? "Ingezoomd op 0–" + tik(top) + ": daarboven (grijze band) is de schaal samengedrukt, zodat 100% in beeld blijft."
+      : "";
 
     /* De fasen onderaan: bracket, shootouts, knockout. */
     var namen = { bracket: "Bracket", shootout: "Shootouts", knockout: "Knockout" };
@@ -717,11 +777,6 @@
     });
 
     /* De lijnen zelf, met een stip op het laatste punt. */
-    var reeksen = gekozen.map(function (g) {
-      var t = team(g.id);
-      return { id: g.id, naam: t ? t.naam : "?", kleur: KLEUREN[g.kleur],
-               k: t ? t.kansen[ronde] : [] };
-    });
     reeksen.forEach(function (r) {
       var d = r.k.map(function (k, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(k).toFixed(1); }).join("");
       svg.appendChild(el(true, "path", { d: d, "class": "verloop-lijn", stroke: r.kleur }));
