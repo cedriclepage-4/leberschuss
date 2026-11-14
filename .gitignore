@@ -28,3 +28,6 @@ Thumbs.db
 
 # Achtergebleven tijdelijke bestanden van een netwerkschijf (FUSE)
 .fuse_hidden*
+
+# Plaatsdatabank voor de bezoekersstatistieken (± 130 MB, zie geo_bijwerken.py)
+geo/

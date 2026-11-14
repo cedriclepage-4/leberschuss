@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 WERKMAP = tempfile.mkdtemp(prefix="shuss_bezoek_")
 BRON = os.path.dirname(os.path.abspath(__file__))
 for naam in ("app.py", "database.py", "elo.py", "tournament.py", "league.py", "dop.py",
-             "samenvoegen.py", "kansen.py", "bezoekers.py"):
+             "samenvoegen.py", "kansen.py", "bezoekers.py", "geo.py"):
     shutil.copy(os.path.join(BRON, naam), WERKMAP)
 shutil.copytree(os.path.join(BRON, "templates"), os.path.join(WERKMAP, "templates"))
 shutil.copytree(os.path.join(BRON, "static"), os.path.join(WERKMAP, "static"),
@@ -25,9 +25,11 @@ os.chdir(WERKMAP)
 
 import app as shuss                                              # noqa: E402
 import bezoekers as bz                                           # noqa: E402
+import geo                                                       # noqa: E402
 from database import verbind                                     # noqa: E402
 
 DB = os.path.join(WERKMAP, "shuss.db")
+ECHTE_GEO = os.path.join(BRON, "geo", "dbip-city-lite.mmdb")
 FOUTEN = []
 CHROME = ("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/130.0 Mobile Safari/537.36")
@@ -95,6 +97,27 @@ check(aantal() == voor and bz.COOKIE not in (r.headers.get("Set-Cookie") or ""),
 ruw = conn.execute("SELECT * FROM bezoeken").fetchall()
 check(all(len(r["bezoeker"]) == 20 for r in ruw), "geen IP-adres, enkel een code")
 
+print("\n== Plaats ==")
+check(geo.plaats("127.0.0.1") is None and geo.plaats("192.168.1.5") is None
+      and geo.plaats("geen adres") is None, "eigen netwerk of onzin: geen plaats")
+if os.path.exists(ECHTE_GEO):
+    geo.BESTAND = ECHTE_GEO
+    geo._laatst_gekeken = 0
+    check(geo.plaats("212.71.0.1") == "Sint-Niklaas (Vlaanderen)", f"Belgisch adres ({geo.plaats('212.71.0.1')})")
+    check(geo.plaats("193.191.1.1") == "Brussel", f"Brussel, in het Nederlands ({geo.plaats('193.191.1.1')})")
+    check((geo.plaats("90.0.0.1") or "").endswith("(Frankrijk)"), f"buitenland ({geo.plaats('90.0.0.1')})")
+    voor = aantal()
+    gast.get("/", environ_base={"REMOTE_ADDR": "212.71.0.1", "HTTP_USER_AGENT": CHROME})
+    check(aantal() == voor + 1, "bezoek met een echt IP-adres telt")
+    rij = conn.execute("SELECT * FROM bezoeken ORDER BY id DESC").fetchone()
+    check(rij["plaats"] == "Sint-Niklaas (Vlaanderen)", f"de gemeente wordt bewaard ({rij['plaats']})")
+    check("212.71" not in " ".join(str(v) for v in tuple(rij)), "het IP-adres zelf niet")
+    geo.BESTAND = os.path.join(WERKMAP, "geo", "bestaat-niet.mmdb")
+    geo._laatst_gekeken = 0
+    check(geo.plaats("212.71.0.1") is None, "zonder databank: gewoon geen plaats")
+else:
+    print("  (plaatsdatabank niet gevonden: python geo_bijwerken.py; opzoeken overgeslagen)")
+
 print("\n== Toegang ==")
 check(gast.get("/admin/bezoekers").status_code == 302, "zonder login: doorgestuurd")
 orga = shuss.app.test_client()
@@ -119,9 +142,9 @@ nu = datetime(2026, 11, 11, 20, 30)
 gisteren = nu - timedelta(days=1)
 
 
-def hit(t, bezoeker, speler=None, bron=None):
-    conn.execute("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron) VALUES (?, ?, ?, ?)",
-                 (t.strftime(bz.TIJD), bezoeker, speler, bron))
+def hit(t, bezoeker, speler=None, bron=None, plaats=None):
+    conn.execute("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron, plaats) "
+                 "VALUES (?, ?, ?, ?, ?)", (t.strftime(bz.TIJD), bezoeker, speler, bron, plaats))
     conn.execute("INSERT INTO bezoekers (id, eerst, laatst) VALUES (?, ?, ?) "
                  "ON CONFLICT(id) DO UPDATE SET laatst = MAX(laatst, excluded.laatst)",
                  (bezoeker, t.strftime(bz.TIJD), t.strftime(bz.TIJD)))
@@ -139,7 +162,7 @@ hit(nu - timedelta(days=40), "c" * 20, None, "Google")
 conn.commit()
 
 c = bz.overzicht(conn, nu)
-check(c["online"] == {"bezoekers": 1, "ingelogd": 0, "spelers": []}, "nu online: 1, niet ingelogd")
+check(c["online"]["bezoekers"] == 1 and c["online"]["ingelogd"] == 0 and c["online"]["spelers"] == [], "nu online: 1, niet ingelogd")
 p24, p7, p30 = c["perioden"]
 # Gisteren 21u valt nog binnen de laatste 24 uur (nu is het 20u30).
 check((p24["bezoekers"], p24["bezoeken"], p24["paginas"]) == (2, 2, 3),
@@ -188,22 +211,31 @@ conn.execute("DELETE FROM bezoeken")
 # Gewoon: gisteren 19u00-19u40 (3 pagina's), en nu bezig sinds 20u10.
 for minuut in (0, 20, 40):
     hit(gisteren.replace(hour=19, minute=minuut), "a" * 20, GEWOON)
-hit(nu.replace(minute=10), "a" * 20, GEWOON)
-hit(nu - timedelta(minutes=1), "a" * 20, GEWOON)
+hit(nu.replace(minute=10), "a" * 20, GEWOON, plaats="Lokeren (Vlaanderen)")
+hit(nu - timedelta(minutes=1), "a" * 20, GEWOON, plaats="Lokeren (Vlaanderen)")
 # Een anonieme bezoeker is ook online, maar telt niet als ingelogde speler.
-hit(nu - timedelta(minutes=2), "b" * 20)
+hit(nu - timedelta(minutes=2), "b" * 20, plaats="Brussel")
 conn.commit()
 c = bz.overzicht(conn, nu)
 check(c["online"]["bezoekers"] == 2 and c["online"]["ingelogd"] == 1, "2 online, 1 ingelogd")
 o = c["online"]["spelers"]
 check(len(o) == 1 and o[0]["speler_id"] == GEWOON and o[0]["sinds"][11:16] == "20:10"
       and o[0]["minuten"] == 20, f"Gewoon is online sinds 20u10, 20 minuten ({o})")
+check(o[0]["plaats"] == "Lokeren (Vlaanderen)", "plaats van wie online is")
+check(dict(c["online"]["plaatsen"]) == {"Lokeren (Vlaanderen)": 1, "Brussel": 1},
+      f"plaatsen van alle toestellen online ({c['online']['plaatsen']})")
+check({p["naam"]: p["aantal"] for p in c["waar"]["plaatsen"]}
+      == {"Lokeren (Vlaanderen)": 1, "Brussel": 1}, f"waar: per gemeente ({c['waar']})")
+check(dict(c["waar"]["gewesten"]) == {"Vlaanderen": 1, "Brussel": 1}, "waar: per gewest")
+check(c["waar"]["onbekend"] == 0, "waar: geen toestellen zonder plaats")
 check(c["actief"][0]["minuten"] == 40 + 19, f"totale tijd: 40 + 19 minuten ({c['actief'][0]})")
 h = bz.historiek(conn, GEWOON, nu)
 check(h["nu_online"] and h["aantal"] == 2 and h["dagen_actief"] == 2, "historiek: 2 bezoeken op 2 dagen")
 check([(s["van"], s["tot"], s["paginas"]) for d in h["lijst"] for s in d["sessies"]]
       == [("20:10", "20:29", 2), ("19:00", "19:40", 3)], f"historiek: nieuwste eerst ({h['lijst']})")
 check(sum(u["aantal"] for u in h["uren"]) == 2, "historiek: uren tellen")
+check(h["plaatsen"] == [("Lokeren (Vlaanderen)", 1)], f"historiek: plaatsen ({h['plaatsen']})")
+check(h["lijst"][0]["sessies"][0]["plaats"] == "Lokeren (Vlaanderen)", "historiek: plaats per bezoek")
 check(len(h["dagen"]) == bz.RUW_BEWAREN_DAGEN, "historiek: een balk per dag")
 check(bz.historiek(conn, BAAS, nu)["aantal"] == 0, "historiek van iemand die nooit online was: leeg")
 

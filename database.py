@@ -316,7 +316,8 @@ CREATE TABLE IF NOT EXISTS claim_log (
 );
 
 -- Bezoekersstatistieken (enkel voor de eigenaar, zie bezoekers.py). Geen
--- IP-adressen en geen adressen van pagina's. Losse paginabezoeken blijven een
+-- IP-adressen en geen adressen van pagina's. plaats is de gemeente die uit het
+-- IP-adres volgt (zie geo.py); het adres zelf wordt niet bewaard. Losse paginabezoeken blijven een
 -- maand staan; daarna blijven enkel de dagtotalen in bezoeken_dag over.
 -- speler_id is bewust geen foreign key: de bezoeken worden in groepjes
 -- weggeschreven, en een speler die intussen gewist werd mag dat niet blokkeren.
@@ -325,7 +326,8 @@ CREATE TABLE IF NOT EXISTS bezoeken (
     moment    TEXT NOT NULL,
     bezoeker  TEXT NOT NULL,
     speler_id INTEGER,
-    bron      TEXT
+    bron      TEXT,
+    plaats    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_bezoeken_moment ON bezoeken(moment);
 
@@ -544,6 +546,9 @@ def _migreer_inschrijvingen(conn):
         # De kroonkurk die de profielfoto vervangt. Iedereen start leeg = basisdop.
         _voeg_kolom_toe(conn, "players", "dop", "TEXT")
         _voeg_kolom_toe(conn, "players", "dop_ontwerpen", "TEXT")
+    if _kolommen(conn, "bezoeken"):
+        # Gemeente per paginabezoek (geo.py). Oudere bezoeken blijven leeg.
+        _voeg_kolom_toe(conn, "bezoeken", "plaats", "TEXT")
 
 
 def _migreer_coupons_per_team(conn):

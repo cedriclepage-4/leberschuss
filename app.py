@@ -49,6 +49,7 @@ import kansen as kansmotor
 import dop as kroonkurk
 import samenvoegen
 import bezoekers as bezoekstats
+import geo
 from database import (DB_PATH, ROL_ADMIN, ROL_EIGENAAR, ROL_SPELER, init_db,
                       verbind, vrij_spelernummer)
 from elo import (START_ELO, fase_factor, fase_omschrijving, proces_wedstrijd)
@@ -193,7 +194,9 @@ def noteer_bezoek(antwoord):
         bezoekstats.noteer(nu, code, session.get("speler_id"),
                            bezoekstats.bron_van(request.referrer,
                                                 request.headers.get("User-Agent", ""),
-                                                request.host.split(":")[0]))
+                                                request.host.split(":")[0]),
+                           # Enkel de gemeente; het IP-adres zelf wordt niet bewaard.
+                           geo.plaats(request.remote_addr))
         if bezoekstats.moet_schrijven():
             bezoekstats.schrijf_weg(get_db())
     except Exception as fout:

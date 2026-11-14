@@ -33,15 +33,21 @@
   {% endfor %}
 </div>
 
-{% if c.online.spelers %}
+{% if c.online.spelers or c.online.plaatsen %}
 <div class="kaart bz-online">
+  {% if c.online.spelers %}
   <p class="bz-tegel-label"><span class="bz-stip" aria-hidden="true"></span>Nu ingelogd online</p>
   <ul class="bz-online-lijst">
     {% for o in c.online.spelers %}
     <li><a class="profiel-link" href="{{ url_for('admin_bezoekers_speler', speler_id=o.speler['id']) }}">{{ o.speler['name'] }}</a>
-        <span class="stil klein-tekst">sinds {{ o.sinds[11:16] }} · {{ o.minuten|duur }}</span></li>
+        <span class="stil klein-tekst">sinds {{ o.sinds[11:16] }} · {{ o.minuten|duur }}{% if o.plaats %} · {{ o.plaats }}{% endif %}</span></li>
     {% endfor %}
   </ul>
+  {% endif %}
+  {% if c.online.plaatsen %}
+  <p class="stil klein-tekst bz-online-plaatsen">Alle toestellen die nu online zijn, ongeveer:
+    {% for naam, n in c.online.plaatsen %}{{ naam }}{% if n > 1 %} ×{{ n }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</p>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -158,6 +164,37 @@
   </div>
 </div>
 
+<h2 class="sectiekop">Waar</h2>
+<div class="kaart">
+  <p class="stil klein-tekst bz-uitleg">Verschillende toestellen per gemeente, laatste {{ bewaren }} dagen, geschat uit
+     het IP-adres. Het gewest klopt meestal; de gemeente is een gok: op mobiele data komt
+     iemand vaak uit bij een knooppunt van zijn provider (Brussel, Antwerpen, Mechelen).</p>
+  {% set w = c.waar %}
+  {% if w.plaatsen %}
+  {% if w.gewesten|length > 1 %}
+  <p class="bz-gewesten">
+    {% for naam, n in w.gewesten %}<span class="pil">{{ naam }} <strong>{{ n }}</strong></span>{% endfor %}
+  </p>
+  {% endif %}
+  <div class="verdeling">
+    {% for p in w.plaatsen %}
+    <div class="verdeling-rij">
+      <span class="bz-bron-naam" title="{{ p.naam }}">{{ p.naam }}</span>
+      <div class="verdeling-balk"><div class="verdeling-vul bz-vul" style="width: {{ p.pct }}%"></div></div>
+      <span class="verdeling-aantal">{{ p.aantal }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="stil klein-tekst bz-waar-voet">
+    {% if w.meer %}En nog {{ w.meer }} andere plaats{{ 'en' if w.meer != 1 }}. {% endif %}
+    {% if w.onbekend %}{{ w.onbekend }} toestel{{ 'len' if w.onbekend != 1 }} zonder gekende plaats (van vóór deze functie, of niet op te zoeken). {% endif %}
+    IP-locatie door <a class="profiel-link" href="https://db-ip.com" rel="noopener" target="_blank">DB-IP</a>.
+  </p>
+  {% else %}
+  <p class="stil">Nog geen plaatsen gekend. Vanaf nu krijgt elk paginabezoek een gemeente.</p>
+  {% endif %}
+</div>
+
 <h2 class="sectiekop">Ingelogde spelers</h2>
 <div class="kaart">
   <p class="stil klein-tekst bz-uitleg">Laatste {{ bewaren }} dagen: op hoeveel verschillende dagen
@@ -212,7 +249,8 @@
 <div class="kaart">
   <ul class="stil klein-tekst bz-privacy">
     <li><strong>Per paginabezoek:</strong> het moment, een willekeurige bezoekerscode (cookie), het
-        account als iemand ingelogd is (zo zie je wanneer een speler online was), en vanwaar het bezoek kwam. Geen IP-adres en niet welke pagina.</li>
+        account als iemand ingelogd is (zo zie je wanneer een speler online was), de
+        gemeente die uit het IP-adres volgt (het IP-adres zelf niet), en vanwaar het bezoek kwam. Geen IP-adres en niet welke pagina.</li>
     <li><strong>Bezoek</strong> = een reeks pagina's van dezelfde bezoeker, met hoogstens een half uur ertussen.</li>
     <li>Niet geteld: bots, het organisatiepaneel, en het automatisch verversen van tv en beamer.</li>
     <li>Losse paginabezoeken worden na {{ bewaren }} dagen gewist; dan blijven enkel de dagtotalen over.</li>

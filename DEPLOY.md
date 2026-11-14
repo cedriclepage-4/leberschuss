@@ -283,6 +283,29 @@ Wijzigde je `style.css` of `app.js`? Dan zorgt de service worker er zelf voor da
 bezoekers de nieuwe versie krijgen: de cachenaam wordt uit de inhoud van die
 bestanden berekend en verandert dus automatisch mee.
 
+## Plaatsen van bezoekers (eenmalig instellen)
+
+De bezoekerspagina toont ongeveer vanuit welke gemeente iemand de site opent.
+Dat wordt op de server zelf opgezocht in een gratis databank van DB-IP
+(± 130 MB, staat in `~/site/geo/`, niet in git). Haal ze één keer op, en laat
+ze daarna elke maand vernieuwen:
+
+```bash
+# op de server
+sudo -u shuss -H bash -c 'cd ~/site && .venv/bin/pip install -r requirements.txt && .venv/bin/python geo_bijwerken.py'
+systemctl restart shuss
+```
+
+```bash
+# elke 3e van de maand om 4u 's nachts vernieuwen
+(sudo -u shuss crontab -l 2>/dev/null; echo '0 4 3 * * cd ~/site && .venv/bin/python geo_bijwerken.py >/dev/null 2>&1') | sudo -u shuss crontab -
+```
+
+Een nieuwe versie wordt binnen tien minuten vanzelf opgepikt, zonder herstart.
+Zonder databank werkt de site gewoon; dan blijven de plaatsen leeg. Let op: de
+plaats komt uit het IP-adres, dus `ACHTER_PROXY=1` moet aan staan (stap
+hierboven), anders ziet de site enkel het adres van nginx.
+
 ## Back-ups meenemen van de server
 
 De site maakt zelf kopieën in `~/site/backups/`, maar die staan op dezelfde

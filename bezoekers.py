@@ -7,7 +7,8 @@ Enkel voor de eigenaar. Bewust zuinig met wat er bewaard wordt:
   hash van IP + browser met een sleutel die elke dag verandert: die is de dag
   erna niet meer terug te rekenen.
 - Geen adressen van pagina's: enkel het moment, de bezoeker, het account (als
-  iemand ingelogd is) en vanwaar een bezoek binnenkwam.
+  iemand ingelogd is), vanwaar een bezoek binnenkwam en de gemeente die uit
+  het IP-adres volgt (geo.py; het IP-adres zelf wordt niet bewaard).
 - Losse paginabezoeken blijven RUW_BEWAREN_DAGEN dagen staan. Daarna blijven
   enkel de dagtotalen over (tabel bezoeken_dag).
 
@@ -135,9 +136,9 @@ _laatst_geschreven = time.time()
 _laatste_onderhoud = 0.0
 
 
-def noteer(moment, bezoeker, speler_id, bron):
+def noteer(moment, bezoeker, speler_id, bron, plaats=None):
     with _slot:
-        _wachtrij.append((moment.strftime(TIJD), bezoeker, speler_id, bron))
+        _wachtrij.append((moment.strftime(TIJD), bezoeker, speler_id, bron, plaats))
 
 
 def moet_schrijven():
@@ -152,11 +153,11 @@ def schrijf_weg(db):
         rijen, _wachtrij = _wachtrij, []
         _laatst_geschreven = time.time()
     if rijen:
-        db.executemany("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron) "
-                       "VALUES (?, ?, ?, ?)", rijen)
+        db.executemany("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron, plaats) "
+                       "VALUES (?, ?, ?, ?, ?)", rijen)
         eerst = {}
         laatst = {}
-        for moment, bezoeker, _speler, _bron in rijen:
+        for moment, bezoeker, *_rest in rijen:
             eerst[bezoeker] = min(eerst.get(bezoeker, moment), moment)
             laatst[bezoeker] = max(laatst.get(bezoeker, moment), moment)
         db.executemany("""
@@ -223,14 +224,15 @@ def _dt(tekst):
 
 def _rijen(db, van, tot, vanaf_context=None):
     return [tuple(r) for r in db.execute(
-        "SELECT moment, bezoeker, speler_id, bron FROM bezoeken "
+        "SELECT moment, bezoeker, speler_id, bron, plaats FROM bezoeken "
         "WHERE moment >= ? AND moment <= ? ORDER BY moment",
         (vanaf_context or van, tot))]
 
 
 def _bezoeken(rijen):
     """Paginabezoeken bundelen tot bezoeken: per bezoeker, met hoogstens een
-    half uur stilte ertussen. Elk bezoek krijgt de bron van zijn eerste pagina."""
+    half uur stilte ertussen. Elk bezoek krijgt de bron van zijn eerste pagina,
+    en de eerste gemeente die gekend is."""
     per_bezoeker = defaultdict(list)
     for r in rijen:
         per_bezoeker[r[1]].append(r)
@@ -238,12 +240,14 @@ def _bezoeken(rijen):
     for bezoeker, lijst in per_bezoeker.items():
         huidig = None
         vorige = None
-        for moment, _b, speler_id, bron in lijst:
+        for moment, _b, speler_id, bron, plaats in lijst:
             t = _dt(moment)
             if huidig is None or t - vorige > BEZOEK_PAUZE:
                 huidig = {"bezoeker": bezoeker, "start": moment, "bron": bron or DIRECT,
-                          "speler_id": None, "paginas": 0}
+                          "speler_id": None, "paginas": 0, "plaats": None}
                 uit.append(huidig)
+            if plaats and not huidig["plaats"]:
+                huidig["plaats"] = plaats
             huidig["paginas"] += 1
             huidig["eind"] = moment
             if speler_id and not huidig["speler_id"]:
@@ -276,11 +280,17 @@ def overzicht(db, nu):
         # Op meerdere toestellen tegelijk: het bezoek dat het laatst iets deed.
         laatste = max(_sessies(rijen_alle, sid), key=lambda x: x["eind"])
         spelers_online.append({"speler_id": sid, "sinds": laatste["start"],
-                               "laatst": laatste["eind"],
+                               "laatst": laatste["eind"], "plaats": laatste["plaats"],
                                "minuten": _minuten(laatste["start"], _tijd(nu))})
     spelers_online.sort(key=lambda s: s["sinds"])
+    # Waar de toestellen die nu online zijn ongeveer zitten (laatst gekende plaats).
+    plaats_nu = {}
+    for r in recent:
+        if r[4]:
+            plaats_nu[r[1]] = r[4]
     online = {"bezoekers": len({r[1] for r in recent}),
-              "ingelogd": len(nu_ingelogd), "spelers": spelers_online}
+              "ingelogd": len(nu_ingelogd), "spelers": spelers_online,
+              "plaatsen": Counter(plaats_nu.values()).most_common()}
 
     # Kerncijfers per periode
     perioden = []
@@ -318,6 +328,27 @@ def overzicht(db, nu):
                          "paginas": raster_p[d][u],
                          "sterkte_p": raster_p[d][u] / hoogste_p} for u in range(24)]}
               for d in range(7)]
+
+    # Waar: per gemeente het aantal verschillende toestellen (30 dagen). Een
+    # gsm die onderweg op andere plaatsen opduikt, telt bij elk van die plaatsen.
+    per_plaats = defaultdict(set)
+    for r in rijen:
+        if r[4]:
+            per_plaats[r[4]].add(r[1])
+    met_plaats = {b for toestellen in per_plaats.values() for b in toestellen}
+    zonder_plaats = {r[1] for r in rijen} - met_plaats
+    plaats_tellen = Counter({p: len(t) for p, t in per_plaats.items()})
+    hoogste_plaats = max(plaats_tellen.values(), default=0) or 1
+    plaatsen = [{"naam": naam, "aantal": n, "pct": round(100 * n / hoogste_plaats)}
+                for naam, n in plaats_tellen.most_common(15)]
+    gewesten = Counter()
+    for naam, n in plaats_tellen.items():
+        gewest = naam[naam.find("(") + 1:-1] if naam.endswith(")") else naam
+        gewesten[gewest] += n
+    waar = {"plaatsen": plaatsen,
+            "meer": max(0, len(plaats_tellen) - len(plaatsen)),
+            "gewesten": gewesten.most_common(6),
+            "onbekend": len(zonder_plaats)}
 
     # Vanwaar
     tellen = Counter(b["bron"] for b in bezoeken)
@@ -395,7 +426,7 @@ def overzicht(db, nu):
         })
 
     return {"online": online, "perioden": perioden, "grafieken": grafieken,
-            "drukte": drukte, "bronnen": bronnen, "wie": wie, "actief": actief,
+            "drukte": drukte, "bronnen": bronnen, "waar": waar, "wie": wie, "actief": actief,
             "maanden": maanden, "sinds": sinds}
 
 
@@ -420,7 +451,7 @@ def historiek(db, speler_id, nu):
     """Wanneer één speler online was, over de laatste RUW_BEWAREN_DAGEN dagen."""
     begin = nu - timedelta(days=RUW_BEWAREN_DAGEN)
     rijen = [tuple(r) for r in db.execute(
-        "SELECT moment, bezoeker, speler_id, bron FROM bezoeken "
+        "SELECT moment, bezoeker, speler_id, bron, plaats FROM bezoeken "
         "WHERE speler_id = ? AND moment >= ? AND moment <= ? ORDER BY moment",
         (speler_id, _tijd(begin - BEZOEK_PAUZE), _tijd(nu)))]
     sessies = [s for s in _sessies(rijen, speler_id) if s["eind"] >= _tijd(begin)]
@@ -465,6 +496,7 @@ def historiek(db, speler_id, nu):
         "lijst": [d for d in reversed(dagen) if d["sessies"]],
         "uren": [{"uur": u, "aantal": n, "sterkte": n / hoogste_uur}
                  for u, n in enumerate(uren)],
+        "plaatsen": Counter(s["plaats"] for s in sessies if s["plaats"]).most_common(),
     }
 
 

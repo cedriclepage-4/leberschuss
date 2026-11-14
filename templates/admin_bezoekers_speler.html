@@ -65,6 +65,17 @@
   </div>
 </div>
 
+{% if h.plaatsen %}
+<h2 class="sectiekop">Waar</h2>
+<div class="kaart">
+  <p class="stil klein-tekst bz-uitleg">Van waar de bezoeken ongeveer kwamen, geschat uit het IP-adres.
+     Het gewest klopt meestal, de gemeente is een gok (zeker op mobiele data).</p>
+  <p class="bz-gewesten">
+    {% for naam, n in h.plaatsen %}<span class="pil">{{ naam }} <strong>{{ n }}×</strong></span>{% endfor %}
+  </p>
+</div>
+{% endif %}
+
 <h2 class="sectiekop">Historiek</h2>
 <div class="kaart">
   <p class="stil klein-tekst bz-uitleg">Elk bezoek loopt van de eerste tot de laatste geopende pagina.
@@ -77,7 +88,7 @@
         {% for s in d.sessies %}
         <li>
           <span class="bz-hist-tijd">{{ s.van }}{% if s.tot != s.van %}–{{ s.tot }}{% endif %}</span>
-          <span class="stil klein-tekst">{{ s.minuten|duur }} · {{ s.paginas }} pagina{{ "'s" if s.paginas != 1 }}{% if s.bron != 'Rechtstreeks' %} · via {{ s.bron }}{% endif %}</span>
+          <span class="stil klein-tekst">{{ s.minuten|duur }} · {{ s.paginas }} pagina{{ "'s" if s.paginas != 1 }}{% if s.plaats %} · {{ s.plaats }}{% endif %}{% if s.bron != 'Rechtstreeks' %} · via {{ s.bron }}{% endif %}</span>
           {% if s.nu %}<span class="bz-nu-label"><span class="bz-stip" aria-hidden="true"></span>nu</span>{% endif %}
         </li>
         {% endfor %}
