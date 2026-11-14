@@ -36,8 +36,11 @@ def main():
     for jaar, maand in maanden():
         adres = ADRES.format(jaar=jaar, maand=maand)
         print(f"Ophalen: {adres}")
+        # Een eigen naam in plaats van de standaard "Python-urllib", die door
+        # sommige downloadservers geweigerd wordt.
+        verzoek = urllib.request.Request(adres, headers={"User-Agent": "leberschuss-geo/1.0"})
         try:
-            antwoord = urllib.request.urlopen(adres, timeout=120)
+            antwoord = urllib.request.urlopen(verzoek, timeout=120)
         except Exception as fout:
             print(f"  niet gelukt ({fout})")
             continue
