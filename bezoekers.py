@@ -37,6 +37,10 @@ BEZOEK_PAUZE = timedelta(minutes=30)   # langer stil = een nieuw bezoek
 ONLINE_VENSTER = timedelta(minutes=5)
 SCHRIJF_NA_SECONDEN = 30
 SCHRIJF_NA_AANTAL = 50
+# Automaten (monitors, scrapers met een gewone browsernaam) herkennen we aan
+# hun gedrag, want de user-agent bewaren we niet:
+AUTOMAAT_ZONDER_COOKIE = 5   # zoveel pagina's zonder ooit ons cookie terug te sturen
+AUTOMAAT_REEKS = 20          # of één bezoek van zoveel pagina's zonder één klik binnen de site
 
 TIJD = "%Y-%m-%d %H:%M:%S"
 DAGNAMEN = ["ma", "di", "wo", "do", "vr", "za", "zo"]
@@ -136,9 +140,10 @@ _laatst_geschreven = time.time()
 _laatste_onderhoud = 0.0
 
 
-def noteer(moment, bezoeker, speler_id, bron, plaats=None):
+def noteer(moment, bezoeker, speler_id, bron, plaats=None, met_cookie=None):
     with _slot:
-        _wachtrij.append((moment.strftime(TIJD), bezoeker, speler_id, bron, plaats))
+        _wachtrij.append((moment.strftime(TIJD), bezoeker, speler_id, bron, plaats,
+                          None if met_cookie is None else int(bool(met_cookie))))
 
 
 def moet_schrijven():
@@ -153,8 +158,8 @@ def schrijf_weg(db):
         rijen, _wachtrij = _wachtrij, []
         _laatst_geschreven = time.time()
     if rijen:
-        db.executemany("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron, plaats) "
-                       "VALUES (?, ?, ?, ?, ?)", rijen)
+        db.executemany("INSERT INTO bezoeken (moment, bezoeker, speler_id, bron, plaats, "
+                       "met_cookie) VALUES (?, ?, ?, ?, ?, ?)", rijen)
         eerst = {}
         laatst = {}
         for moment, bezoeker, *_rest in rijen:
@@ -179,11 +184,12 @@ def _dagtotaal(db, dag):
     dag_rijen = [r for r in rijen if r[0][:10] == dag]
     if not dag_rijen:
         return None
-    nieuw = db.execute(
-        "SELECT COUNT(*) FROM bezoekers WHERE substr(eerst, 1, 10) = ?",
-        (dag,)).fetchone()[0]
+    dag_bezoekers = {r[1] for r in dag_rijen}
+    nieuw = sum(1 for (b,) in db.execute(
+        "SELECT id FROM bezoekers WHERE substr(eerst, 1, 10) = ?", (dag,))
+        if b in dag_bezoekers)
     return {"datum": dag, "paginas": len(dag_rijen),
-            "bezoekers": len({r[1] for r in dag_rijen}),
+            "bezoekers": len(dag_bezoekers),
             "bezoeken": sum(1 for b in _bezoeken(rijen) if b["start"][:10] == dag),
             "ingelogd": len({r[1] for r in dag_rijen if r[2]}), "nieuw": nieuw}
 
@@ -191,22 +197,27 @@ def _dagtotaal(db, dag):
 def onderhoud(db, nu):
     """Afgelopen dagen samenvatten en oude losse paginabezoeken opruimen."""
     vandaag = nu.strftime("%Y-%m-%d")
+    grens = _tijd(nu - timedelta(days=RUW_BEWAREN_DAGEN + 1))
+    # Dagen waarvan alle losse paginabezoeken er nog zijn, worden opnieuw
+    # samengevat: zo verdwijnen automaten ook uit dagen die al geteld waren.
+    volledig_vanaf = (_dt(grens) + timedelta(days=1)).strftime("%Y-%m-%d")
     klaar = {r[0] for r in db.execute("SELECT datum FROM bezoeken_dag")}
     dagen = [r[0] for r in db.execute(
         "SELECT DISTINCT substr(moment, 1, 10) FROM bezoeken WHERE moment < ?",
         (vandaag,))]
     for dag in dagen:
-        if dag in klaar:
+        if dag in klaar and dag < volledig_vanaf:
             continue
         totaal = _dagtotaal(db, dag)
         if not totaal:
+            # Enkel automaten die dag: een eerder opgeslagen totaal klopt niet meer.
+            db.execute("DELETE FROM bezoeken_dag WHERE datum = ?", (dag,))
             continue
         db.execute("""
             INSERT OR REPLACE INTO bezoeken_dag
                 (datum, paginas, bezoekers, bezoeken, ingelogd, nieuw)
             VALUES (:datum, :paginas, :bezoekers, :bezoeken, :ingelogd, :nieuw)""",
             totaal)
-    grens = _tijd(nu - timedelta(days=RUW_BEWAREN_DAGEN + 1))
     db.execute("DELETE FROM bezoeken WHERE moment < ?", (grens,))
     db.execute("DELETE FROM bezoekers WHERE laatst < ?",
                (_tijd(nu - timedelta(days=BEZOEKERS_BEWAREN_DAGEN)),))
@@ -222,11 +233,56 @@ def _dt(tekst):
     return datetime.strptime(tekst, TIJD)
 
 
-def _rijen(db, van, tot, vanaf_context=None):
+def _rijen_ruw(db, van, tot, vanaf_context=None):
+    """Alle paginabezoeken, automaten inbegrepen, met als zesde veld met_cookie."""
     return [tuple(r) for r in db.execute(
-        "SELECT moment, bezoeker, speler_id, bron, plaats FROM bezoeken "
+        "SELECT moment, bezoeker, speler_id, bron, plaats, met_cookie FROM bezoeken "
         "WHERE moment >= ? AND moment <= ? ORDER BY moment",
         (vanaf_context or van, tot))]
+
+
+def _zonder_automaten(ruw):
+    """De paginabezoeken van mensen (zonder met_cookie) en de codes van de automaten."""
+    weg = automaten(ruw)
+    return [r[:5] for r in ruw if r[1] not in weg], weg
+
+
+def _rijen(db, van, tot, vanaf_context=None):
+    return _zonder_automaten(_rijen_ruw(db, van, tot, vanaf_context))[0]
+
+
+def automaten(ruw):
+    """Welke bezoekerscodes geen mens zijn, uit hun gedrag:
+    - nooit ons cookie teruggestuurd over AUTOMAAT_ZONDER_COOKIE pagina's (een
+      browser stuurt het vanaf de tweede pagina mee), of
+    - een bezoek van AUTOMAAT_REEKS pagina's of meer zonder één klik binnen de
+      site: elke pagina rechtstreeks opgevraagd, zoals een monitor of scraper.
+      (Dat geldt ook voor oudere bezoeken van vóór we het cookie bijhielden.)
+    Wie ooit ingelogd was of het cookie ooit meestuurde, is een mens."""
+    per_bezoeker = defaultdict(list)
+    for r in ruw:
+        per_bezoeker[r[1]].append(r)
+    uit = set()
+    for bezoeker, lijst in per_bezoeker.items():
+        if any(r[2] or r[5] == 1 for r in lijst):
+            continue
+        if sum(1 for r in lijst if r[5] == 0) >= AUTOMAAT_ZONDER_COOKIE:
+            uit.add(bezoeker)
+            continue
+        reeks = 0
+        vorige = None
+        for r in lijst:
+            t = _dt(r[0])
+            if vorige is None or t - vorige > BEZOEK_PAUZE:
+                reeks = 0
+            if r[3] is None:          # een klik binnen de site: een mens
+                reeks = -10 ** 9
+            reeks += 1
+            vorige = t
+            if reeks >= AUTOMAAT_REEKS:
+                uit.add(bezoeker)
+                break
+    return uit
 
 
 def _bezoeken(rijen):
@@ -264,8 +320,11 @@ def _schaal(waarden):
 def overzicht(db, nu):
     """Alles wat de bezoekerspagina toont."""
     begin30 = nu - timedelta(days=RUW_BEWAREN_DAGEN)
-    rijen = _rijen(db, _tijd(begin30), _tijd(nu),
-                   vanaf_context=_tijd(begin30 - BEZOEK_PAUZE))
+    ruw = _rijen_ruw(db, _tijd(begin30), _tijd(nu),
+                     vanaf_context=_tijd(begin30 - BEZOEK_PAUZE))
+    rijen, weg = _zonder_automaten(ruw)
+    weg_rijen = [r for r in ruw if r[1] in weg and r[0] >= _tijd(begin30)]
+    automaat = {"toestellen": len({r[1] for r in weg_rijen}), "paginas": len(weg_rijen)}
     bezoeken_alle = _bezoeken(rijen)
     rijen_alle = rijen
     rijen = [r for r in rijen if r[0] >= _tijd(begin30)]
@@ -364,10 +423,9 @@ def overzicht(db, nu):
     met_account = {r[1] for r in rijen if r[2]}
     nieuw = 0
     if alle_bezoekers:
-        nieuw = db.execute(
-            "SELECT COUNT(*) FROM bezoekers WHERE eerst >= ?",
-            (_tijd(begin30),)).fetchone()[0]
-        nieuw = min(nieuw, len(alle_bezoekers))
+        nieuw = sum(1 for (b,) in db.execute(
+            "SELECT id FROM bezoekers WHERE eerst >= ?", (_tijd(begin30),))
+            if b in alle_bezoekers)
     sinds = db.execute("SELECT MIN(eerst) FROM bezoekers").fetchone()[0]
     wie = {
         "totaal": len(alle_bezoekers),
@@ -427,7 +485,7 @@ def overzicht(db, nu):
 
     return {"online": online, "perioden": perioden, "grafieken": grafieken,
             "drukte": drukte, "bronnen": bronnen, "waar": waar, "wie": wie, "actief": actief,
-            "maanden": maanden, "sinds": sinds}
+            "maanden": maanden, "sinds": sinds, "automaat": automaat}
 
 
 def _minuten(van, tot):

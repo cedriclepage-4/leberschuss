@@ -96,6 +96,9 @@ check(aantal() == voor and bz.COOKIE not in (r.headers.get("Set-Cookie") or ""),
       "bot telt niet en krijgt geen cookie")
 ruw = conn.execute("SELECT * FROM bezoeken").fetchall()
 check(all(len(r["bezoeker"]) == 20 for r in ruw), "geen IP-adres, enkel een code")
+koekjes = [r["met_cookie"] for r in conn.execute(
+    "SELECT met_cookie FROM bezoeken WHERE bezoeker = ? ORDER BY id", (code,))]
+check(koekjes[:2] == [0, 1], f"eerste pagina zonder cookie, daarna met ({koekjes})")
 
 print("\n== Plaats ==")
 check(geo.plaats("127.0.0.1") is None and geo.plaats("192.168.1.5") is None
@@ -251,6 +254,65 @@ check(historiek_url not in orga.get(f"/speler/{GEWOON}").get_data(as_text=True),
       "een organisator ziet die knop niet")
 r = baas.get(historiek_url, headers={"Referer": f"http://localhost/speler/{GEWOON}"})
 check("terug-knop" in r.get_data(as_text=True), "de historiek heeft een terugknop")
+
+print("\n== Automaten ==")
+conn.execute("DELETE FROM bezoeken")
+conn.execute("DELETE FROM bezoekers")
+conn.execute("DELETE FROM bezoeken_dag")
+nu = datetime(2026, 11, 14, 20, 0)
+vandaag = nu.replace(hour=0, minute=1)
+
+
+def hit2(t, bezoeker, speler=None, bron=None, met_cookie=None):
+    hit(t, bezoeker, speler, bron)
+    conn.execute("UPDATE bezoeken SET met_cookie = ? WHERE id = last_insert_rowid()",
+                 (met_cookie,))
+
+
+# Monitor: elke 143 seconden een pagina, nooit een cookie terug.
+for i in range(300):
+    hit2(vandaag + timedelta(seconds=143 * i), "m" * 20, bron=bz.DIRECT, met_cookie=0)
+# Scraper van vóór we het cookie bijhielden: 30 pagina's rechtstreeks op 2 minuten.
+for i in range(30):
+    hit2(nu.replace(hour=14) + timedelta(seconds=4 * i), "s" * 20, bron=bz.DIRECT)
+# Mens: binnen via Instagram, daarna klikken, met cookie.
+hit2(nu.replace(hour=13), "h" * 20, bron="Instagram", met_cookie=0)
+for i in range(1, 30):
+    hit2(nu.replace(hour=13) + timedelta(seconds=20 * i), "h" * 20, met_cookie=1)
+# Mens op een toernooiavond: ververst de stand 25 keer (rechtstreeks), mét cookie.
+for i in range(25):
+    hit2(nu.replace(hour=19) + timedelta(minutes=2 * i), "r" * 20, bron=bz.DIRECT, met_cookie=1)
+# Speler, oude bezoeken zonder cookie-info: 25 keer rechtstreeks, maar ingelogd.
+for i in range(25):
+    hit2(nu.replace(hour=16) + timedelta(minutes=i), "p" * 20, GEWOON, bz.DIRECT)
+# Kort anoniem bezoek zonder cookie-info: 3 pagina's.
+for i in range(3):
+    hit2(nu.replace(hour=11) + timedelta(minutes=i), "k" * 20, bron=bz.DIRECT)
+conn.commit()
+
+ruw = bz._rijen_ruw(conn, "2000-01-01 00:00:00", bz._tijd(nu))
+check(bz.automaten(ruw) == {"m" * 20, "s" * 20},
+      f"monitor en scraper herkend, mensen niet ({sorted(b[0] for b in bz.automaten(ruw))})")
+c = bz.overzicht(conn, nu)
+check(c["perioden"][0]["bezoekers"] == 4, f"enkel de 4 mensen geteld ({c['perioden'][0]})")
+check(c["perioden"][0]["paginas"] == 30 + 25 + 25 + 3, "pagina's van automaten tellen niet")
+check(c["automaat"] == {"toestellen": 2, "paginas": 330}, f"weggelaten automaten ({c['automaat']})")
+check(c["wie"]["nieuw"] == 4, f"automaten tellen niet als nieuwe bezoekers ({c['wie']})")
+check(sum(e["paginas"] for e in c["grafieken"]["24u"]) == 83, "grafiek zonder automaten")
+
+# Een dagtotaal dat al met automaten opgeslagen was, wordt opnieuw berekend.
+gisteren = (nu - timedelta(days=1)).strftime("%Y-%m-%d")
+for i in range(30):
+    hit2(nu - timedelta(days=1, seconds=-4 * i), "t" * 20, bron=bz.DIRECT)
+hit2(nu - timedelta(days=1), "u" * 20, bron="Google", met_cookie=0)
+conn.execute("INSERT INTO bezoeken_dag (datum, paginas, bezoekers, bezoeken, ingelogd, nieuw) "
+             "VALUES (?, 31, 2, 2, 0, 2)", (gisteren,))
+conn.commit()
+bz.onderhoud(conn, nu)
+conn.commit()
+dag = conn.execute("SELECT * FROM bezoeken_dag WHERE datum = ?", (gisteren,)).fetchone()
+check(dag and (dag["paginas"], dag["bezoekers"], dag["nieuw"]) == (1, 1, 1),
+      f"oud dagtotaal opnieuw berekend zonder automaat ({dict(dag) if dag else None})")
 
 print("\n" + "=" * 62)
 if FOUTEN:

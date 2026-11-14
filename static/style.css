@@ -3134,9 +3134,14 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
 [data-maat="paginas"] .bz-balk { height: var(--h-p); background: var(--navy); }
 [data-maat="paginas"] .bz-kolom:hover .bz-balk, [data-maat="paginas"] .bz-kolom:focus .bz-balk { background: var(--navy-donker); }
 .bz-kolom:hover .bz-balk, .bz-kolom:focus .bz-balk { background: var(--amber-donker); }
-/* Ingelogd deel onderaan elke balk (navy, zoals bij "Wie"). */
+/* Ingelogd deel onderaan elke balk: donkeroranje bij bezoekers, navy bij pagina's. */
 .bz-balk { display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
-.bz-balk-in { height: var(--d-b); background: var(--navy); transition: height .2s; }
+.bz-balk-in { height: var(--d-b); background: #b45309; transition: height .2s; }
+.bz-kolom:hover .bz-balk-in, .bz-kolom:focus .bz-balk-in { background: #92400e; }
+[data-maat="paginas"] .bz-balk-in, [data-maat="paginas"] .bz-kolom:hover .bz-balk-in,
+[data-maat="paginas"] .bz-kolom:focus .bz-balk-in { background: var(--navy); }
+.bz-sw-in { background: #b45309; }
+[data-maat="paginas"] .bz-sw-in { background: var(--navy); }
 [data-maat="paginas"] .bz-balk { background: color-mix(in srgb, var(--navy) 35%, #fff); }
 [data-maat="paginas"] .bz-kolom:hover .bz-balk, [data-maat="paginas"] .bz-kolom:focus .bz-balk { background: color-mix(in srgb, var(--navy) 50%, #fff); }
 [data-maat="paginas"] .bz-balk-in { height: var(--d-p); }

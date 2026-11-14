@@ -196,7 +196,9 @@ def noteer_bezoek(antwoord):
                                                 request.headers.get("User-Agent", ""),
                                                 request.host.split(":")[0]),
                            # Enkel de gemeente; het IP-adres zelf wordt niet bewaard.
-                           geo.plaats(request.remote_addr))
+                           geo.plaats(request.remote_addr),
+                           # Kwam ons cookie mee? Wie het nooit terugstuurt, is een automaat.
+                           met_cookie=not nieuw)
         if bezoekstats.moet_schrijven():
             bezoekstats.schrijf_weg(get_db())
     except Exception as fout:

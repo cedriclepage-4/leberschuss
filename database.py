@@ -327,7 +327,8 @@ CREATE TABLE IF NOT EXISTS bezoeken (
     bezoeker  TEXT NOT NULL,
     speler_id INTEGER,
     bron      TEXT,
-    plaats    TEXT
+    plaats    TEXT,
+    met_cookie INTEGER  -- stuurde de browser ons cookie mee? (leeg bij oudere bezoeken)
 );
 CREATE INDEX IF NOT EXISTS idx_bezoeken_moment ON bezoeken(moment);
 
@@ -549,6 +550,8 @@ def _migreer_inschrijvingen(conn):
     if _kolommen(conn, "bezoeken"):
         # Gemeente per paginabezoek (geo.py). Oudere bezoeken blijven leeg.
         _voeg_kolom_toe(conn, "bezoeken", "plaats", "TEXT")
+        # Of het cookie meekwam: zo vallen automaten op die het nooit bewaren.
+        _voeg_kolom_toe(conn, "bezoeken", "met_cookie", "INTEGER")
 
 
 def _migreer_coupons_per_team(conn):

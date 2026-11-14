@@ -74,7 +74,7 @@
       <span class="bz-enkel-bezoekers">Unieke bezoekers per {{ per }}{% if hoogste %} · hoogste: <strong>{{ hoogste }}</strong>{% endif %}.</span>
       <span class="bz-enkel-paginas">Geopende pagina's per {{ per }}{% if hoogste_p %} · hoogste: <strong>{{ hoogste_p }}</strong>{% endif %}.</span>
       Wijs een balk aan voor details.</p>
-    <p class="bz-legende klein-tekst"><span><i class="bz-sw bz-sw-a"></i>Ingelogd</span><span><i class="bz-sw bz-sw-rest"></i>Niet ingelogd</span></p>
+    <p class="bz-legende klein-tekst"><span><i class="bz-sw bz-sw-in"></i>Ingelogd</span><span><i class="bz-sw bz-sw-rest"></i>Niet ingelogd</span></p>
     <div class="bz-grafiek" role="img"
          aria-label="Unieke bezoekers en pagina's per {{ per }}">
       {% for e in emmers %}
@@ -254,6 +254,10 @@
         gemeente die uit het IP-adres volgt (het IP-adres zelf niet), en vanwaar het bezoek kwam. Geen IP-adres en niet welke pagina.</li>
     <li><strong>Bezoek</strong> = een reeks pagina's van dezelfde bezoeker, met hoogstens een half uur ertussen.</li>
     <li>Niet geteld: bots, het organisatiepaneel, en het automatisch verversen van tv en beamer.</li>
+    <li><strong>Automaten</strong> die zich als gewone browser voordoen (monitors, scrapers) vallen ook weg:
+        wie nooit het cookie terugstuurt, of een hele reeks pagina's rechtstreeks opvraagt zonder ooit
+        binnen de site te klikken.{% if c.automaat.paginas %} De laatste {{ bewaren }} dagen:
+        {{ c.automaat.paginas }} pagina's van {{ c.automaat.toestellen }} automa{{ 'ten' if c.automaat.toestellen != 1 else 'at' }} weggelaten.{% endif %}</li>
     <li>Losse paginabezoeken worden na {{ bewaren }} dagen gewist; dan blijven enkel de dagtotalen over.</li>
     <li>Cijfers lopen tot een halve minuut achter.{% if c.sinds %} Geteld sinds {{ c.sinds|datum }}.{% endif %}</li>
   </ul>
