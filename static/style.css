@@ -2403,6 +2403,8 @@ img.dop-img {
 .lid-chips .en { color: #94a3b8; font-weight: 700; }
 .dop-aanpas.knop { background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
 .dop-aanpas.knop:hover { background: rgba(255, 255, 255, .18); }
+.profiel-bezoek-knop.knop { margin-top: 12px; background: rgba(255, 255, 255, .1); color: #fff; border-color: rgba(255, 255, 255, .2); }
+.profiel-bezoek-knop.knop:hover { background: rgba(255, 255, 255, .18); }
 
 @media (max-width: 720px) {
   .profiel-held { padding: 24px 0 26px; }
@@ -3128,8 +3130,9 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
 /* Kolomgrafiek: één reeks, dus één kleur. */
 .bz-grafiek { display: flex; align-items: flex-end; gap: 2px; height: 190px; padding-bottom: 22px; border-bottom: 1px solid var(--lijn); position: relative; }
 .bz-kolom { flex: 1 1 0; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; position: relative; cursor: default; outline: none; }
-.bz-balk { background: var(--amber); border-radius: 4px 4px 0 0; min-height: 0; transition: background .1s; }
-.bz-balk-nul { height: 0; }
+.bz-balk { background: var(--amber); border-radius: 4px 4px 0 0; min-height: 0; height: var(--h-b); transition: background .1s, height .2s; }
+[data-maat="paginas"] .bz-balk { height: var(--h-p); background: var(--navy); }
+[data-maat="paginas"] .bz-kolom:hover .bz-balk, [data-maat="paginas"] .bz-kolom:focus .bz-balk { background: var(--navy-donker); }
 .bz-kolom:hover .bz-balk, .bz-kolom:focus .bz-balk { background: var(--amber-donker); }
 .bz-kolom:hover, .bz-kolom:focus { background: rgba(15, 23, 42, .04); border-radius: 4px; }
 .bz-as-label { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-size: .72rem; color: var(--stil); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -3154,7 +3157,17 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
 .bz-raster-uur { font-size: .7rem; color: var(--stil); text-align: left; font-variant-numeric: tabular-nums; }
 .bz-raster-dag { font-size: .8rem; color: var(--stil); align-self: center; }
 .bz-cel { aspect-ratio: 1; border-radius: 3px; outline: none;
-  background: color-mix(in srgb, var(--amber-donker) calc(var(--sterkte) * 100%), #f3efe6); }
+  background: color-mix(in srgb, var(--amber-donker) calc(var(--sterkte-b) * 100%), #f3efe6); }
+[data-maat="paginas"] .bz-cel { background: color-mix(in srgb, var(--navy) calc(var(--sterkte-p) * 100%), #eef1f6); }
+
+/* Schakelaar bezoekers / pagina's op een grafiek. */
+.bz-kop { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.bz-kop .bz-tabs, .bz-kop .bz-uitleg { margin: 0; }
+.bz-kop .bz-uitleg { flex: 1 1 260px; }
+.bz-maat { display: inline-flex; border: 1px solid var(--lijn); border-radius: 999px; padding: 3px; gap: 2px; flex: 0 0 auto; }
+.bz-maat button { border: 0; background: none; font: inherit; font-size: .85rem; font-weight: 600; color: var(--stil); padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+.bz-maat button.actief { background: var(--navy-donker); color: #fff; }
+[data-maat="bezoekers"] .bz-enkel-paginas, [data-maat="paginas"] .bz-enkel-bezoekers { display: none; }
 .bz-cel:hover, .bz-cel:focus { box-shadow: 0 0 0 2px var(--navy-donker); }
 .bz-raster .bz-cel:nth-child(25n+2)[data-tip]:hover::after, .bz-raster .bz-cel:nth-child(25n+3)[data-tip]:hover::after { left: 0; transform: none; }
 .bz-raster .bz-cel:nth-child(25n)[data-tip]:hover::after, .bz-raster .bz-cel:nth-child(25n+24)[data-tip]:hover::after { left: auto; right: 0; transform: none; }
@@ -3175,6 +3188,27 @@ body.tv *, body.tv *::before, body.tv *::after { animation: none !important; tra
 .bz-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .bz-sw-a { background: var(--navy); }
 .bz-sw-b { background: var(--amber); }
+/* Wie er nu ingelogd online is. */
+.bz-online { margin: -4px 0 18px; }
+.bz-online p { margin: 0 0 8px; }
+.bz-online-lijst { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.bz-online-lijst li { display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 12px; border: 1px solid var(--lijn); border-radius: 999px; }
+.bz-online-lijst a { font-weight: 600; }
+
+/* Historiek van één speler. */
+.bz-tegel-tekst { font-size: 1.7rem; padding: 6px 0 4px; }
+.bz-uren { display: grid; grid-template-columns: repeat(24, minmax(12px, 1fr)); gap: 2px; padding-top: 30px; }
+.bz-uren .bz-cel[data-tip]:nth-child(-n+3):hover::after { left: 0; transform: none; }
+.bz-uren .bz-cel[data-tip]:nth-child(n+22):nth-child(-n+24):hover::after { left: auto; right: 0; transform: none; }
+.bz-historiek { display: grid; gap: 14px; }
+.bz-hist-dag { border-top: 1px solid var(--lijn); padding-top: 10px; }
+.bz-hist-dag:first-child { border-top: 0; padding-top: 0; }
+.bz-hist-datum { margin: 0 0 4px; display: flex; justify-content: space-between; gap: 10px; }
+.bz-hist-dag ul { list-style: none; margin: 0; padding: 0; }
+.bz-hist-dag li { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; flex-wrap: wrap; }
+.bz-hist-tijd { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 92px; }
+.bz-nu-label { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; color: var(--groen); }
+
 .bz-privacy { margin: 0; padding-left: 18px; }
 .bz-privacy li { margin: 4px 0; }
 

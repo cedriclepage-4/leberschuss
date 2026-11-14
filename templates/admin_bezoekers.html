@@ -33,24 +33,47 @@
   {% endfor %}
 </div>
 
+{% if c.online.spelers %}
+<div class="kaart bz-online">
+  <p class="bz-tegel-label"><span class="bz-stip" aria-hidden="true"></span>Nu ingelogd online</p>
+  <ul class="bz-online-lijst">
+    {% for o in c.online.spelers %}
+    <li><a class="profiel-link" href="{{ url_for('admin_bezoekers_speler', speler_id=o.speler['id']) }}">{{ o.speler['name'] }}</a>
+        <span class="stil klein-tekst">sinds {{ o.sinds[11:16] }} · {{ o.minuten|duur }}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <h2 class="sectiekop">Verloop</h2>
-<div class="kaart">
-  <div class="tabs bz-tabs" data-tabs>
-    <button class="tab actief" data-tab="dag">24 uur</button>
-    <button class="tab" data-tab="week">7 dagen</button>
-    <button class="tab" data-tab="maand">30 dagen</button>
+<div class="kaart" data-maat-kaart data-maat="bezoekers">
+  <div class="bz-kop">
+    <div class="tabs bz-tabs" data-tabs>
+      <button class="tab actief" data-tab="dag">24 uur</button>
+      <button class="tab" data-tab="week">7 dagen</button>
+      <button class="tab" data-tab="maand">30 dagen</button>
+    </div>
+    <div class="bz-maat" role="group" aria-label="Wat tonen">
+      <button type="button" class="actief" data-maat-knop="bezoekers" aria-pressed="true">Bezoekers</button>
+      <button type="button" data-maat-knop="paginas" aria-pressed="false">Pagina's</button>
+    </div>
   </div>
   {% for sleutel, naam in [('24u', 'dag'), ('7d', 'week'), ('30d', 'maand')] %}
   {% set emmers = c.grafieken[sleutel] %}
   {% set hoogste = emmers|map(attribute='bezoekers')|max %}
+  {% set hoogste_p = emmers|map(attribute='paginas')|max %}
   <section class="paneel{{ ' verborgen' if not loop.first }}" data-paneel="{{ naam }}">
-    <p class="stil klein-tekst bz-uitleg">Unieke bezoekers per {{ 'uur' if sleutel == '24u' else 'dag' }}{% if hoogste %} · hoogste: <strong>{{ hoogste }}</strong>{% endif %}. Wijs een balk aan voor details.</p>
+    {% set per = 'uur' if sleutel == '24u' else 'dag' %}
+    <p class="stil klein-tekst bz-uitleg">
+      <span class="bz-enkel-bezoekers">Unieke bezoekers per {{ per }}{% if hoogste %} · hoogste: <strong>{{ hoogste }}</strong>{% endif %}.</span>
+      <span class="bz-enkel-paginas">Geopende pagina's per {{ per }}{% if hoogste_p %} · hoogste: <strong>{{ hoogste_p }}</strong>{% endif %}.</span>
+      Wijs een balk aan voor details.</p>
     <div class="bz-grafiek" role="img"
-         aria-label="Unieke bezoekers per {{ 'uur' if sleutel == '24u' else 'dag' }}">
+         aria-label="Unieke bezoekers en pagina's per {{ per }}">
       {% for e in emmers %}
       <div class="bz-kolom" tabindex="0"
            data-tip="{{ e.tip }} · {{ e.bezoekers }} bezoeker{{ 's' if e.bezoekers != 1 }} · {{ e.paginas }} pagina's">
-        <div class="bz-balk{{ ' bz-balk-nul' if not e.bezoekers }}" style="height: {{ e.hoogte if e.bezoekers else 0 }}%"></div>
+        <div class="bz-balk" style="--h-b: {{ e.hoogte }}%; --h-p: {{ e.hoogte_p }}%"></div>
         <span class="bz-as-label">{{ e.label if e.toon_label }}</span>
       </div>
       {% endfor %}
@@ -60,8 +83,15 @@
 </div>
 
 <h2 class="sectiekop">Drukke momenten</h2>
-<div class="kaart">
-  <p class="stil klein-tekst bz-uitleg">Aantal bezoeken per weekdag en uur, over de laatste {{ bewaren }} dagen. Hoe donkerder, hoe drukker.</p>
+<div class="kaart" data-maat-kaart data-maat="bezoekers">
+  <div class="bz-kop">
+    <p class="stil klein-tekst bz-uitleg">Aantal <span class="bz-enkel-bezoekers">bezoeken</span><span class="bz-enkel-paginas">geopende pagina's</span>
+       per weekdag en uur, over de laatste {{ bewaren }} dagen. Hoe donkerder, hoe drukker.</p>
+    <div class="bz-maat" role="group" aria-label="Wat tonen">
+      <button type="button" class="actief" data-maat-knop="bezoekers" aria-pressed="true">Bezoeken</button>
+      <button type="button" data-maat-knop="paginas" aria-pressed="false">Pagina's</button>
+    </div>
+  </div>
   <div class="bz-raster-venster">
     <div class="bz-raster">
       <span></span>
@@ -70,8 +100,8 @@
       <span class="bz-raster-dag">{{ rij.dag }}</span>
       {% for cel in rij.uren %}
       <span class="bz-cel" tabindex="0"
-            style="--sterkte: {{ cel.sterkte }}"
-            data-tip="{{ rij.dag }} {{ cel.uur }}u–{{ cel.uur + 1 }}u · {{ cel.aantal }} bezoek{{ 'en' if cel.aantal != 1 }}"></span>
+            style="--sterkte-b: {{ cel.sterkte }}; --sterkte-p: {{ cel.sterkte_p }}"
+            data-tip="{{ rij.dag }} {{ cel.uur }}u–{{ cel.uur + 1 }}u · {{ cel.aantal }} bezoek{{ 'en' if cel.aantal != 1 }} · {{ cel.paginas }} pagina's"></span>
       {% endfor %}
       {% endfor %}
     </div>
@@ -128,21 +158,22 @@
   </div>
 </div>
 
-<h2 class="sectiekop">Meest actieve accounts</h2>
+<h2 class="sectiekop">Ingelogde spelers</h2>
 <div class="kaart">
-  <p class="stil klein-tekst bz-uitleg">Ingelogde spelers, laatste {{ bewaren }} dagen: op hoeveel
-     verschillende dagen en in hoeveel bezoeken ze langskwamen. Welke pagina's ze openden, wordt
-     niet bijgehouden.</p>
+  <p class="stil klein-tekst bz-uitleg">Laatste {{ bewaren }} dagen: op hoeveel verschillende dagen
+     en in hoeveel bezoeken ze langskwamen, en hoe lang in totaal. Klik op een naam om te zien
+     wanneer die speler online was. Welke pagina's ze openden, wordt niet bijgehouden.</p>
   {% if c.actief %}
   <div class="tabel-venster">
   <table class="tabel compact">
-    <thead><tr><th>Speler</th><th class="kol-num">Dagen</th><th class="kol-num">Bezoeken</th><th>Laatst</th></tr></thead>
+    <thead><tr><th>Speler</th><th class="kol-num">Dagen</th><th class="kol-num">Bezoeken</th><th class="kol-num">Tijd</th><th>Laatst</th></tr></thead>
     <tbody>
       {% for a in c.actief %}
       <tr>
-        <td><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=a.speler['id']) }}">{{ a.speler['name'] }}</a></td>
+        <td><a class="profiel-link" href="{{ url_for('admin_bezoekers_speler', speler_id=a.speler['id']) }}">{{ a.speler['name'] }}</a></td>
         <td class="kol-num">{{ a.dagen }}</td>
         <td class="kol-num">{{ a.bezoeken }}</td>
+        <td class="kol-num">{{ a.minuten|duur }}</td>
         <td>{{ a.laatst|online }}</td>
       </tr>
       {% endfor %}
@@ -157,7 +188,7 @@
 {% if c.maanden %}
 <h2 class="sectiekop">Per maand</h2>
 <div class="kaart">
-  <p class="stil klein-tekst bz-uitleg">Uit de dagtotalen, die blijven bewaard. De lopende dag telt mee vanaf morgen.</p>
+  <p class="stil klein-tekst bz-uitleg">Uit de dagtotalen, die blijven bewaard. Vandaag (en elke dag die nog niet samengevat is) wordt meteen meegeteld.</p>
   <div class="tabel-venster">
   <table class="tabel compact">
     <thead><tr><th>Maand</th><th class="kol-num">Bezoeken</th><th class="kol-num">Pagina's</th><th class="kol-num">Bezoekers per dag</th><th class="kol-num">Drukste dag</th></tr></thead>
@@ -181,7 +212,7 @@
 <div class="kaart">
   <ul class="stil klein-tekst bz-privacy">
     <li><strong>Per paginabezoek:</strong> het moment, een willekeurige bezoekerscode (cookie), het
-        account als iemand ingelogd is, en vanwaar het bezoek kwam. Geen IP-adres en niet welke pagina.</li>
+        account als iemand ingelogd is (zo zie je wanneer een speler online was), en vanwaar het bezoek kwam. Geen IP-adres en niet welke pagina.</li>
     <li><strong>Bezoek</strong> = een reeks pagina's van dezelfde bezoeker, met hoogstens een half uur ertussen.</li>
     <li>Niet geteld: bots, het organisatiepaneel, en het automatisch verversen van tv en beamer.</li>
     <li>Losse paginabezoeken worden na {{ bewaren }} dagen gewist; dan blijven enkel de dagtotalen over.</li>

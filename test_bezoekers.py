@@ -139,7 +139,7 @@ hit(nu - timedelta(days=40), "c" * 20, None, "Google")
 conn.commit()
 
 c = bz.overzicht(conn, nu)
-check(c["online"] == {"bezoekers": 1, "ingelogd": 0}, "nu online: 1, niet ingelogd")
+check(c["online"] == {"bezoekers": 1, "ingelogd": 0, "spelers": []}, "nu online: 1, niet ingelogd")
 p24, p7, p30 = c["perioden"]
 # Gisteren 21u valt nog binnen de laatste 24 uur (nu is het 20u30).
 check((p24["bezoekers"], p24["bezoeken"], p24["paginas"]) == (2, 2, 3),
@@ -172,6 +172,53 @@ check(conn.execute("SELECT COUNT(*) FROM bezoeken WHERE bezoeker = ?", ("a" * 20
       "recente paginabezoeken blijven")
 c = bz.overzicht(conn, nu)
 check(len(c["maanden"]) == 2, "per maand: twee maanden")
+# Vandaag is nog niet samengevat, maar telt in de maand al wel mee: gisteren 3
+# pagina's (2 bezoeken) + vandaag 2 pagina's (1 bezoek).
+deze = c["maanden"][0]
+check((deze["paginas"], deze["bezoeken"], deze["dagen"]) == (5, 3, 2),
+      f"per maand: de lopende dag telt meteen mee ({deze})")
+check(deze["paginas"] == c["perioden"][1]["paginas"],
+      "per maand: zelfde aantal pagina's als de laatste 7 dagen")
+check(all("hoogte_p" in e for e in c["grafieken"]["30d"]), "grafiek kent ook paginahoogtes")
+check(sum(u["paginas"] for r in c["drukte"] for u in r["uren"]) == 5,
+      "drukke momenten telt ook pagina's")
+
+print("\n== Wie is online, en wanneer was een speler online ==")
+conn.execute("DELETE FROM bezoeken")
+# Gewoon: gisteren 19u00-19u40 (3 pagina's), en nu bezig sinds 20u10.
+for minuut in (0, 20, 40):
+    hit(gisteren.replace(hour=19, minute=minuut), "a" * 20, GEWOON)
+hit(nu.replace(minute=10), "a" * 20, GEWOON)
+hit(nu - timedelta(minutes=1), "a" * 20, GEWOON)
+# Een anonieme bezoeker is ook online, maar telt niet als ingelogde speler.
+hit(nu - timedelta(minutes=2), "b" * 20)
+conn.commit()
+c = bz.overzicht(conn, nu)
+check(c["online"]["bezoekers"] == 2 and c["online"]["ingelogd"] == 1, "2 online, 1 ingelogd")
+o = c["online"]["spelers"]
+check(len(o) == 1 and o[0]["speler_id"] == GEWOON and o[0]["sinds"][11:16] == "20:10"
+      and o[0]["minuten"] == 20, f"Gewoon is online sinds 20u10, 20 minuten ({o})")
+check(c["actief"][0]["minuten"] == 40 + 19, f"totale tijd: 40 + 19 minuten ({c['actief'][0]})")
+h = bz.historiek(conn, GEWOON, nu)
+check(h["nu_online"] and h["aantal"] == 2 and h["dagen_actief"] == 2, "historiek: 2 bezoeken op 2 dagen")
+check([(s["van"], s["tot"], s["paginas"]) for d in h["lijst"] for s in d["sessies"]]
+      == [("20:10", "20:29", 2), ("19:00", "19:40", 3)], f"historiek: nieuwste eerst ({h['lijst']})")
+check(sum(u["aantal"] for u in h["uren"]) == 2, "historiek: uren tellen")
+check(len(h["dagen"]) == bz.RUW_BEWAREN_DAGEN, "historiek: een balk per dag")
+check(bz.historiek(conn, BAAS, nu)["aantal"] == 0, "historiek van iemand die nooit online was: leeg")
+
+r = baas.get(f"/admin/bezoekers/speler/{GEWOON}")
+check(r.status_code == 200 and "Historiek" in r.get_data(as_text=True), "de eigenaar ziet de historiek")
+check(baas.get("/admin/bezoekers/speler/99999").status_code == 404, "onbekende speler: 404")
+check(orga.get(f"/admin/bezoekers/speler/{GEWOON}").status_code == 302,
+      "een gewone organisator ziet de historiek niet")
+historiek_url = f"/admin/bezoekers/speler/{GEWOON}"
+check(historiek_url in baas.get(f"/speler/{GEWOON}").get_data(as_text=True),
+      "de eigenaar ziet op het profiel een knop naar de historiek")
+check(historiek_url not in orga.get(f"/speler/{GEWOON}").get_data(as_text=True),
+      "een organisator ziet die knop niet")
+r = baas.get(historiek_url, headers={"Referer": f"http://localhost/speler/{GEWOON}"})
+check("terug-knop" in r.get_data(as_text=True), "de historiek heeft een terugknop")
 
 print("\n" + "=" * 62)
 if FOUTEN:

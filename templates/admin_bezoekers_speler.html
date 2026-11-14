@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block titel %}{{ speler['name'] }} · Bezoekers{% endblock %}
+{% block inhoud %}
+
+<section class="held">
+  <h1>{{ speler['name'] }}</h1>
+  <p>Wanneer {{ speler['name'] }} ingelogd op de site zat, de laatste {{ bewaren }} dagen.
+     Enkel jij als eigenaar ziet deze pagina.</p>
+</section>
+
+{% include "_admin_nav.html" %}
+
+<div class="bz-tegels">
+  <div class="kaart bz-tegel{{ ' bz-tegel-nu' if h.nu_online }}">
+    <p class="bz-tegel-label">{% if h.nu_online %}<span class="bz-stip" aria-hidden="true"></span>Nu online{% else %}Laatst gezien{% endif %}</p>
+    <p class="bz-tegel-cijfer bz-tegel-tekst">{{ 'Ja' if h.nu_online else (h.laatst|online if h.laatst else '—') }}</p>
+    <p class="stil klein-tekst"><a class="profiel-link" href="{{ url_for('speler_profiel', speler_id=speler['id']) }}">Profiel bekijken</a></p>
+  </div>
+  <div class="kaart bz-tegel">
+    <p class="bz-tegel-label">Dagen online</p>
+    <p class="bz-tegel-cijfer">{{ h.dagen_actief }}</p>
+    <p class="stil klein-tekst">van de laatste {{ bewaren }}</p>
+  </div>
+  <div class="kaart bz-tegel">
+    <p class="bz-tegel-label">Bezoeken</p>
+    <p class="bz-tegel-cijfer">{{ h.aantal }}</p>
+    <p class="stil klein-tekst">{{ h.paginas }} pagina's geopend</p>
+  </div>
+  <div class="kaart bz-tegel">
+    <p class="bz-tegel-label">Tijd online</p>
+    <p class="bz-tegel-cijfer bz-tegel-tekst">{{ h.minuten|duur }}</p>
+    <p class="stil klein-tekst">in totaal</p>
+  </div>
+</div>
+
+{% if not h.aantal %}
+<div class="kaart">
+  <p class="stil">{{ speler['name'] }} was de laatste {{ bewaren }} dagen niet ingelogd op de site.</p>
+</div>
+{% else %}
+
+<h2 class="sectiekop">Per dag</h2>
+<div class="kaart">
+  <p class="stil klein-tekst bz-uitleg">Tijd online per dag. Wijs een balk aan voor details.</p>
+  <div class="bz-grafiek" role="img" aria-label="Tijd online per dag">
+    {% for d in h.dagen %}
+    <div class="bz-kolom" tabindex="0"
+         data-tip="{{ d.naam }} · {% if d.sessies %}{{ d.sessies|length }}× · {{ d.minuten|duur }}{% else %}niet online{% endif %}">
+      <div class="bz-balk" style="--h-b: {{ d.hoogte }}%"></div>
+      <span class="bz-as-label">{{ d.label if d.toon_label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<h2 class="sectiekop">Op welk uur</h2>
+<div class="kaart">
+  <p class="stil klein-tekst bz-uitleg">Hoe vaak een bezoek op elk uur van de dag begon.</p>
+  <div class="bz-uren">
+    {% for u in h.uren %}
+    <span class="bz-cel" tabindex="0" style="--sterkte-b: {{ u.sterkte }}"
+          data-tip="{{ u.uur }}u–{{ u.uur + 1 }}u · {{ u.aantal }}×"></span>
+    {% endfor %}
+    {% for u in h.uren %}<span class="bz-raster-uur">{{ u.uur if u.uur % 3 == 0 }}</span>{% endfor %}
+  </div>
+</div>
+
+<h2 class="sectiekop">Historiek</h2>
+<div class="kaart">
+  <p class="stil klein-tekst bz-uitleg">Elk bezoek loopt van de eerste tot de laatste geopende pagina.
+     Wie daarna nog wat bleef kijken zonder te klikken, telt niet mee: de echte tijd is dus vaak iets langer.</p>
+  <div class="bz-historiek">
+    {% for d in h.lijst %}
+    <div class="bz-hist-dag">
+      <p class="bz-hist-datum"><strong>{{ d.naam }}</strong> <span class="stil klein-tekst">{{ d.minuten|duur }}</span></p>
+      <ul>
+        {% for s in d.sessies %}
+        <li>
+          <span class="bz-hist-tijd">{{ s.van }}{% if s.tot != s.van %}–{{ s.tot }}{% endif %}</span>
+          <span class="stil klein-tekst">{{ s.minuten|duur }} · {{ s.paginas }} pagina{{ "'s" if s.paginas != 1 }}{% if s.bron != 'Rechtstreeks' %} · via {{ s.bron }}{% endif %}</span>
+          {% if s.nu %}<span class="bz-nu-label"><span class="bz-stip" aria-hidden="true"></span>nu</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

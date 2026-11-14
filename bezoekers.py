@@ -169,6 +169,24 @@ def schrijf_weg(db):
     db.commit()
 
 
+def _dagtotaal(db, dag):
+    """De totalen van één dag uit de losse paginabezoeken; None als er geen zijn."""
+    # Een dag tellen met de avond ervoor erbij, zodat een bezoek dat om
+    # middernacht doorloopt niet als nieuw bezoek meetelt.
+    rijen = _rijen(db, f"{dag} 00:00:00", f"{dag} 23:59:59",
+                   vanaf_context=_tijd(_dt(f"{dag} 00:00:00") - BEZOEK_PAUZE))
+    dag_rijen = [r for r in rijen if r[0][:10] == dag]
+    if not dag_rijen:
+        return None
+    nieuw = db.execute(
+        "SELECT COUNT(*) FROM bezoekers WHERE substr(eerst, 1, 10) = ?",
+        (dag,)).fetchone()[0]
+    return {"datum": dag, "paginas": len(dag_rijen),
+            "bezoekers": len({r[1] for r in dag_rijen}),
+            "bezoeken": sum(1 for b in _bezoeken(rijen) if b["start"][:10] == dag),
+            "ingelogd": len({r[1] for r in dag_rijen if r[2]}), "nieuw": nieuw}
+
+
 def onderhoud(db, nu):
     """Afgelopen dagen samenvatten en oude losse paginabezoeken opruimen."""
     vandaag = nu.strftime("%Y-%m-%d")
@@ -179,24 +197,14 @@ def onderhoud(db, nu):
     for dag in dagen:
         if dag in klaar:
             continue
-        # Een dag tellen met de avond ervoor erbij, zodat een bezoek dat om
-        # middernacht doorloopt niet als nieuw bezoek meetelt.
-        rijen = _rijen(db, f"{dag} 00:00:00", f"{dag} 23:59:59",
-                       vanaf_context=_tijd(_dt(f"{dag} 00:00:00") - BEZOEK_PAUZE))
-        dag_rijen = [r for r in rijen if r[0][:10] == dag]
-        if not dag_rijen:
+        totaal = _dagtotaal(db, dag)
+        if not totaal:
             continue
-        bezoekers = {r[1] for r in dag_rijen}
-        nieuw = db.execute(
-            "SELECT COUNT(*) FROM bezoekers WHERE substr(eerst, 1, 10) = ?",
-            (dag,)).fetchone()[0]
         db.execute("""
             INSERT OR REPLACE INTO bezoeken_dag
                 (datum, paginas, bezoekers, bezoeken, ingelogd, nieuw)
-            VALUES (?, ?, ?, ?, ?, ?)""",
-            (dag, len(dag_rijen), len(bezoekers),
-             sum(1 for b in _bezoeken(rijen) if b["start"][:10] == dag),
-             len({r[1] for r in dag_rijen if r[2]}), nieuw))
+            VALUES (:datum, :paginas, :bezoekers, :bezoeken, :ingelogd, :nieuw)""",
+            totaal)
     grens = _tijd(nu - timedelta(days=RUW_BEWAREN_DAGEN + 1))
     db.execute("DELETE FROM bezoeken WHERE moment < ?", (grens,))
     db.execute("DELETE FROM bezoekers WHERE laatst < ?",
@@ -237,6 +245,7 @@ def _bezoeken(rijen):
                           "speler_id": None, "paginas": 0}
                 uit.append(huidig)
             huidig["paginas"] += 1
+            huidig["eind"] = moment
             if speler_id and not huidig["speler_id"]:
                 huidig["speler_id"] = speler_id
             vorige = t
@@ -254,14 +263,24 @@ def overzicht(db, nu):
     rijen = _rijen(db, _tijd(begin30), _tijd(nu),
                    vanaf_context=_tijd(begin30 - BEZOEK_PAUZE))
     bezoeken_alle = _bezoeken(rijen)
+    rijen_alle = rijen
     rijen = [r for r in rijen if r[0] >= _tijd(begin30)]
     bezoeken = [b for b in bezoeken_alle if b["start"] >= _tijd(begin30)]
 
     # Nu online
     grens = _tijd(nu - ONLINE_VENSTER)
     recent = [r for r in rijen if r[0] >= grens]
+    nu_ingelogd = {r[2] for r in recent if r[2]}
+    spelers_online = []
+    for sid in nu_ingelogd:
+        # Op meerdere toestellen tegelijk: het bezoek dat het laatst iets deed.
+        laatste = max(_sessies(rijen_alle, sid), key=lambda x: x["eind"])
+        spelers_online.append({"speler_id": sid, "sinds": laatste["start"],
+                               "laatst": laatste["eind"],
+                               "minuten": _minuten(laatste["start"], _tijd(nu))})
+    spelers_online.sort(key=lambda s: s["sinds"])
     online = {"bezoekers": len({r[1] for r in recent}),
-              "ingelogd": len({r[2] for r in recent if r[2]})}
+              "ingelogd": len(nu_ingelogd), "spelers": spelers_online}
 
     # Kerncijfers per periode
     perioden = []
@@ -282,15 +301,22 @@ def overzicht(db, nu):
         "30d": _grafiek_dagen(rijen, nu, 30),
     }
 
-    # Drukke momenten: bezoeken per weekdag en uur (30 dagen)
+    # Drukke momenten: bezoeken en pagina's per weekdag en uur (30 dagen)
     raster = [[0] * 24 for _ in range(7)]
+    raster_p = [[0] * 24 for _ in range(7)]
     for b in bezoeken:
         t = _dt(b["start"])
         raster[t.weekday()][t.hour] += 1
+    for r in rijen:
+        t = _dt(r[0])
+        raster_p[t.weekday()][t.hour] += 1
     hoogste = _schaal([w for rij in raster for w in rij])
+    hoogste_p = _schaal([w for rij in raster_p for w in rij])
     drukte = [{"dag": DAGNAMEN[d],
                "uren": [{"uur": u, "aantal": raster[d][u],
-                         "sterkte": raster[d][u] / hoogste} for u in range(24)]}
+                         "sterkte": raster[d][u] / hoogste,
+                         "paginas": raster_p[d][u],
+                         "sterkte_p": raster_p[d][u] / hoogste_p} for u in range(24)]}
               for d in range(7)]
 
     # Vanwaar
@@ -334,28 +360,121 @@ def overzicht(db, nu):
             per_speler[b["speler_id"]]["bezoeken"] += 1
     actief = sorted(
         ({"speler_id": sid, "dagen": len(s["dagen"]), "bezoeken": s["bezoeken"],
-          "laatst": s["laatst"]} for sid, s in per_speler.items()),
+          "laatst": s["laatst"],
+          "minuten": sum(x["minuten"] for x in _sessies(rijen_alle, sid))}
+         for sid, s in per_speler.items()),
         key=lambda s: (-s["dagen"], -s["bezoeken"], s["laatst"]))
 
-    # Per maand, uit de dagtotalen (die blijven voor altijd)
+    # Per maand, uit de dagtotalen (die blijven voor altijd). Dagen die nog niet
+    # samengevat zijn (vandaag, of gisteren zolang het onderhoud nog niet
+    # gedraaid heeft) worden hier meteen uit de losse paginabezoeken geteld,
+    # zodat de maand niet achterloopt op de tegels bovenaan.
+    dagen = {r["datum"]: dict(r) for r in db.execute(
+        "SELECT datum, paginas, bezoekers, bezoeken FROM bezoeken_dag")}
+    for (dag,) in db.execute(
+            "SELECT DISTINCT substr(moment, 1, 10) FROM bezoeken WHERE moment <= ?",
+            (_tijd(nu),)).fetchall():
+        if dag not in dagen:
+            totaal = _dagtotaal(db, dag)
+            if totaal:
+                dagen[dag] = totaal
+    per_maand = defaultdict(list)
+    for d in dagen.values():
+        per_maand[d["datum"][:7]].append(d)
     maanden = []
-    for r in db.execute("""
-            SELECT substr(datum, 1, 7) AS maand, SUM(paginas) AS paginas,
-                   SUM(bezoeken) AS bezoeken, ROUND(AVG(bezoekers), 1) AS per_dag,
-                   MAX(bezoekers) AS drukste, COUNT(*) AS dagen
-            FROM bezoeken_dag GROUP BY maand ORDER BY maand DESC"""):
-        jaar, maand = r["maand"].split("-")
-        maanden.append({**dict(r), "naam": f"{MAANDEN[int(maand) - 1]} {jaar}"})
+    for maand in sorted(per_maand, reverse=True):
+        lijst = per_maand[maand]
+        jaar, mnd = maand.split("-")
+        maanden.append({
+            "maand": maand, "naam": f"{MAANDEN[int(mnd) - 1]} {jaar}",
+            "paginas": sum(d["paginas"] for d in lijst),
+            "bezoeken": sum(d["bezoeken"] for d in lijst),
+            "per_dag": round(sum(d["bezoekers"] for d in lijst) / len(lijst), 1),
+            "drukste": max(d["bezoekers"] for d in lijst),
+            "dagen": len(lijst),
+        })
 
     return {"online": online, "perioden": perioden, "grafieken": grafieken,
             "drukte": drukte, "bronnen": bronnen, "wie": wie, "actief": actief,
             "maanden": maanden, "sinds": sinds}
 
 
+def _minuten(van, tot):
+    return max(0, round((_dt(tot) - _dt(van)).total_seconds() / 60))
+
+
+def _sessies(rijen, speler_id):
+    """De momenten waarop één speler ingelogd op de site zat: zijn paginabezoeken
+    per toestel gebundeld, met hoogstens een half uur stilte ertussen. De duur
+    loopt van de eerste tot de laatste geopende pagina (wie daarna nog even
+    blijft kijken, telt dus niet mee)."""
+    eigen = [r for r in rijen if r[2] == speler_id]
+    sessies = _bezoeken(eigen)
+    for s in sessies:
+        s["minuten"] = _minuten(s["start"], s["eind"])
+    sessies.sort(key=lambda s: s["start"])
+    return sessies
+
+
+def historiek(db, speler_id, nu):
+    """Wanneer één speler online was, over de laatste RUW_BEWAREN_DAGEN dagen."""
+    begin = nu - timedelta(days=RUW_BEWAREN_DAGEN)
+    rijen = [tuple(r) for r in db.execute(
+        "SELECT moment, bezoeker, speler_id, bron FROM bezoeken "
+        "WHERE speler_id = ? AND moment >= ? AND moment <= ? ORDER BY moment",
+        (speler_id, _tijd(begin - BEZOEK_PAUZE), _tijd(nu)))]
+    sessies = [s for s in _sessies(rijen, speler_id) if s["eind"] >= _tijd(begin)]
+    online_grens = _tijd(nu - ONLINE_VENSTER)
+
+    # Per dag: aantal keer en totale tijd, voor de balkjes en de lijst.
+    per_dag = defaultdict(list)
+    for s in sessies:
+        per_dag[s["start"][:10]].append(s)
+    dagen = []
+    for i in range(RUW_BEWAREN_DAGEN - 1, -1, -1):
+        dag = nu - timedelta(days=i)
+        sleutel = dag.strftime("%Y-%m-%d")
+        lijst = per_dag.get(sleutel, [])
+        dagen.append({
+            "datum": sleutel,
+            "naam": f"{DAGNAMEN[dag.weekday()]} {dag.day} {MAANDEN[dag.month - 1]}",
+            "label": f"{dag.day}/{dag.month}", "toon_label": i % 5 == 0,
+            "sessies": [{**s, "van": s["start"][11:16], "tot": s["eind"][11:16],
+                         "nu": s["eind"] >= online_grens} for s in lijst],
+            "minuten": sum(s["minuten"] for s in lijst),
+        })
+    hoogste = _schaal([d["minuten"] or len(d["sessies"]) for d in dagen])
+    for d in dagen:
+        # Een kort bezoek (0 minuten) krijgt toch een klein balkje.
+        d["hoogte"] = (round(100 * max(d["minuten"], 1) / max(hoogste, 1), 1)
+                       if d["sessies"] else 0)
+
+    # Op welke uren die speler meestal langskomt.
+    uren = [0] * 24
+    for s in sessies:
+        uren[_dt(s["start"]).hour] += 1
+    hoogste_uur = _schaal(uren)
+    return {
+        "nu_online": bool(sessies) and sessies[-1]["eind"] >= online_grens,
+        "laatst": sessies[-1]["eind"] if sessies else None,
+        "aantal": len(sessies),
+        "dagen_actief": len(per_dag),
+        "minuten": sum(s["minuten"] for s in sessies),
+        "paginas": sum(s["paginas"] for s in sessies),
+        "dagen": dagen,
+        "lijst": [d for d in reversed(dagen) if d["sessies"]],
+        "uren": [{"uur": u, "aantal": n, "sterkte": n / hoogste_uur}
+                 for u, n in enumerate(uren)],
+    }
+
+
 def _kolommen(emmers):
+    """Hoogte van elke balk, zowel voor bezoekers als voor pagina's."""
     hoogste = _schaal([e["bezoekers"] for e in emmers])
+    hoogste_p = _schaal([e["paginas"] for e in emmers])
     for e in emmers:
         e["hoogte"] = round(100 * e["bezoekers"] / hoogste, 1)
+        e["hoogte_p"] = round(100 * e["paginas"] / hoogste_p, 1)
     return emmers
 
 

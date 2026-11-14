@@ -12,7 +12,8 @@
   {% for endpoint, label, icoon in paginas %}
   <a href="{{ url_for(endpoint) }}"
      class="{{ 'actief' if request.endpoint == endpoint
-                  or (endpoint == 'admin_seizoenen' and request.endpoint == 'admin_seizoen') }}{{ ' league-uit' if endpoint in league_paginas and not league_zichtbaar }}"
+                  or (endpoint == 'admin_seizoenen' and request.endpoint == 'admin_seizoen')
+                  or (endpoint == 'admin_bezoekers' and request.endpoint == 'admin_bezoekers_speler') }}{{ ' league-uit' if endpoint in league_paginas and not league_zichtbaar }}"
      {% if endpoint in league_paginas and not league_zichtbaar %}title="Het leaguegedeelte staat uit: spelers zien dit niet."{% endif %}>{{ label|safe }}</a>
   {% endfor %}
 </nav>

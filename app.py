@@ -1235,6 +1235,17 @@ def filter_dag(iso):
     return f"{d.day} {MAANDEN[d.month - 1]} {d.year}"
 
 
+@app.template_filter("duur")
+def filter_duur(minuten):
+    """Een aantal minuten kort: '< 1 min', '25 min', '1 u 05'."""
+    minuten = int(minuten or 0)
+    if minuten < 1:
+        return "< 1 min"
+    if minuten < 60:
+        return f"{minuten} min"
+    return f"{minuten // 60} u {minuten % 60:02d}"
+
+
 @app.template_filter("online")
 def filter_online(iso):
     """Kort en relatief: 'net nog', 'vandaag 14:32', '3 dagen geleden', ..."""
@@ -1316,6 +1327,7 @@ _TERUG_REGELS = [
     (re.compile(r"^/claimen/\d+"), "claimen", "Kies je naam"),
     (re.compile(r"^/admin/seizoen/\d+"), "admin_seizoenen", "Alle seizoenen"),
     (re.compile(r"^/admin/toernooi/\d+"), "admin_toernooien", "Alle toernooien"),
+    (re.compile(r"^/admin/bezoekers/speler/\d+"), "admin_bezoekers", "Bezoekers"),
 ]
 
 
@@ -1341,6 +1353,7 @@ _PAGINA_NAMEN = [
     (re.compile(r"^/admin/spelers"), "Spelers & teams"),
     (re.compile(r"^/admin/klassement"), "Rangen & statistieken"),
     (re.compile(r"^/admin/instellingen"), "Instellingen"),
+    (re.compile(r"^/admin/bezoekers"), "Bezoekers"),
     (re.compile(r"^/admin/beamergeluiden"), "Beamergeluiden"),
     (re.compile(r"^/admin"), "Organisatie"),
 ]
@@ -3476,8 +3489,30 @@ def admin_bezoekers():
             f"SELECT * FROM players WHERE id IN ({','.join('?' * len(ids))})", ids)}
     # Gewiste accounts vallen weg; de rest krijgt zijn naam.
     cijfers["actief"] = [{**a, "speler": spelers[a["speler_id"]]}
-                         for a in cijfers["actief"] if a["speler_id"] in spelers][:15]
+                         for a in cijfers["actief"] if a["speler_id"] in spelers]
+    ids = [o["speler_id"] for o in cijfers["online"]["spelers"]]
+    if ids:
+        spelers = {r["id"]: r for r in db.execute(
+            f"SELECT * FROM players WHERE id IN ({','.join('?' * len(ids))})", ids)}
+        cijfers["online"]["spelers"] = [
+            {**o, "speler": spelers[o["speler_id"]]}
+            for o in cijfers["online"]["spelers"] if o["speler_id"] in spelers]
     return render_template("admin_bezoekers.html", c=cijfers,
+                           bewaren=bezoekstats.RUW_BEWAREN_DAGEN)
+
+
+@app.route("/admin/bezoekers/speler/<int:speler_id>")
+@login_vereist
+@eigenaar_vereist
+def admin_bezoekers_speler(speler_id):
+    """Wanneer één speler ingelogd op de site zat. Enkel voor de eigenaar."""
+    db = get_db()
+    speler = db.execute("SELECT * FROM players WHERE id = ?", (speler_id,)).fetchone()
+    if not speler:
+        abort(404)
+    bezoekstats.schrijf_weg(db)
+    return render_template("admin_bezoekers_speler.html", speler=speler,
+                           h=bezoekstats.historiek(db, speler_id, datetime.now()),
                            bewaren=bezoekstats.RUW_BEWAREN_DAGEN)
 
 

@@ -29,6 +29,20 @@
     }
   });
 
+  /* Bezoekerspagina: per grafiek kiezen tussen bezoekers en pagina's. */
+  document.querySelectorAll("[data-maat-kaart]").forEach(function (kaart) {
+    kaart.querySelectorAll("[data-maat-knop]").forEach(function (knop) {
+      knop.addEventListener("click", function () {
+        kaart.dataset.maat = knop.dataset.maatKnop;
+        kaart.querySelectorAll("[data-maat-knop]").forEach(function (k) {
+          var aan = k === knop;
+          k.classList.toggle("actief", aan);
+          k.setAttribute("aria-pressed", aan ? "true" : "false");
+        });
+      });
+    });
+  });
+
   /* Terugknop: kwam je van een andere pagina op deze site, dan gaan we echt
      één stap terug — zo beland je precies waar je vandaan kwam. Kwam je hier
      rechtstreeks binnen (nieuw tabblad, QR-code, gedeelde link), dan laten we

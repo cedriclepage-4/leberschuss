@@ -36,6 +36,10 @@
         {% if not speler['active'] %}<span class="pil">inactief</span>{% endif %}
       </div>
       {% if speler['nickname'] %}<p class="profiel-sub">Accountnaam: {{ speler['name'] }}</p>{% endif %}
+      {% if is_eigenaar %}
+      {# Enkel de eigenaar: wanneer deze speler online was (zie Bezoekers). #}
+      <a class="knop klein profiel-bezoek-knop" href="{{ url_for('admin_bezoekers_speler', speler_id=speler['id']) }}">📈 Wanneer online</a>
+      {% endif %}
       <div class="profiel-tegels">
         <div class="tegel aura"><strong>{{ speler['elo']|elo }}</strong><span>Aura</span></div>
         {% if plaats %}<div class="tegel"><strong>#{{ plaats }}</strong><span>van {{ aantal_in_klassement }} in het klassement</span></div>{% endif %}
